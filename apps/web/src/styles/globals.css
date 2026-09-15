@@ -8731,6 +8731,22 @@ html[data-presentation-mode="active"] .provider-conversion-secret {
   gap: 10px;
 }
 
+.provider-conversion-inline-confirm {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--mint);
+  background: rgba(18, 184, 132, 0.06);
+}
+
+.provider-conversion-inline-confirm > span {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
 .provider-conversion-payload-helper {
   display: grid;
   gap: 10px;

@@ -58,6 +58,17 @@ export const providerConversionRuleModeSchema = z.enum(
   providerConversionRuleModes,
 );
 
+/**
+ * Plataforma externa que chama a URL da automacao. Ausente (null) mantem o
+ * comportamento original, em que o proprio provedor WhatsApp (Umbler) envia o
+ * callback. "payt" marca uma regra de compra aprovada vinda do checkout Payt:
+ * o valor chega em centavos no payload, entao a regra nao pede valor medio.
+ */
+export const providerConversionAutomationSources = ["payt"] as const;
+export const providerConversionAutomationSourceSchema = z.enum(
+  providerConversionAutomationSources,
+);
+
 export const providerConversionMessageAuthorScopes = [
   "team",
   "contact",
@@ -375,8 +386,29 @@ const providerAutomationCreateSchema = z
     ...eventValueShape,
     triggerType: z.literal("provider_automation"),
     eventName: conversionEventNameSchema,
+    automationSource: providerConversionAutomationSourceSchema.optional(),
   })
-  .superRefine(refineEventValueFields)
+  .superRefine((input, context) => {
+    if (input.automationSource !== "payt") {
+      refineEventValueFields(input, context);
+      return;
+    }
+    // A Payt so envia compra aprovada e traz o valor real de cada venda.
+    if (input.eventName !== "Purchase") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A Payt so envia compras aprovadas",
+        path: ["eventName"],
+      });
+    }
+    if (input.triggerPhrases || input.triggerLabels) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A automacao da Payt nao usa etiquetas",
+        path: ["triggerPhrases"],
+      });
+    }
+  })
   .transform(normalizeEventValueFields);
 
 const messagePhraseCreateSchema = z
@@ -579,6 +611,10 @@ export const providerConversionRuleSchema = z.object({
   // message_phrase value pipeline; "fixed" for every other trigger type.
   valueMode: messagePhraseValueModeSchema.default("fixed"),
   exampleMessage: z.string().max(2_000).nullable().default(null),
+  // Opcional para aceitar respostas de APIs anteriores ao campo.
+  automationSource: providerConversionAutomationSourceSchema
+    .nullable()
+    .optional(),
   endpoint: providerConversionEndpointSchema.nullable(),
   catalog: providerConversionCatalogSchema.nullable(),
   lastExecution: providerConversionExecutionSchema.nullable(),
@@ -886,6 +922,9 @@ export type ProviderConversionTriggerTypeDto = z.infer<
 >;
 export type ProviderConversionRuleModeDto = z.infer<
   typeof providerConversionRuleModeSchema
+>;
+export type ProviderConversionAutomationSourceDto = z.infer<
+  typeof providerConversionAutomationSourceSchema
 >;
 export type ProviderConversionMessageAuthorScopeDto = z.infer<
   typeof providerConversionMessageAuthorScopeSchema

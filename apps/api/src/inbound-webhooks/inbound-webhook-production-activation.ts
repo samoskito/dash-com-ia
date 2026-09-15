@@ -84,9 +84,12 @@ export type ExternalChannelSeatHook = {
     input: {
       workspaceId: string;
       channelId: string;
-      // UAZAPI holds a WhatsappInstance seat and Data Crazy is lead tracking,
-      // so neither provider consumes an external-channel seat.
-      provider: Exclude<$Enums.InboundWebhookProvider, "uazapi" | "datacrazy">;
+      // UAZAPI holds a WhatsappInstance seat; Data Crazy is lead tracking and
+      // Payt is purchase-only, so none consumes an external-channel seat.
+      provider: Exclude<
+        $Enums.InboundWebhookProvider,
+        "uazapi" | "datacrazy" | "payt"
+      >;
       normalizedPhone: string | null;
       actorUserId: string;
     },
@@ -192,6 +195,7 @@ export async function applyInboundWebhookChannelStatus(
     current.connection.status === "production" &&
     current.connection.provider !== "uazapi" &&
     current.connection.provider !== "datacrazy" &&
+    current.connection.provider !== "payt" &&
     input.seats.enforcementEnabled()
   ) {
     // UAZAPI/NOD channels are billed as WhatsappInstance seats already
@@ -449,7 +453,8 @@ async function activateProductionSeats(
   if (
     !options.seats.enforcementEnabled() ||
     connection.provider === "uazapi" ||
-    connection.provider === "datacrazy"
+    connection.provider === "datacrazy" ||
+    connection.provider === "payt"
   ) {
     // UAZAPI/NOD channels are billed as WhatsappInstance seats already
     // (see WhatsappSeatProvider "uazapi"); billing them again here as an

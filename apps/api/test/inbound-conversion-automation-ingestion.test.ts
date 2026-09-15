@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../src/common/prisma/prisma.service";
 import { InboundConversionAutomationIngestionService } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
@@ -806,6 +808,51 @@ function input(rawBody: Buffer, token: unknown = secret) {
 }
 
 describe("inbound conversion automation ingestion", () => {
+  it("uses the Payt parser for a rule attached to a non-Payt connection", async () => {
+    const harness = createHarness({ eventName: "Purchase" });
+    harness.endpoint.providerRule.connection.provider = "gupshup";
+    harness.endpoint.providerRule.connection.parserRelease.provider = "gupshup";
+    harness.endpoint.providerRule.parserRelease.provider = "payt";
+
+    const paid = Buffer.from(
+      readFileSync(
+        resolve(__dirname, "fixtures/payt/order-paid.sanitized.json"),
+      ),
+    );
+    const accepted = await harness.service.ingest(input(paid));
+
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      duplicate: false,
+      observationStatus: "observed",
+    });
+    expect(harness.conversionObservation.observeAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automation: expect.objectContaining({
+          provider: "payt",
+          externalExecutionKey: "PAYTS2",
+          valueCents: 296616,
+        }),
+      }),
+    );
+
+    const nonPaidHarness = createHarness({ eventName: "Purchase" });
+    nonPaidHarness.endpoint.providerRule.connection.provider = "gupshup";
+    nonPaidHarness.endpoint.providerRule.connection.parserRelease.provider =
+      "gupshup";
+    nonPaidHarness.endpoint.providerRule.parserRelease.provider = "payt";
+    const nonPaid = Buffer.from(
+      readFileSync(
+        resolve(__dirname, "fixtures/payt/order-nonpaid.sanitized.json"),
+      ),
+    );
+    await expect(nonPaidHarness.service.ingest(input(nonPaid))).resolves.toMatchObject({
+      status: "accepted",
+      observationStatus: "ignored",
+    });
+    expect(nonPaidHarness.conversionObservation.observeAutomation).not.toHaveBeenCalled();
+  });
+
   it("fails closed for disabled, invalid, paused, or removed endpoints", async () => {
     const harnesses = [
       createHarness({ enabled: false }),

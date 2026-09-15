@@ -43,6 +43,11 @@ import {
   type ParsedUmblerAutomationV1,
   UMBLER_AUTOMATION_V1_PARSER_VERSION,
 } from "./providers/umbler/umbler-automation-v1.parser";
+import {
+  parsePaytAutomationV1,
+  type ParsedPaytAutomationV1,
+  PAYT_AUTOMATION_V1_PARSER_VERSION,
+} from "./providers/payt/payt-automation-v1.parser";
 
 const publicEndpointNotFoundMessage = "Webhook nao encontrado";
 const publicPersistenceFailureMessage = "Webhook temporariamente indisponivel";
@@ -142,6 +147,11 @@ type AutomationObservationStatus =
 type AutomationReprocessOutcome =
   ProviderConversionAutomationReprocessBatchItemDto;
 
+type ParsedAutomation = ParsedUmblerAutomationV1 | ParsedPaytAutomationV1;
+type AutomationParseResult =
+  | { ok: true; value: ParsedAutomation }
+  | { ok: false; errorCode: string };
+
 export type InboundConversionAutomationIngestionInput = {
   endpointId: string;
   token: unknown;
@@ -184,14 +194,14 @@ export class InboundConversionAutomationIngestionService {
     );
     const rawBody = this.requireJsonBody(input.contentType, input.rawBody);
     const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
-    const parsed = parseUmblerAutomationV1(payload);
+    const parsed = this.parseAutomation(endpoint, payload);
     const providerAttempt = parseInboundWebhookProviderAttempt(
       input.providerAttempt,
     );
     const receivedAt = new Date();
     const ingressKey = parsed.ok
-      ? this.parsedIngressKey(endpoint.id, parsed.value.externalExecutionKey)
-      : this.fallbackIngressKey(endpoint.id, rawBody, receivedAt);
+      ? this.parsedIngressKey(endpoint, parsed.value.externalExecutionKey)
+      : this.fallbackIngressKey(endpoint, rawBody, receivedAt);
     const existing = await this.findExistingDelivery(
       endpoint.providerRule.connectionId,
       ingressKey,
@@ -269,7 +279,10 @@ export class InboundConversionAutomationIngestionService {
         status: "accepted",
         deliveryId,
         duplicate: false,
-        observationStatus: "invalid_payload",
+        observationStatus:
+          parsed.errorCode === "payt_automation_v1_not_purchase"
+            ? "ignored"
+            : "invalid_payload",
       };
     }
 
@@ -404,10 +417,10 @@ export class InboundConversionAutomationIngestionService {
     }
 
     const payload = this.decryptAutomationPayload(delivery);
-    const parsed = parseUmblerAutomationV1(payload);
+    const parsed = this.parseAutomation(endpoint, payload);
     if (!parsed.ok) {
       throw new ConflictException(
-        "O payload nao corresponde ao contrato Umbler atual",
+        "O payload nao corresponde ao contrato de automacao atual",
       );
     }
     if (parsed.value.externalExecutionKey !== input.occurrenceKey) {
@@ -907,14 +920,14 @@ export class InboundConversionAutomationIngestionService {
     }
 
     const payload = this.decryptAutomationPayload(delivery);
-    const parsed = parseUmblerAutomationV1(payload);
+    const parsed = this.parseAutomation(endpoint, payload);
     if (!parsed.ok) {
       return {
         deliveryId,
         executionId: currentExecution?.id ?? null,
         status: "skipped",
         reasonCode: parsed.errorCode,
-        message: "O payload nao corresponde ao contrato Umbler atual",
+        message: "O payload nao corresponde ao contrato de automacao atual",
       };
     }
     const observed = await this.observeAutomation({
@@ -1108,6 +1121,12 @@ export class InboundConversionAutomationIngestionService {
       token,
     );
     const rule = endpoint?.providerRule;
+    // Payt rules can intentionally sit on any WhatsApp connection. The
+    // persisted parser release, not that connection's provider, identifies
+    // the callback contract.
+    const isPaytAutomation =
+      rule?.parserRelease.provider === "payt" &&
+      rule?.parserRelease.version === PAYT_AUTOMATION_V1_PARSER_VERSION;
 
     if (
       !endpoint ||
@@ -1117,7 +1136,8 @@ export class InboundConversionAutomationIngestionService {
       rule.removedAt !== null ||
       !rule.conversionRule.active ||
       rule.conversionRule.triggerType !== "provider_automation" ||
-      rule.connection.provider !== "umbler" ||
+      (!isPaytAutomation &&
+        !["umbler", "payt"].includes(rule.connection.provider)) ||
       rule.connection.removedAt !== null ||
       !["observation", "production"].includes(rule.connection.status) ||
       rule.parserRelease.status === "retired"
@@ -1152,27 +1172,57 @@ export class InboundConversionAutomationIngestionService {
     return rawBody;
   }
 
+  private parseAutomation(
+    endpoint: PublicConversionEndpoint,
+    payload: unknown,
+  ): AutomationParseResult {
+    const rule = endpoint.providerRule;
+    if (
+      rule.parserRelease.provider === "payt" &&
+      rule.parserRelease.version === PAYT_AUTOMATION_V1_PARSER_VERSION
+    ) {
+      return parsePaytAutomationV1(payload);
+    }
+    if (
+      rule.parserRelease.provider === "umbler" &&
+      rule.parserRelease.version === UMBLER_AUTOMATION_V1_PARSER_VERSION
+    ) {
+      return parseUmblerAutomationV1(payload);
+    }
+    return { ok: false, errorCode: "automation_parser_unavailable" };
+  }
+
+  private automationParserVersion(endpoint: PublicConversionEndpoint): string {
+    return endpoint.providerRule.parserRelease.version;
+  }
+
+  private automationIngressNamespace(endpoint: PublicConversionEndpoint): string {
+    return endpoint.providerRule.parserRelease.provider === "payt"
+      ? "payt-automation-v1"
+      : "umbler-automation-v1";
+  }
+
   private parsedIngressKey(
-    endpointId: string,
+    endpoint: PublicConversionEndpoint,
     externalExecutionKey: string,
   ): string {
     return createHash("sha256")
-      .update("umbler-automation-v1\0", "utf8")
-      .update(endpointId, "utf8")
+      .update(`${this.automationIngressNamespace(endpoint)}\0`, "utf8")
+      .update(endpoint.id, "utf8")
       .update("\0", "utf8")
       .update(externalExecutionKey, "utf8")
       .digest("hex");
   }
 
   private fallbackIngressKey(
-    endpointId: string,
+    endpoint: PublicConversionEndpoint,
     rawBody: Buffer,
     receivedAt: Date,
   ): string {
     const bucket = Math.floor(receivedAt.getTime() / fallbackDedupeWindowMs);
     return createHash("sha256")
-      .update("umbler-automation-fallback-v1\0", "utf8")
-      .update(endpointId, "utf8")
+      .update(`${this.automationIngressNamespace(endpoint)}-fallback-v1\0`, "utf8")
+      .update(endpoint.id, "utf8")
       .update("\0", "utf8")
       .update(String(bucket), "utf8")
       .update("\0", "utf8")
@@ -1184,7 +1234,7 @@ export class InboundConversionAutomationIngestionService {
     endpoint: PublicConversionEndpoint;
     deliveryId: string;
     deliveryReceivedAt: Date;
-    parsed: ParsedUmblerAutomationV1;
+    parsed: ParsedAutomation;
     manualRecovery?: boolean;
     evaluationMode?: ProviderConversionEvaluationMode;
   }): Promise<ProviderConversionAutomationObservationResult> {
@@ -1210,15 +1260,19 @@ export class InboundConversionAutomationIngestionService {
         purpose: "conversion_automation",
       },
       data: {
-        parserVersion: UMBLER_AUTOMATION_V1_PARSER_VERSION,
+        parserVersion: this.automationParserVersion(input.endpoint),
         status: "processed",
         classification: this.automationDeliveryClassification(observed),
         normalizedSummary: this.toJson({
           purpose: "conversion_automation",
           parserStatus: "parsed",
-          parserVersion: UMBLER_AUTOMATION_V1_PARSER_VERSION,
+          parserVersion: this.automationParserVersion(input.endpoint),
           automation: input.parsed.automation,
           eventName: input.parsed.eventName,
+          valueCents:
+            "valueCents" in input.parsed ? input.parsed.valueCents : undefined,
+          currency: "currency" in input.parsed ? input.parsed.currency : undefined,
+          testCallback: "test" in input.parsed ? input.parsed.test : undefined,
           decisionId: observed.decisionId,
           decisionCode: observed.decisionCode,
           executionStatus: this.automationObservationStatus(observed),
@@ -1329,7 +1383,7 @@ export class InboundConversionAutomationIngestionService {
       payloadTag: string;
       encryptionKeyVersion: number;
     };
-    parsed: ParsedUmblerAutomationV1 | null;
+    parsed: ParsedAutomation | null;
     parseErrorCode: string | null;
   }): Promise<void> {
     await this.prisma.$transaction(async (transaction) => {
@@ -1340,18 +1394,24 @@ export class InboundConversionAutomationIngestionService {
           id: input.deliveryId,
           workspaceId: input.endpoint.workspaceId,
           connectionId: input.endpoint.providerRule.connectionId,
-          provider: "umbler",
+          provider: input.endpoint.providerRule.connection.provider,
           ingressKey: input.ingressKey,
           externalDeliveryId: parsed?.externalExecutionKey ?? null,
           providerEventType: parsed?.automation ?? "automation_callback",
-          parserVersion: UMBLER_AUTOMATION_V1_PARSER_VERSION,
+          parserVersion: this.automationParserVersion(input.endpoint),
           purpose: "conversion_automation",
           providerRuleEndpointWorkspaceId: input.endpoint.workspaceId,
           providerRuleEndpointId: input.endpoint.id,
-          status: parsed ? "processed" : "failed",
+          status: parsed
+            ? "processed"
+            : input.parseErrorCode === "payt_automation_v1_not_purchase"
+              ? "processed"
+              : "failed",
           classification: parsed
             ? "eligible_route_unresolved"
-            : "invalid_payload",
+            : input.parseErrorCode === "payt_automation_v1_not_purchase"
+              ? "unsupported_event"
+              : "invalid_payload",
           firstReceivedAt: input.receivedAt,
           lastReceivedAt: input.receivedAt,
           providerAttempt: input.providerAttempt,
@@ -1375,7 +1435,10 @@ export class InboundConversionAutomationIngestionService {
                 }
               : {
                   purpose: "conversion_automation",
-                  parserStatus: "invalid_payload",
+                  parserStatus:
+                    input.parseErrorCode === "payt_automation_v1_not_purchase"
+                      ? "not_purchase"
+                      : "invalid_payload",
                   rawBodyLength: input.rawBodyLength,
                 },
           ),

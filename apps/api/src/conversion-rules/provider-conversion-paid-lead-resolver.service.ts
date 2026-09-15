@@ -10,9 +10,16 @@ export class ProviderConversionPaidLeadResolver {
   async resolve(input: {
     workspaceId: string;
     phone: string | null | undefined;
+    phoneCandidates?: readonly string[];
   }): Promise<ProviderConversionPaidLeadResolutionDto> {
-    const phoneHash = hashPhoneIdentity(input.phone ?? undefined);
-    if (!phoneHash) {
+    const phoneHashes = [
+      ...new Set(
+        [input.phone, ...(input.phoneCandidates ?? [])]
+          .map((phone) => hashPhoneIdentity(phone ?? undefined))
+          .filter((hash): hash is string => Boolean(hash)),
+      ),
+    ];
+    if (phoneHashes.length === 0) {
       return {
         status: "missing_identity",
         reasonCode: "missing_contact_identity",
@@ -22,7 +29,8 @@ export class ProviderConversionPaidLeadResolver {
     const candidates = await this.prisma.lead.findMany({
       where: {
         workspaceId: input.workspaceId,
-        phoneHash,
+        phoneHash:
+          phoneHashes.length === 1 ? phoneHashes[0]! : { in: phoneHashes },
       },
       select: {
         id: true,

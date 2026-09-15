@@ -7,6 +7,7 @@ import type {
   InboundWebhookChannelDto,
   InboundWebhookProviderDto,
   ProviderConversionAutomationAuditDto,
+  ProviderConversionAutomationSourceDto,
   ProviderConversionAutomationAuditItemDto,
   ProviderConversionAutomationPayloadDto,
   ProviderConversionRuleExecutionAuditDto,
@@ -37,6 +38,7 @@ import {
   RefreshCw,
   RotateCcw,
   Send,
+  ShoppingBag,
   Tag,
   Trash2,
   X,
@@ -85,18 +87,27 @@ type GuimoConversionRuleAction = (
  * message -> message_phrase, tag -> provider_automation, catalog ->
  * structured_catalog. O evento enviado a Meta e escolhido a parte.
  *
+ * "payt" tambem e provider_automation, marcado com automationSource "payt":
+ * o checkout Payt chama a URL da regra a cada compra aprovada, com o valor.
+ *
  * "guimo" nao mapeia para um triggerType de provedor: e um gatilho a parte
  * (movimentacao de estagio no CRM Guimo), com sua propria conexao opt-in e
  * suas proprias regras (GuimoConversionRuleDto), reveladas inline so quando
  * esta origem e selecionada. Nao existe painel Guimo permanente em nenhuma
  * tela; ele so aparece dentro do fluxo "Nova regra".
  */
-export type ConversionRuleOrigin = "message" | "tag" | "catalog" | "guimo";
+export type ConversionRuleOrigin =
+  | "message"
+  | "tag"
+  | "catalog"
+  | "payt"
+  | "guimo";
 
 const conversionRuleOriginLabels: Record<ConversionRuleOrigin, string> = {
   message: "Mensagem no WhatsApp",
   tag: "Tag ou automacao do provedor",
   catalog: "Catalogo estruturado",
+  payt: "Compra aprovada na Payt",
   guimo: "Movimentacao no CRM (Guimo)",
 };
 
@@ -109,8 +120,15 @@ const conversionEventCategoryLabels: Record<
   operational: "Operacional",
 };
 
-/** structured_catalog continua restrito a Purchase (ver contrato em shared). */
+/**
+ * structured_catalog e a automacao Payt continuam restritos a Purchase (ver
+ * contrato em shared).
+ */
 const catalogOriginEventName = "Purchase" satisfies ConversionEventNameDto;
+
+function originLocksPurchase(origin: ConversionRuleOrigin): boolean {
+  return origin === "catalog" || origin === "payt";
+}
 
 type MessageAuthorScope = "team" | "contact" | "both";
 
@@ -253,7 +271,12 @@ export function ProviderConversionRulePanel({
   // servidor) para montar o exemplo de payload junto da URL de uso unico.
   const [oneTimeSecretEventName, setOneTimeSecretEventName] =
     useState<ConversionEventNameDto | null>(null);
+  const [oneTimeSecretSource, setOneTimeSecretSource] =
+    useState<ProviderConversionAutomationSourceDto | null>(null);
   const [copied, setCopied] = useState(false);
+  // Confirmacao inline (sem window.confirm) de ativar envio, gerar URL e remover.
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const paytOrigin = origin === "payt";
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -266,7 +289,8 @@ export function ProviderConversionRulePanel({
       eventName,
       name,
       selectedChannelIds,
-      mode: initialMode,
+      // Payt entra sempre em observacao: uma decisao a menos para o usuario.
+      mode: paytOrigin ? "observation" : initialMode,
       averageValue,
       contentName,
       triggerPhrases:
@@ -303,6 +327,7 @@ export function ProviderConversionRulePanel({
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
         setOneTimeSecretEventName(origin === "tag" ? eventName : null);
+        setOneTimeSecretSource(paytOrigin ? "payt" : null);
         setCopied(false);
       }
       router.refresh();
@@ -316,9 +341,11 @@ export function ProviderConversionRulePanel({
     action: ProviderRuleAction,
     values: Record<string, string>,
     automationEventName: ConversionEventNameDto | null = null,
+    automationSource: ProviderConversionAutomationSourceDto | null = null,
   ) {
     if (pending) return;
 
+    setConfirmingKey(null);
     const formData = new FormData();
     for (const [field, value] of Object.entries(values)) {
       formData.set(field, value);
@@ -333,6 +360,7 @@ export function ProviderConversionRulePanel({
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
         setOneTimeSecretEventName(automationEventName);
+        setOneTimeSecretSource(automationSource);
         setCopied(false);
       }
       router.refresh();
@@ -374,7 +402,16 @@ export function ProviderConversionRulePanel({
   function selectOrigin(next: ConversionRuleOrigin) {
     setOrigin(next);
     setMessageAuthorScope(next === "catalog" ? "both" : "team");
-    if (next === "catalog") selectEvent(catalogOriginEventName);
+    if (originLocksPurchase(next)) selectEvent(catalogOriginEventName);
+    // Payt: com um unico numero ele ja vem marcado; com varios, o usuario
+    // escolhe explicitamente para nao atribuir compra ao numero errado.
+    if (next === "payt") {
+      setSelectedChannelIds(
+        channels.length === 1 ? [channels[0].id] : [],
+      );
+    } else if (origin === "payt") {
+      setSelectedChannelIds(channels.map((channel) => channel.id));
+    }
   }
 
   /** Evento sem valor limpa o rascunho monetario para nao vazar no payload. */
@@ -484,7 +521,12 @@ export function ProviderConversionRulePanel({
         </div>
       </header>
 
-      {oneTimeSecret ? (
+      {oneTimeSecret && oneTimeSecretSource === "payt" ? (
+        <PaytWebhookSecret
+          webhookUrl={oneTimeSecret.webhookUrl}
+          onHide={() => setOneTimeSecret(null)}
+        />
+      ) : oneTimeSecret ? (
         <div className="provider-conversion-secret-group">
           <div
             className="provider-conversion-secret"
@@ -668,6 +710,13 @@ export function ProviderConversionRulePanel({
                 </div>
               ) : null}
 
+              {paytOrigin ? (
+                <p className="action-note">
+                  Depois de criar, voce recebe a URL e o token para colar na
+                  Payt. O valor de cada compra vem da propria Payt.
+                </p>
+              ) : null}
+
               {origin === "catalog" ? (
                 <div className="provider-conversion-base-fields">
                   <label>
@@ -705,8 +754,19 @@ export function ProviderConversionRulePanel({
                 channels={channels}
                 selectedChannelIds={selectedChannelIds}
                 onToggle={toggleChannel}
+                legend={
+                  paytOrigin
+                    ? "Numeros que recebem as compras da Payt"
+                    : undefined
+                }
+                requiredHint={
+                  paytOrigin && selectedChannelIds.length === 0
+                    ? "Marque ao menos um numero."
+                    : undefined
+                }
               />
 
+              {paytOrigin ? null : (
               <label className="provider-conversion-initial-mode">
                 <span className="field-label">Modo inicial</span>
                 <select
@@ -725,6 +785,7 @@ export function ProviderConversionRulePanel({
                   canal estiver válida; caso contrário, a API bloqueia a regra.
                 </small>
               </label>
+              )}
 
               {origin === "catalog" ? (
                 <div className="provider-catalog-builder">
@@ -957,17 +1018,24 @@ export function ProviderConversionRulePanel({
 
               <div className="provider-conversion-builder-footer">
                 <span className="action-note">
-                  {initialMode === "production"
+                  {initialMode === "production" && !paytOrigin
                     ? "O envio será ativado agora, se os canais estiverem prontos."
                     : "A nova regra será criada em modo de observação."}
                 </span>
                 <button
                   className="button primary"
                   type="submit"
-                  disabled={pending === "create"}
+                  disabled={
+                    pending === "create" ||
+                    (paytOrigin && selectedChannelIds.length === 0)
+                  }
                 >
                   <Check size={15} aria-hidden="true" />
-                  {pending === "create" ? "Salvando..." : "Criar regra"}
+                  {pending === "create"
+                    ? "Salvando..."
+                    : paytOrigin
+                      ? "Criar webhook Payt"
+                      : "Criar regra"}
                 </button>
               </div>
             </form>
@@ -992,14 +1060,59 @@ export function ProviderConversionRulePanel({
               rule.conversionRule.eventName === "Purchase";
             const uazapiAutomation =
               automation && connectionProvider === "uazapi";
+            const paytAutomation =
+              automation && rule.automationSource === "payt";
             const umblerAutomation =
-              automation && connectionProvider === "umbler";
+              automation && connectionProvider === "umbler" && !paytAutomation;
             const active = rule.conversionRule.active;
+            const activating = rule.mode !== "production";
+            const confirmation =
+              confirmingKey === `mode-${rule.id}`
+                ? {
+                    message: `Ativar o envio automatico dos novos eventos de ${eventLabel(rule).toLocaleLowerCase("pt-BR")} desta regra? O historico anterior continua so observado.`,
+                    label: "Ativar envio",
+                    danger: false,
+                    run: () =>
+                      runRuleAction(`mode-${rule.id}`, updateAction, {
+                        ruleId: rule.id,
+                        payload: JSON.stringify({ mode: "production" }),
+                      }),
+                  }
+                : confirmingKey === `rotate-${rule.id}`
+                  ? {
+                      message: paytAutomation
+                        ? "A URL atual para de funcionar. Depois, cole a nova URL na Payt."
+                        : "A URL atual desta automacao para de funcionar.",
+                      label: "Gerar nova URL",
+                      danger: false,
+                      run: () =>
+                        runRuleAction(
+                          `rotate-${rule.id}`,
+                          rotateEndpointAction,
+                          { ruleId: rule.id },
+                          paytAutomation ? null : rule.conversionRule.eventName,
+                          paytAutomation ? "payt" : null,
+                        ),
+                    }
+                  : confirmingKey === `remove-${rule.id}`
+                    ? {
+                        message:
+                          "Remover esta regra? O historico observado sera preservado.",
+                        label: "Remover",
+                        danger: true,
+                        run: () =>
+                          runRuleAction(`remove-${rule.id}`, removeAction, {
+                            ruleId: rule.id,
+                          }),
+                      }
+                    : null;
             return (
               <article className="provider-conversion-rule" key={rule.id}>
                 <div className="provider-conversion-rule-main">
                   <div className="provider-conversion-rule-icon">
-                    {automation ? (
+                    {paytAutomation ? (
+                      <ShoppingBag size={17} aria-hidden="true" />
+                    ) : automation ? (
                       <Tag size={17} aria-hidden="true" />
                     ) : messagePhrase ? (
                       <MessageSquareText size={17} aria-hidden="true" />
@@ -1033,8 +1146,10 @@ export function ProviderConversionRulePanel({
                     </span>
                     <small>
                       {rule.lastExecution
-                        ? `Ultimo resultado: ${executionStatusLabel(rule.lastExecution.status)} / ${executionReasonLabel(rule.lastExecution.reasonCode)} / ${formatDateTime(rule.lastExecution.occurredAt)}`
-                        : uazapiAutomation
+                        ? `Ultimo resultado: ${executionStatusLabel(rule.lastExecution.status)} / ${executionReasonLabel(rule.lastExecution.reasonCode)}${paytAutomation && rule.lastExecution.valueCents ? ` / ${formatMoney(rule.lastExecution.valueCents, rule.lastExecution.currency ?? "BRL")}` : ""} / ${formatDateTime(rule.lastExecution.occurredAt)}`
+                        : paytAutomation
+                          ? `Ultima compra recebida: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
+                          : uazapiAutomation
                           ? rule.mode === "observation"
                             ? "Aguardando contato entrar na lista. Em observacao, lead pago nao e obrigatorio para validar o match."
                             : "Aguardando contato entrar na lista. Em producao, apenas leads pagos podem gerar eventos."
@@ -1063,26 +1178,14 @@ export function ProviderConversionRulePanel({
                         }
                         disabled={Boolean(pending)}
                         onClick={() => {
-                          const activating = rule.mode !== "production";
-                          if (
-                            !activating ||
-                            window.confirm(
-                              `Ativar o envio automatico dos novos eventos de ${eventLabel(rule).toLocaleLowerCase("pt-BR")} reconhecidos por esta regra? O historico anterior permanecera apenas observado.`,
-                            )
-                          ) {
-                            void runRuleAction(
-                              `mode-${rule.id}`,
-                              updateAction,
-                              {
-                                ruleId: rule.id,
-                                payload: JSON.stringify({
-                                  mode: activating
-                                    ? "production"
-                                    : "observation",
-                                }),
-                              },
-                            );
+                          if (activating) {
+                            setConfirmingKey(`mode-${rule.id}`);
+                            return;
                           }
+                          void runRuleAction(`mode-${rule.id}`, updateAction, {
+                            ruleId: rule.id,
+                            payload: JSON.stringify({ mode: "observation" }),
+                          });
                         }}
                       >
                         <Send size={15} aria-hidden="true" />
@@ -1116,20 +1219,7 @@ export function ProviderConversionRulePanel({
                         title="Gerar nova URL"
                         aria-label="Gerar nova URL"
                         disabled={Boolean(pending)}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              "Gerar uma nova URL invalida a URL atual desta automacao. Continuar?",
-                            )
-                          ) {
-                            void runRuleAction(
-                              `rotate-${rule.id}`,
-                              rotateEndpointAction,
-                              { ruleId: rule.id },
-                              rule.conversionRule.eventName,
-                            );
-                          }
-                        }}
+                        onClick={() => setConfirmingKey(`rotate-${rule.id}`)}
                       >
                         <RefreshCw size={15} aria-hidden="true" />
                       </button>
@@ -1140,21 +1230,33 @@ export function ProviderConversionRulePanel({
                       title="Remover regra"
                       aria-label="Remover regra"
                       disabled={Boolean(pending)}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Remover esta regra? O historico observado sera preservado.",
-                          )
-                        ) {
-                          void runRuleAction(
-                            `remove-${rule.id}`,
-                            removeAction,
-                            { ruleId: rule.id },
-                          );
-                        }
-                      }}
+                      onClick={() => setConfirmingKey(`remove-${rule.id}`)}
                     >
                       <Trash2 size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : null}
+
+                {canManage && confirmation ? (
+                  <div
+                    className="provider-conversion-inline-confirm"
+                    role="alert"
+                  >
+                    <span>{confirmation.message}</span>
+                    <button
+                      className="button subtle"
+                      type="button"
+                      onClick={() => setConfirmingKey(null)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className={`button ${confirmation.danger ? "danger" : "primary"}`}
+                      type="button"
+                      disabled={Boolean(pending)}
+                      onClick={() => void confirmation.run()}
+                    >
+                      {confirmation.label}
                     </button>
                   </div>
                 ) : null}
@@ -1172,6 +1274,8 @@ export function ProviderConversionRulePanel({
                     eventName={rule.conversionRule.eventName}
                   />
                 ) : null}
+
+                {paytAutomation ? <PaytSetupDetails /> : null}
 
                 {automation && !uazapiAutomation && canManage ? (
                   <AutomationCallbackAudit
@@ -2374,6 +2478,144 @@ export function UmblerAutomationPayloadPanel({
   );
 }
 
+/** O token viaja na query `token` da URL; a Payt pode pedir os dois separados. */
+export function paytWebhookToken(webhookUrl: string): string | null {
+  try {
+    return new URL(webhookUrl).searchParams.get("token");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Botao de copiar com o retorno no proprio botao: "Copiada" quando deu certo,
+ * "Copie manualmente" quando o navegador bloqueou a area de transferencia.
+ */
+function CopyValueButton({
+  value,
+  label,
+  copiedLabel,
+}: {
+  value: string;
+  label: string;
+  copiedLabel: string;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setState("copied");
+    } catch {
+      setState("failed");
+    }
+  }
+
+  return (
+    <button className="button" type="button" onClick={() => void copy()}>
+      {state === "copied" ? (
+        <Check size={15} aria-hidden="true" />
+      ) : (
+        <Copy size={15} aria-hidden="true" />
+      )}
+      {state === "copied"
+        ? copiedLabel
+        : state === "failed"
+          ? "Copie manualmente"
+          : label}
+    </button>
+  );
+}
+
+/** URL e token do webhook Payt, exibidos uma unica vez apos criar ou rotacionar. */
+export function PaytWebhookSecret({
+  webhookUrl,
+  onHide,
+}: {
+  webhookUrl: string;
+  onHide: () => void;
+}) {
+  const token = paytWebhookToken(webhookUrl);
+
+  return (
+    <div className="provider-conversion-secret-group">
+      <div
+        className="provider-conversion-secret"
+        data-presentation-sensitive-action="true"
+      >
+        <div>
+          <span className="micro-label">Exibida uma unica vez</span>
+          <strong>URL do webhook Payt</strong>
+        </div>
+        <input
+          readOnly
+          value={webhookUrl}
+          aria-label="URL do webhook Payt"
+          data-presentation-sensitive-field="true"
+        />
+        <CopyValueButton
+          value={webhookUrl}
+          label="Copiar URL"
+          copiedLabel="URL copiada"
+        />
+        <button
+          className="icon-button"
+          type="button"
+          title="Ocultar URL e token"
+          aria-label="Ocultar URL e token"
+          onClick={onHide}
+        >
+          <X size={15} aria-hidden="true" />
+        </button>
+      </div>
+      {token ? (
+        <div
+          className="provider-conversion-secret"
+          data-presentation-sensitive-action="true"
+        >
+          <div>
+            <span className="micro-label">Ja incluso na URL</span>
+            <strong>Token</strong>
+          </div>
+          <input
+            readOnly
+            value={token}
+            aria-label="Token do webhook Payt"
+            data-presentation-sensitive-field="true"
+          />
+          <CopyValueButton
+            value={token}
+            label="Copiar token"
+            copiedLabel="Token copiado"
+          />
+        </div>
+      ) : null}
+      <p className="action-note">
+        Na Payt, cadastre um webhook de vendas e cole a URL completa. So use o
+        token se a Payt pedir em um campo separado.
+      </p>
+    </div>
+  );
+}
+
+function PaytSetupDetails() {
+  return (
+    <details className="provider-conversion-rule-scope">
+      <summary>
+        <span>Como configurar na Payt</span>
+        <strong>Webhook de vendas</strong>
+      </summary>
+      <div className="provider-conversion-payload-helper-body">
+        <p className="action-note">
+          A URL e o token so aparecem uma vez, na criacao. Se perdeu, gere uma
+          nova URL acima e cole de novo na Payt. So compras aprovadas contam, nos
+          numeros vinculados abaixo.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 /** "Como configurar" para uma regra de automacao Umbler ja existente na lista. */
 function UmblerAutomationSetupDetails({
   eventName,
@@ -2415,7 +2657,7 @@ export function ConversionRuleOriginEventSelector({
   onEventChange: (eventName: ConversionEventNameDto) => void;
   guimoEnabled?: boolean;
 }) {
-  const catalogOnly = origin === "catalog";
+  const catalogOnly = originLocksPurchase(origin);
   const isGuimoOrigin = origin === "guimo";
   const events = catalogOnly
     ? conversionEventCatalogOrdered.filter(
@@ -2720,14 +2962,21 @@ function ChannelSelector({
   channels,
   selectedChannelIds,
   onToggle,
+  legend = "Canais desta regra",
+  requiredHint,
 }: {
   channels: InboundWebhookChannelDto[];
   selectedChannelIds: string[];
   onToggle: (channelId: string) => void;
+  legend?: string;
+  requiredHint?: string;
 }) {
   return (
     <fieldset className="provider-conversion-channels">
-      <legend className="field-label">Canais desta regra</legend>
+      <legend className="field-label">{legend}</legend>
+      {requiredHint ? (
+        <small className="action-note">{requiredHint}</small>
+      ) : null}
       <div>
         {channels.map((channel) => (
           <label key={channel.id}>
@@ -3067,7 +3316,13 @@ export function buildCreatePayload(input: {
     return { ok: false, message: "Informe um nome para a regra." };
   }
   if (input.selectedChannelIds.length === 0) {
-    return { ok: false, message: "Selecione ao menos um canal." };
+    return {
+      ok: false,
+      message:
+        input.origin === "payt"
+          ? "Marque ao menos um numero para receber as compras da Payt."
+          : "Selecione ao menos um canal.",
+    };
   }
 
   const base = {
@@ -3076,6 +3331,18 @@ export function buildCreatePayload(input: {
     channelIds: input.selectedChannelIds,
     mode: input.mode ?? "observation",
   };
+
+  if (input.origin === "payt") {
+    return {
+      ok: true,
+      value: {
+        ...base,
+        triggerType: "provider_automation",
+        eventName: catalogOriginEventName,
+        automationSource: "payt",
+      },
+    };
+  }
 
   const carriesValue = conversionEventCarriesValue(input.eventName);
 
@@ -3451,6 +3718,9 @@ function triggerLabel(rule: ProviderConversionRuleDto): string {
   }
   if (rule.conversionRule.triggerType === "message_phrase") {
     return "Mensagem com frase gatilho";
+  }
+  if (rule.automationSource === "payt") {
+    return "Compra aprovada na Payt";
   }
   return "Automacao por tag";
 }
