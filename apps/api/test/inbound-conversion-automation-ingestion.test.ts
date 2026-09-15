@@ -108,7 +108,7 @@ function createHarness(options?: {
       connection: {
         id: "connection_1",
         workspaceId: "workspace_safe",
-        provider: "umbler" as const,
+        provider: "umbler" as "umbler" | "gupshup" | "uazapi" | "datacrazy" | "payt",
         displayName: "Umbler Teste",
         parserReleaseId: "inbound_parser_umbler_v1",
         secretHash: "connection-hash",
@@ -122,7 +122,7 @@ function createHarness(options?: {
         updatedAt: now,
         parserRelease: {
           id: "inbound_parser_umbler_v1",
-          provider: "umbler" as const,
+          provider: "umbler" as "umbler" | "gupshup" | "uazapi" | "datacrazy" | "payt",
           version: "v1",
           status: "certified" as const,
           certifiedByUserId: "user_1",
@@ -133,7 +133,7 @@ function createHarness(options?: {
       },
       parserRelease: {
         id: "inbound_parser_umbler_automation_v1",
-        provider: "umbler" as const,
+        provider: "umbler" as "umbler" | "gupshup" | "uazapi" | "datacrazy" | "payt",
         version: "automation-v1",
         status: "certified" as const,
         certifiedByUserId: "user_1",
