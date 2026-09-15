@@ -4,6 +4,7 @@ import { providerConversionDecisionCodeSchema } from "./provider-conversion-deci
 
 export const inboundWebhookProviders = [
   "umbler",
+  "payt",
   "gupshup",
   "uazapi",
   "datacrazy",

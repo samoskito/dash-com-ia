@@ -19,6 +19,7 @@ import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
 import type { ParsedInboundWebhookEvent } from "../inbound-webhooks/providers/inbound-webhook-parser";
 import type { ParsedUmblerAutomationV1 } from "../inbound-webhooks/providers/umbler/umbler-automation-v1.parser";
+import type { ParsedPaytAutomationV1 } from "../inbound-webhooks/providers/payt/payt-automation-v1.parser";
 import {
   ProviderConversionDecisionRepository,
   type PersistedProviderConversionDecision,
@@ -72,6 +73,10 @@ type ObservedChannel = {
   productionActivatedAt: Date | null;
   conversionEngineMode: ProviderConversionEngineMode;
 };
+
+type ParsedProviderAutomation =
+  | ParsedUmblerAutomationV1
+  | ParsedPaytAutomationV1;
 
 export type ProviderConversionObservationResult = {
   executionIds: string[];
@@ -163,7 +168,7 @@ export class ProviderConversionObservationService {
     externalDeliveryId?: string | null;
     deliveryReceivedAt: Date;
     providerRuleId: string;
-    automation: ParsedUmblerAutomationV1;
+    automation: ParsedProviderAutomation;
     manualRecovery?: boolean;
     evaluationMode?: ProviderConversionEvaluationMode;
   }): Promise<ProviderConversionAutomationObservationResult> {
@@ -200,12 +205,20 @@ export class ProviderConversionObservationService {
       workspaceId: input.workspaceId,
       connectionId: input.connectionId,
       phone: input.automation.phone,
+      phoneCandidates:
+        "phoneCandidates" in input.automation
+          ? input.automation.phoneCandidates
+          : undefined,
       deliveryReceivedAt: input.deliveryReceivedAt,
       rule,
     });
     const leadResolution = await this.paidLeads.resolve({
       workspaceId: input.workspaceId,
       phone: input.automation.phone,
+      phoneCandidates:
+        "phoneCandidates" in input.automation
+          ? input.automation.phoneCandidates
+          : undefined,
     });
     const persistedDecision = await this.resolveAutomationDecision({
       input,
@@ -444,7 +457,7 @@ export class ProviderConversionObservationService {
       connectionId: string;
       deliveryId: string;
       externalDeliveryId?: string | null;
-      automation: ParsedUmblerAutomationV1;
+      automation: ParsedProviderAutomation;
     };
     rule: ObservedRule;
     channel: ObservedChannel | null;
@@ -473,7 +486,7 @@ export class ProviderConversionObservationService {
       ) ?? null,
       occurrence: {
         source: "automation",
-        provider: "umbler",
+        provider: input.input.automation.provider ?? "umbler",
         workspaceId: input.input.workspaceId,
         connectionId: input.input.connectionId,
         channelId: input.channel?.id ?? null,
@@ -487,6 +500,14 @@ export class ProviderConversionObservationService {
         occurredAt: input.input.automation.occurredAt.toISOString(),
         authorType: null,
         automation: input.input.automation.automation,
+        observedValueCents:
+          "valueCents" in input.input.automation
+            ? input.input.automation.valueCents
+            : undefined,
+        observedCurrency:
+          "currency" in input.input.automation
+            ? input.input.automation.currency
+            : undefined,
       },
     };
     const decision = await this.engineRollout.evaluate({
@@ -536,19 +557,31 @@ export class ProviderConversionObservationService {
     workspaceId: string;
     connectionId: string;
     phone: string;
+    phoneCandidates?: readonly string[];
     deliveryReceivedAt: Date;
     rule: ObservedRule;
   }): Promise<ObservedChannel | null> {
-    const contactIdentityHash = hashPhoneIdentity(input.phone);
+    const contactIdentityHashes = [
+      ...new Set(
+        [input.phone, ...(input.phoneCandidates ?? [])]
+          .map((phone) => hashPhoneIdentity(phone))
+          .filter((hash): hash is string => Boolean(hash)),
+      ),
+    ];
     const channelIds = input.rule.channels.map((scope) => scope.channelId);
-    if (!contactIdentityHash || channelIds.length === 0) return null;
+    if (contactIdentityHashes.length === 0 || channelIds.length === 0) return null;
 
     const recentEvent = await this.prisma.inboundWebhookEvent.findFirst({
       where: {
         workspaceId: input.workspaceId,
-        connectionId: input.connectionId,
+        ...(input.rule.connection.provider === "payt"
+          ? {}
+          : { connectionId: input.connectionId }),
         channelId: { in: channelIds },
-        contactIdentityHash,
+        contactIdentityHash:
+          contactIdentityHashes.length === 1
+            ? contactIdentityHashes[0]!
+            : { in: contactIdentityHashes },
         occurredAt: {
           lte: new Date(input.deliveryReceivedAt.getTime() + 5 * 60 * 1_000),
         },
@@ -667,6 +700,14 @@ export class ProviderConversionObservationService {
       return {
         state: "blocked",
         reasonCode: "automation_channel_unresolved",
+      };
+    }
+    // Phase 1+2 intentionally records Payt purchases without opening its CAPI
+    // path, even if someone later certifies a parser release prematurely.
+    if (input.rule.connection.provider === "payt") {
+      return {
+        state: "observed",
+        reasonCode: `${input.decision.reasonCode}_payt_observation`,
       };
     }
     // Manual recovery reuses the frozen decision snapshot (including the mode

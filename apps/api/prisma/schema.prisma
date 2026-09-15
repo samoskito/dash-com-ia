@@ -275,6 +275,7 @@ enum AuthActionTokenType {
 
 enum InboundWebhookProvider {
   umbler
+  payt
   gupshup
   uazapi
   datacrazy

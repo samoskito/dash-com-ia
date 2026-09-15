@@ -304,21 +304,22 @@ export class ProviderConversionRulesService {
 
       if (
         input.triggerType === "provider_automation" &&
-        connection.provider === "umbler"
+        ["umbler", "payt"].includes(connection.provider)
       ) {
         secret = this.generateSecret();
       }
 
-      await this.assertChannelsBelongToConnection(
+      await this.assertChannelsForProvider(
         transaction,
         workspaceId,
         connection.id,
+        connection.provider,
         input.channelIds,
       );
 
       if (
         input.triggerType === "provider_automation" &&
-        !["umbler", "uazapi"].includes(connection.provider)
+        !["umbler", "payt", "uazapi"].includes(connection.provider)
       ) {
         throw new BadRequestException(
           "Automacao por tag ainda so esta disponivel para este provedor",
@@ -327,10 +328,10 @@ export class ProviderConversionRulesService {
 
       const parserRelease =
         input.triggerType === "provider_automation" &&
-        connection.provider === "umbler"
+        ["umbler", "payt"].includes(connection.provider)
           ? await transaction.inboundWebhookParserRelease.findFirst({
               where: {
-                provider: "umbler",
+                provider: connection.provider,
                 version: "automation-v1",
                 status: { not: "retired" },
               },
@@ -444,7 +445,7 @@ export class ProviderConversionRulesService {
         })),
       });
 
-      if (secret && connection.provider === "umbler") {
+      if (secret && ["umbler", "payt"].includes(connection.provider)) {
         await transaction.providerConversionRuleEndpoint.create({
           data: {
             workspaceId,
@@ -657,10 +658,11 @@ export class ProviderConversionRulesService {
       this.assertUpdateMatchesRule(current, input);
 
       if (input.channelIds) {
-        await this.assertChannelsBelongToConnection(
+        await this.assertChannelsForProvider(
           transaction,
           workspaceId,
           current.connectionId,
+          current.connection.provider,
           input.channelIds,
         );
       }
@@ -1299,6 +1301,37 @@ export class ProviderConversionRulesService {
       throw new BadRequestException(
         "Um ou mais canais nao pertencem a esta conexao e workspace",
       );
+    }
+  }
+
+  /**
+   * A Payt callback is not itself a WhatsApp channel. Its automation rule may
+   * bind any existing workspace channel; the selected channel still scopes
+   * lookup and observation. Other providers retain the stricter connection
+   * ownership check.
+   */
+  private async assertChannelsForProvider(
+    transaction: Prisma.TransactionClient,
+    workspaceId: string,
+    connectionId: string,
+    provider: string,
+    channelIds: string[],
+  ): Promise<void> {
+    if (provider !== "payt") {
+      return this.assertChannelsBelongToConnection(
+        transaction,
+        workspaceId,
+        connectionId,
+        channelIds,
+      );
+    }
+
+    const uniqueIds = [...new Set(channelIds)];
+    const count = await transaction.inboundWebhookChannel.count({
+      where: { workspaceId, id: { in: uniqueIds } },
+    });
+    if (count !== uniqueIds.length || uniqueIds.length !== channelIds.length) {
+      throw new BadRequestException("Um ou mais canais nao pertencem a este workspace");
     }
   }
 
