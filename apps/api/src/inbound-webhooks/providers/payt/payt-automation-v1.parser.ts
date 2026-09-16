@@ -79,6 +79,9 @@ export function parsePaytAutomationV1(
     const status = order
       ? boundedString(order.status, 40)?.toLocaleLowerCase("en-US")
       : null;
+    const type = order
+      ? boundedString(order.type, 80)?.toLocaleLowerCase("en-US")
+      : null;
     const paymentStatus = transaction
       ? boundedString(transaction.payment_status, 40)?.toLocaleLowerCase(
           "en-US",
@@ -87,17 +90,23 @@ export function parsePaytAutomationV1(
     const hasPaymentStatus =
       transaction !== null &&
       Object.prototype.hasOwnProperty.call(transaction, "payment_status");
-    if (
-      status !== "paid" ||
-      (hasPaymentStatus && paymentStatus !== "paid")
-    ) {
+    const isPaidPurchase =
+      status === "paid" && (!hasPaymentStatus || paymentStatus === "paid");
+    const isCodConfirmedPurchase =
+      type === "cash_on_delivery" && status === "order_confirmed";
+    if (!isPaidPurchase && !isCodConfirmedPurchase) {
       return { ok: false, errorCode: "payt_automation_v1_not_purchase" };
     }
 
     const transactionId = order ? boundedString(order.transaction_id, 255) : null;
     const phoneCandidates = paytPhoneCandidates(customer?.phone);
     const valueCents = transaction?.total_price;
-    const occurredAt = parseTimestamp(transaction?.paid_at ?? order?.updated_at);
+    const occurredAt = parseTimestamp(
+      transaction?.paid_at ??
+        transaction?.updated_at ??
+        order?.updated_at ??
+        order?.started_at,
+    );
     if (
       !transactionId ||
       phoneCandidates.length === 0 ||
