@@ -40,6 +40,45 @@ describe("Payt automation v1 parser", () => {
     ).toEqual({ ok: false, errorCode: "payt_automation_v1_not_purchase" });
   });
 
+  it("parses a confirmed cash-on-delivery order as a Purchase", () => {
+    const parsed = parsePaytAutomationV1(
+      fixture("order-cod-confirmed.sanitized.json"),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        eventName: "Purchase",
+        phone: "63992179071",
+        phoneCandidates: ["63992179071", "5563992179071"],
+        externalExecutionKey: "PKJKM98",
+        valueCents: 36699,
+        currency: "BRL",
+        test: false,
+      },
+    });
+  });
+
+  it("treats cash-on-delivery orders with a status other than order_confirmed as non-purchases", () => {
+    const confirmed = fixture(
+      "order-cod-confirmed.sanitized.json",
+    ) as Record<string, unknown>;
+
+    expect(
+      parsePaytAutomationV1({ ...confirmed, status: "canceled" }),
+    ).toEqual({ ok: false, errorCode: "payt_automation_v1_not_purchase" });
+  });
+
+  it("normalizes the cash-on-delivery type casing", () => {
+    const confirmed = fixture(
+      "order-cod-confirmed.sanitized.json",
+    ) as Record<string, unknown>;
+
+    expect(
+      parsePaytAutomationV1({ ...confirmed, type: "CASH_ON_DELIVERY" }),
+    ).toMatchObject({ ok: true, value: { externalExecutionKey: "PKJKM98" } });
+  });
+
   it("allows an absent payment_status but rejects one that is present and unpaid", () => {
     const paid = fixture("order-paid.sanitized.json") as Record<string, any>;
     const withoutStatus = {
