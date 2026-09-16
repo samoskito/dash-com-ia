@@ -1,17 +1,5 @@
--- Payt is an observation-only purchase automation provider in this phase.
--- This migration is intentionally not applied by the implementation workflow.
+-- Payt provider enum only.
+-- IMPORTANT: do NOT insert rows that reference 'payt' in this same migration.
+-- PostgreSQL cannot use a newly added enum label until the transaction commits,
+-- and Prisma wraps each migration in a transaction → ADD VALUE + INSERT fails (P3009).
 ALTER TYPE "InboundWebhookProvider" ADD VALUE IF NOT EXISTS 'payt';
-
--- The connection release permits configuring an authenticated Payt endpoint.
-INSERT INTO "InboundWebhookParserRelease" (
-  "id", "provider", "version", "status", "createdAt", "updatedAt"
-) VALUES
-  (
-    'inbound_parser_payt_v1', 'payt', 'v1', 'observation_only',
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-  ),
-  (
-    'inbound_parser_payt_automation_v1', 'payt', 'automation-v1', 'observation_only',
-    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-  )
-ON CONFLICT ("provider", "version") DO NOTHING;
