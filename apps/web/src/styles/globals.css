@@ -217,13 +217,42 @@
 
 .billing-inline-action {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
 }
 
 .billing-inline-action .button {
   min-height: 38px;
   padding-inline: 12px;
   white-space: nowrap;
+}
+
+.billing-end-contract-confirm {
+  display: grid;
+  flex: 1 1 100%;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--coral);
+  background: rgba(255, 107, 95, 0.06);
+  text-align: left;
+}
+
+.billing-end-contract-confirm p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.billing-end-contract-confirm label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+}
+
+.billing-end-contract-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .billing-backfill-summary {
