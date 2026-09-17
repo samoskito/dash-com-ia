@@ -140,6 +140,10 @@ export const workspacePackageAssignmentInputSchema = z.object({
   reason: z.string().trim().min(3).max(500),
 });
 
+export const backofficePackageContractCancellationInputSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+
 export const workspacePackageAssignmentSchema = z.object({
   workspaceId: z.string().min(1),
   subscriptionId: z.string().min(1),
@@ -723,6 +727,9 @@ export type WhatsappPackagePlanUpdateInputDto = z.infer<
 >;
 export type WorkspacePackageAssignmentInputDto = z.infer<
   typeof workspacePackageAssignmentInputSchema
+>;
+export type BackofficePackageContractCancellationInputDto = z.infer<
+  typeof backofficePackageContractCancellationInputSchema
 >;
 export type WorkspacePackageAssignmentDto = z.infer<
   typeof workspacePackageAssignmentSchema

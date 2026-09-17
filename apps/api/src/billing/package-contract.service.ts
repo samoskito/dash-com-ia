@@ -468,6 +468,79 @@ export class PackageContractService {
     return contract;
   }
 
+  async cancelStaleContract(
+    workspaceId: string,
+    subscriptionId: string,
+    actorUserId: string,
+    reason: string,
+  ): Promise<WorkspaceSubscription> {
+    return this.prisma.$transaction(
+      async (transaction) => {
+        await this.lockWorkspace(transaction, workspaceId);
+
+        const contract = await transaction.workspaceSubscription.findFirst({
+          where: {
+            id: subscriptionId,
+            workspaceId,
+            planNameSnapshot: { not: null },
+          },
+        });
+
+        if (!contract) {
+          throw new NotFoundException("Contrato de pacote nao encontrado");
+        }
+        if (contract.isCurrent) {
+          throw new ConflictException(
+            "Nao e permitido encerrar o contrato atual",
+          );
+        }
+        if (contract.contractStatus === "canceled") {
+          return contract;
+        }
+
+        const canCancel =
+          contract.contractStatus === "draft" ||
+          contract.contractStatus === "awaiting_payment" ||
+          contract.contractStatus === "exempt" ||
+          contract.contractStatus === "legacy_protected";
+        if (!canCancel) {
+          throw new ConflictException(
+            "Somente rascunhos ou contratos historicos podem ser encerrados",
+          );
+        }
+
+        const now = new Date();
+        const canceled = await transaction.workspaceSubscription.update({
+          where: { id: contract.id },
+          data: {
+            contractStatus: "canceled",
+            status: "cancelled",
+            isCurrent: false,
+            canceledAt: now,
+            endedAt: now,
+          },
+        });
+
+        await transaction.billingContractAudit.create({
+          data: {
+            workspaceId,
+            subscriptionId: contract.id,
+            planId: contract.planId,
+            actorUserId,
+            actorType: "platform_owner",
+            action: "contract.stale_contract_canceled",
+            reason,
+            beforeSnapshot: this.contractSnapshot(contract),
+            afterSnapshot: this.contractSnapshot(canceled),
+          },
+        });
+
+        return canceled;
+      },
+      { isolationLevel: "Serializable" },
+    );
+  }
+
   async listBackofficeContracts(filters: {
     workspaceId?: string;
     status?: WorkspaceSubscriptionContractStatus;
@@ -475,7 +548,7 @@ export class PackageContractService {
     const contracts = await this.prisma.workspaceSubscription.findMany({
       where: {
         workspaceId: filters.workspaceId,
-        contractStatus: filters.status,
+        contractStatus: filters.status ?? { not: "canceled" },
         planNameSnapshot: { not: null },
       },
       include: {

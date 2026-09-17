@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   billingInvoiceStatusSchema,
+  backofficePackageContractCancellationInputSchema,
   legacyBillingBackfillApplyInputSchema,
   legacyBillingBackfillReportSchema,
   whatsappPackagePlanSchema,
@@ -114,6 +115,19 @@ describe("WhatsApp package billing contracts", () => {
       workspaceSubscriptionCancellationInputSchema.safeParse({
         confirmation: true,
         reason: "Encerramento solicitado pelo cliente",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires a reason when backoffice ends a stale package contract", () => {
+    expect(
+      backofficePackageContractCancellationInputSchema.safeParse({
+        reason: "ok",
+      }).success,
+    ).toBe(false);
+    expect(
+      backofficePackageContractCancellationInputSchema.safeParse({
+        reason: "Encerrar rascunho antigo",
       }).success,
     ).toBe(true);
   });

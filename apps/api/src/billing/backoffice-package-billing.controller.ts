@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import {
   legacyBillingBackfillApplyInputSchema,
+  backofficePackageContractCancellationInputSchema,
   whatsappPackagePlanCreateInputSchema,
   whatsappPackagePlanUpdateInputSchema,
   platformFiscalSettingsInputSchema,
@@ -127,6 +128,30 @@ export class BackofficePackageBillingController {
     );
   }
 
+  @Post("package-contracts/:workspaceId/subscriptions/:subscriptionId/cancel")
+  async cancelStaleContract(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Param("subscriptionId") subscriptionId: string,
+    @Body() body: unknown,
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficePackageContractCancellationInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Encerramento de contrato invalido");
+    }
+
+    return this.contracts.cancelStaleContract(
+      workspaceId,
+      subscriptionId,
+      operator.id,
+      parsed.data.reason,
+    );
+  }
+
   @Post("package-contracts/:workspaceId/reconcile")
   async reconcileWorkspace(
     @AuthToken() refreshToken: string,
@@ -134,10 +159,7 @@ export class BackofficePackageBillingController {
   ) {
     const operator =
       await this.platformAdminService.assertPlatformOwner(refreshToken);
-    return this.reconciliation.reconcileWorkspace(
-      workspaceId,
-      operator.id,
-    );
+    return this.reconciliation.reconcileWorkspace(workspaceId, operator.id);
   }
 
   @Get("legacy-backfill")
