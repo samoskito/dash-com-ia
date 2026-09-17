@@ -21,12 +21,18 @@ import { serverApiFetch } from "../../../../lib/server-api";
 import {
   applyLegacyBillingBackfillAction,
   assignPackagePlanAction,
+  cancelPackageContractAction,
   createPackagePlanAction,
   reconcileWorkspaceBillingAction,
   retryFiscalInvoiceAction,
   saveFiscalSettingsAction,
   updatePackagePlanAction,
 } from "./actions";
+import { EndContractButton } from "./end-contract-button";
+import {
+  contractConsumesCapacity,
+  selectEndableContractIds,
+} from "./end-contract-eligibility";
 
 type ResourceResult<T> = {
   data: T;
@@ -142,6 +148,7 @@ export default async function BackofficeBillingPage() {
       0,
     );
   const specialPlans = plans.filter((plan) => plan.kind !== "standard").length;
+  const endableContractIds = selectEndableContractIds(contracts);
 
   return (
     <section className="page-stack standalone-page billing-admin-page">
@@ -628,20 +635,29 @@ export default async function BackofficeBillingPage() {
                     <td>{fiscalStatusLabel(contract.fiscalStatus)}</td>
                     {isPlatformOwner ? (
                       <td>
-                        <BackofficeActionForm
-                          action={reconcileWorkspaceBillingAction}
-                          className="billing-inline-action"
-                        >
-                          <input
-                            type="hidden"
-                            name="workspaceId"
-                            value={workspace.id}
-                          />
-                          <PendingSubmitButton
-                            label="Conciliar"
-                            pendingLabel="Conferindo..."
-                          />
-                        </BackofficeActionForm>
+                        <div className="billing-inline-action">
+                          <BackofficeActionForm
+                            action={reconcileWorkspaceBillingAction}
+                          >
+                            <input
+                              type="hidden"
+                              name="workspaceId"
+                              value={workspace.id}
+                            />
+                            <PendingSubmitButton
+                              label="Conciliar"
+                              pendingLabel="Conferindo..."
+                            />
+                          </BackofficeActionForm>
+                          {endableContractIds.has(contract.id) ? (
+                            <EndContractButton
+                              workspaceId={workspace.id}
+                              subscriptionId={contract.id}
+                              planName={contract.planName}
+                              action={cancelPackageContractAction}
+                            />
+                          ) : null}
+                        </div>
                       </td>
                     ) : null}
                   </tr>
@@ -865,12 +881,6 @@ function planKindLabel(kind: WhatsappPackagePlanDto["kind"]): string {
     exempt: "Isento",
     legacy_protected: "Legado protegido",
   }[kind];
-}
-
-function contractConsumesCapacity(
-  status: WorkspaceSubscriptionContractStatus,
-): boolean {
-  return !["draft", "awaiting_payment", "canceled"].includes(status);
 }
 
 function contractStatusLabel(
