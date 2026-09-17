@@ -4,6 +4,7 @@ import type { BackofficeActionState } from "../../../../components/backoffice-ac
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../../lib/server-api";
 import { parseMoneyInputToCents } from "../../../../lib/money-input";
+import { DEFAULT_END_CONTRACT_REASON } from "./end-contract-eligibility";
 
 function result(
   status: "success" | "error",
@@ -130,6 +131,41 @@ export async function assignPackagePlanAction(
       error instanceof Error
         ? error.message
         : "Nao foi possivel atribuir o pacote.",
+    );
+  }
+}
+
+export async function cancelPackageContractAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const subscriptionId = String(formData.get("subscriptionId") ?? "").trim();
+  const reason =
+    String(formData.get("reason") ?? "").trim() || DEFAULT_END_CONTRACT_REASON;
+
+  if (reason.length < 3) {
+    return result("error", "Escreva um motivo com pelo menos 3 letras.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/billing/package-contracts/${encodeURIComponent(
+        workspaceId,
+      )}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
+    revalidatePath("/backoffice/billing");
+    return result("success", "Contrato encerrado e retirado da lista.");
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel encerrar o contrato.",
     );
   }
 }
