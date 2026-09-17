@@ -605,6 +605,14 @@ export class PackageContractService {
     contract: ContractWithRelations,
     occupiedWhatsappNumbers: number,
   ): WorkspacePackageSubscriptionDto {
+    const isCurrent = contract.isCurrent === true;
+    const canCancel =
+      !isCurrent &&
+      (contract.contractStatus === "draft" ||
+        contract.contractStatus === "awaiting_payment" ||
+        contract.contractStatus === "exempt" ||
+        contract.contractStatus === "legacy_protected");
+
     return {
       id: contract.id,
       workspaceId: contract.workspaceId,
@@ -622,6 +630,8 @@ export class PackageContractService {
       cancelAtPeriodEnd: contract.cancelAtPeriodEnd,
       accessEndsAt: contract.accessEndsAt?.toISOString() ?? null,
       fiscalStatus: contract.fiscalStatus,
+      isCurrent,
+      canCancel,
       items: (contract.items ?? []).map((item) => ({
         id: item.id,
         key: item.key,

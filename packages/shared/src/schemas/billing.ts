@@ -196,6 +196,13 @@ export const workspacePackageSubscriptionSchema = z.object({
   cancelAtPeriodEnd: z.boolean(),
   accessEndsAt: z.string().datetime().nullable(),
   fiscalStatus: billingInvoiceStatusSchema,
+  /** Live capacity-holding row for the workspace. */
+  isCurrent: z.boolean(),
+  /**
+   * Backoffice may end this row: draft/awaiting_payment, or non-current
+   * exempt/legacy_protected leftovers. Never true for the live contract.
+   */
+  canCancel: z.boolean(),
   items: z
     .array(
       z.object({
