@@ -1,13 +1,27 @@
 "use client";
 
 import type {
+  ConversionEventCategoryDto,
+  ConversionEventNameDto,
+  GuimoIntegrationDto,
   InboundWebhookChannelDto,
+  InboundWebhookProviderDto,
   ProviderConversionAutomationAuditDto,
+  ProviderConversionAutomationSourceDto,
   ProviderConversionAutomationAuditItemDto,
   ProviderConversionAutomationPayloadDto,
+  ProviderConversionRuleExecutionAuditDto,
+  ProviderConversionRuleExecutionAuditItemDto,
   ProviderConversionRuleDto,
   PurchaseReviewDto,
   PurchaseReviewListDto,
+} from "@wpptrack/shared";
+import {
+  conversionEventBuilderLabel,
+  conversionEventCarriesValue,
+  conversionEventCatalogOrdered,
+  conversionEventMetadata,
+  conversionEventRequiresValue,
 } from "@wpptrack/shared";
 import {
   BookOpen,
@@ -31,7 +45,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { FormEvent, ReactNode } from "react";
+import type { FormEvent } from "react";
 import { useRef, useState } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
 import type {
@@ -45,16 +59,99 @@ import {
   purchaseReviewStatusLabel,
   purchaseReviewTone,
 } from "../settings/provider-conversion-labels";
+import { GuimoConversionPanel } from "../settings/guimo-conversion-panel";
+import type {
+  GuimoActionResult,
+  GuimoConversionRuleActionResult,
+  GuimoRuleActionResult,
+} from "./guimo-actions";
+import {
+  UazapiLabelPicker,
+  type UazapiTriggerLabel,
+} from "./uazapi-label-picker";
 
 type ProviderRuleAction = (
   formData: FormData,
 ) => Promise<ProviderConversionRuleActionResult>;
 
-type RuleKind =
-  | "qualified_automation"
-  | "purchase_automation"
-  | "purchase_message"
-  | "purchase_catalog";
+type GuimoConnectAction = (formData: FormData) => Promise<GuimoActionResult>;
+type GuimoConnectionRuleAction = (
+  formData: FormData,
+) => Promise<GuimoRuleActionResult>;
+type GuimoConversionRuleAction = (
+  formData: FormData,
+) => Promise<GuimoConversionRuleActionResult>;
+
+/**
+ * Onde a regra e reconhecida. Cada origem mapeia um triggerType do contrato:
+ * message -> message_phrase, tag -> provider_automation, catalog ->
+ * structured_catalog. O evento enviado a Meta e escolhido a parte.
+ *
+ * "payt" tambem e provider_automation, marcado com automationSource "payt":
+ * o checkout Payt chama a URL da regra a cada compra aprovada, com o valor.
+ *
+ * "guimo" nao mapeia para um triggerType de provedor: e um gatilho a parte
+ * (movimentacao de estagio no CRM Guimo), com sua propria conexao opt-in e
+ * suas proprias regras (GuimoConversionRuleDto), reveladas inline so quando
+ * esta origem e selecionada. Nao existe painel Guimo permanente em nenhuma
+ * tela; ele so aparece dentro do fluxo "Nova regra".
+ */
+export type ConversionRuleOrigin =
+  | "message"
+  | "tag"
+  | "catalog"
+  | "payt"
+  | "guimo";
+
+const conversionRuleOriginLabels: Record<ConversionRuleOrigin, string> = {
+  message: "Mensagem no WhatsApp",
+  tag: "Tag ou automacao do provedor",
+  catalog: "Catalogo estruturado",
+  payt: "Compra aprovada na Payt",
+  guimo: "Movimentacao no CRM (Guimo)",
+};
+
+const conversionEventCategoryLabels: Record<
+  ConversionEventCategoryDto,
+  string
+> = {
+  journey: "Jornada",
+  conversion: "Conversao",
+  operational: "Operacional",
+};
+
+/**
+ * structured_catalog e a automacao Payt continuam restritos a Purchase (ver
+ * contrato em shared).
+ */
+const catalogOriginEventName = "Purchase" satisfies ConversionEventNameDto;
+
+function originLocksPurchase(origin: ConversionRuleOrigin): boolean {
+  return origin === "catalog" || origin === "payt";
+}
+
+type MessageAuthorScope = "team" | "contact" | "both";
+
+type MessagePhraseValueMode = "fixed" | "message_extracted";
+type ProviderConversionRuleMode = "observation" | "production";
+
+/** Campos de uma regra message_phrase, qualquer que seja o evento. */
+type MessagePhraseValues = {
+  averageValue: string;
+  contentName: string;
+  primaryPhrase: string;
+  variationPhrases: string;
+  exampleMessage: string;
+  valueMode: MessagePhraseValueMode;
+  messageAuthorScope: MessageAuthorScope;
+};
+
+export type MessagePhrasePreview = {
+  matchedPhrase: string | null;
+  valueCents: number | null;
+  valueSource: "fixed" | "message" | "fallback" | null;
+  ambiguousValue: boolean;
+};
 
 type CatalogAttributeDraft = {
   id: number;
@@ -76,6 +173,7 @@ type Notice = {
 
 export type ProviderConversionRulePanelProps = {
   connectionId: string;
+  connectionProvider: InboundWebhookProviderDto;
   channels: InboundWebhookChannelDto[];
   rules: ProviderConversionRuleDto[];
   enabled: boolean;
@@ -86,13 +184,30 @@ export type ProviderConversionRulePanelProps = {
   loadAutomationAuditAction: ProviderRuleAction;
   loadAutomationPayloadAction: ProviderRuleAction;
   loadPurchaseAuditAction: ProviderRuleAction;
+  loadExecutionAuditAction: ProviderRuleAction;
   reprocessAutomationCallbacksAction: ProviderRuleAction;
   removeAction: ProviderRuleAction;
   testMessageAction: ProviderRuleAction;
+  /**
+   * Guimo e um gatilho a parte (nao um canal WhatsApp): so fica disponivel no
+   * seletor de origem quando o workspace pode gerenciar a conexao. As acoes e
+   * a lista de integracoes vem prontas do settings/page.tsx e sao repassadas
+   * para o GuimoConversionPanel, montado inline dentro do fluxo "Nova regra".
+   */
+  guimoEnabled: boolean;
+  workspaceId: string;
+  guimoIntegrations: GuimoIntegrationDto[];
+  guimoProvisionAction: GuimoConnectAction;
+  guimoRotateAction: GuimoConnectAction;
+  guimoSetActiveAction: GuimoConnectionRuleAction;
+  guimoCreateRuleAction: GuimoConversionRuleAction;
+  guimoUpdateRuleAction: GuimoConversionRuleAction;
+  guimoDeleteRuleAction: GuimoConversionRuleAction;
 };
 
 export function ProviderConversionRulePanel({
   connectionId,
+  connectionProvider,
   channels,
   rules,
   enabled,
@@ -103,13 +218,27 @@ export function ProviderConversionRulePanel({
   loadAutomationAuditAction,
   loadAutomationPayloadAction,
   loadPurchaseAuditAction,
+  loadExecutionAuditAction,
   reprocessAutomationCallbacksAction,
   removeAction,
   testMessageAction,
+  guimoEnabled,
+  workspaceId,
+  guimoIntegrations,
+  guimoProvisionAction,
+  guimoRotateAction,
+  guimoSetActiveAction,
+  guimoCreateRuleAction,
+  guimoUpdateRuleAction,
+  guimoDeleteRuleAction,
 }: ProviderConversionRulePanelProps) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
-  const [kind, setKind] = useState<RuleKind>("qualified_automation");
+  const [origin, setOrigin] = useState<ConversionRuleOrigin>("message");
+  const [eventName, setEventName] =
+    useState<ConversionEventNameDto>("QualifiedLead");
+  const [initialMode, setInitialMode] =
+    useState<ProviderConversionRuleMode>("observation");
   const [name, setName] = useState("");
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>(() =>
     channels.map((channel) => channel.id),
@@ -117,9 +246,13 @@ export function ProviderConversionRulePanel({
   const [averageValue, setAverageValue] = useState("");
   const [contentName, setContentName] = useState("");
   const [triggerPhrases, setTriggerPhrases] = useState("");
-  const [messageAuthorScope, setMessageAuthorScope] = useState<
-    "team" | "contact" | "both"
-  >("team");
+  const [triggerLabels, setTriggerLabels] = useState<UazapiTriggerLabel[]>([]);
+  const [primaryPhrase, setPrimaryPhrase] = useState("");
+  const [variationPhrases, setVariationPhrases] = useState("");
+  const [exampleMessage, setExampleMessage] = useState("");
+  const [valueMode, setValueMode] = useState<MessagePhraseValueMode>("fixed");
+  const [messageAuthorScope, setMessageAuthorScope] =
+    useState<MessageAuthorScope>("team");
   const [catalogName, setCatalogName] = useState("");
   const [productName, setProductName] = useState("");
   const [attributes, setAttributes] = useState<CatalogAttributeDraft[]>([
@@ -134,7 +267,16 @@ export function ProviderConversionRulePanel({
   const [notice, setNotice] = useState<Notice | null>(null);
   const [oneTimeSecret, setOneTimeSecret] =
     useState<ProviderConversionRuleOneTimeSecret | null>(null);
+  // Capturado no momento da criacao/rotacao (nao depende do refresh do
+  // servidor) para montar o exemplo de payload junto da URL de uso unico.
+  const [oneTimeSecretEventName, setOneTimeSecretEventName] =
+    useState<ConversionEventNameDto | null>(null);
+  const [oneTimeSecretSource, setOneTimeSecretSource] =
+    useState<ProviderConversionAutomationSourceDto | null>(null);
   const [copied, setCopied] = useState(false);
+  // Confirmacao inline (sem window.confirm) de ativar envio, gerar URL e remover.
+  const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const paytOrigin = origin === "payt";
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -143,12 +285,21 @@ export function ProviderConversionRulePanel({
 
     const payload = buildCreatePayload({
       connectionId,
-      kind,
+      origin,
+      eventName,
       name,
       selectedChannelIds,
+      // Payt entra sempre em observacao: uma decisao a menos para o usuario.
+      mode: paytOrigin ? "observation" : initialMode,
       averageValue,
       contentName,
-      triggerPhrases,
+      triggerPhrases:
+        origin === "message"
+          ? mergeTriggerPhrases(primaryPhrase, variationPhrases)
+          : triggerPhrases,
+      triggerLabels,
+      exampleMessage,
+      valueMode,
       messageAuthorScope,
       catalogName,
       productName,
@@ -171,8 +322,12 @@ export function ProviderConversionRulePanel({
     if (result.ok) {
       setCreateOpen(false);
       setName("");
+      setTriggerLabels([]);
+      setInitialMode("observation");
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
+        setOneTimeSecretEventName(origin === "tag" ? eventName : null);
+        setOneTimeSecretSource(paytOrigin ? "payt" : null);
         setCopied(false);
       }
       router.refresh();
@@ -185,9 +340,12 @@ export function ProviderConversionRulePanel({
     key: string,
     action: ProviderRuleAction,
     values: Record<string, string>,
+    automationEventName: ConversionEventNameDto | null = null,
+    automationSource: ProviderConversionAutomationSourceDto | null = null,
   ) {
     if (pending) return;
 
+    setConfirmingKey(null);
     const formData = new FormData();
     for (const [field, value] of Object.entries(values)) {
       formData.set(field, value);
@@ -201,6 +359,8 @@ export function ProviderConversionRulePanel({
     if (result.ok) {
       if (result.oneTimeSecret) {
         setOneTimeSecret(result.oneTimeSecret);
+        setOneTimeSecretEventName(automationEventName);
+        setOneTimeSecretSource(automationSource);
         setCopied(false);
       }
       router.refresh();
@@ -224,13 +384,43 @@ export function ProviderConversionRulePanel({
       setCopied(true);
       setNotice({
         tone: "success",
-        message: "URL copiada. Cadastre-a na automacao da Umbler.",
+        message: "URL copiada. Cadastre-a na automacao do provedor.",
       });
     } catch {
       setNotice({
         tone: "error",
         message: "Nao foi possivel copiar automaticamente. Selecione a URL.",
       });
+    }
+  }
+
+  /**
+   * O catalogo estruturado so existe para Purchase; qualquer outra origem
+   * mantem o evento escolhido. Trocar para uma origem de mensagem devolve o
+   * autor padrao "team", que e o unico que faz sentido fora do catalogo.
+   */
+  function selectOrigin(next: ConversionRuleOrigin) {
+    setOrigin(next);
+    setMessageAuthorScope(next === "catalog" ? "both" : "team");
+    if (originLocksPurchase(next)) selectEvent(catalogOriginEventName);
+    // Payt: com um unico numero ele ja vem marcado; com varios, o usuario
+    // escolhe explicitamente para nao atribuir compra ao numero errado.
+    if (next === "payt") {
+      setSelectedChannelIds(
+        channels.length === 1 ? [channels[0].id] : [],
+      );
+    } else if (origin === "payt") {
+      setSelectedChannelIds(channels.map((channel) => channel.id));
+    }
+  }
+
+  /** Evento sem valor limpa o rascunho monetario para nao vazar no payload. */
+  function selectEvent(next: ConversionEventNameDto) {
+    setEventName(next);
+    if (!conversionEventCarriesValue(next)) {
+      setAverageValue("");
+      setContentName("");
+      setValueMode("fixed");
     }
   }
 
@@ -291,12 +481,19 @@ export function ProviderConversionRulePanel({
     );
   }
 
+  // Somente canais UAZAPI trazem whatsappInstanceId; conexoes como Umbler
+  // mantem o textarea de frases gatilho.
+  const resolvedWhatsappInstanceId = resolveUazapiWhatsappInstanceId(
+    channels,
+    selectedChannelIds,
+  );
+
   return (
     <section className="provider-conversion-panel">
       <header className="provider-conversion-heading">
         <div>
           <span className="eyebrow">Eventos de conversao</span>
-          <h3>Qualificados e compras</h3>
+          <h3>Qualificados, compras e checkout</h3>
           <p className="muted">
             Regras independentes por canal, preservadas em observacao antes de
             qualquer envio.
@@ -324,38 +521,48 @@ export function ProviderConversionRulePanel({
         </div>
       </header>
 
-      {oneTimeSecret ? (
-        <div
-          className="provider-conversion-secret"
-          data-presentation-sensitive-action="true"
-        >
-          <div>
-            <span className="micro-label">URL exibida uma unica vez</span>
-            <strong>Webhook da automacao Umbler</strong>
-          </div>
-          <input
-            readOnly
-            value={oneTimeSecret.webhookUrl}
-            aria-label="URL privada da automacao Umbler"
-            data-presentation-sensitive-field="true"
-          />
-          <button className="button" type="button" onClick={copyWebhookUrl}>
-            {copied ? (
-              <Check size={15} aria-hidden="true" />
-            ) : (
-              <Copy size={15} aria-hidden="true" />
-            )}
-            {copied ? "Copiada" : "Copiar URL"}
-          </button>
-          <button
-            className="icon-button"
-            type="button"
-            title="Ocultar URL"
-            aria-label="Ocultar URL"
-            onClick={() => setOneTimeSecret(null)}
+      {oneTimeSecret && oneTimeSecretSource === "payt" ? (
+        <PaytWebhookSecret
+          webhookUrl={oneTimeSecret.webhookUrl}
+          onHide={() => setOneTimeSecret(null)}
+        />
+      ) : oneTimeSecret ? (
+        <div className="provider-conversion-secret-group">
+          <div
+            className="provider-conversion-secret"
+            data-presentation-sensitive-action="true"
           >
-            <X size={15} aria-hidden="true" />
-          </button>
+            <div>
+              <span className="micro-label">URL exibida uma unica vez</span>
+              <strong>Webhook da automacao</strong>
+            </div>
+            <input
+              readOnly
+              value={oneTimeSecret.webhookUrl}
+              aria-label="URL privada da automacao"
+              data-presentation-sensitive-field="true"
+            />
+            <button className="button" type="button" onClick={copyWebhookUrl}>
+              {copied ? (
+                <Check size={15} aria-hidden="true" />
+              ) : (
+                <Copy size={15} aria-hidden="true" />
+              )}
+              {copied ? "Copiada" : "Copiar URL"}
+            </button>
+            <button
+              className="icon-button"
+              type="button"
+              title="Ocultar URL"
+              aria-label="Ocultar URL"
+              onClick={() => setOneTimeSecret(null)}
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          </div>
+          {connectionProvider === "umbler" && oneTimeSecretEventName ? (
+            <UmblerAutomationPayloadPanel eventName={oneTimeSecretEventName} />
+          ) : null}
         </div>
       ) : null}
 
@@ -369,344 +576,471 @@ export function ProviderConversionRulePanel({
       ) : null}
 
       {createOpen ? (
-        <form className="provider-conversion-builder" onSubmit={handleCreate}>
-          <div className="provider-conversion-kind" role="radiogroup">
-            <RuleKindButton
-              active={kind === "qualified_automation"}
-              icon={<Tag size={15} aria-hidden="true" />}
-              label="Lead qualificado por tag"
-              onClick={() => setKind("qualified_automation")}
-            />
-            <RuleKindButton
-              active={kind === "purchase_automation"}
-              icon={<ShoppingBag size={15} aria-hidden="true" />}
-              label="Compra por tag"
-              onClick={() => setKind("purchase_automation")}
-            />
-            <RuleKindButton
-              active={kind === "purchase_catalog"}
-              icon={<BookOpen size={15} aria-hidden="true" />}
-              label="Compra por catalogo"
-              onClick={() => {
-                setKind("purchase_catalog");
-                setMessageAuthorScope("both");
-              }}
-            />
-            <RuleKindButton
-              active={kind === "purchase_message"}
-              icon={<MessageSquareText size={15} aria-hidden="true" />}
-              label="Compra por mensagem"
-              onClick={() => {
-                setKind("purchase_message");
-                setMessageAuthorScope("team");
-              }}
-            />
-          </div>
+        <div className="provider-conversion-builder">
+          <ConversionRuleOriginEventSelector
+            origin={origin}
+            eventName={eventName}
+            onOriginChange={selectOrigin}
+            onEventChange={selectEvent}
+            guimoEnabled={guimoEnabled}
+          />
 
-          <div className="provider-conversion-base-fields">
-            <label>
-              <span className="field-label">Nome da regra</span>
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                minLength={2}
-                maxLength={120}
-                placeholder="Ex.: Compra confirmada"
-                required
-              />
-            </label>
-            {["purchase_automation", "purchase_message"].includes(kind) ? (
-              <>
+          {origin === "guimo" ? (
+            <GuimoConversionPanel
+              workspaceId={workspaceId}
+              integrations={guimoIntegrations}
+              canManage={canManage}
+              provisionAction={guimoProvisionAction}
+              rotateAction={guimoRotateAction}
+              setActiveAction={guimoSetActiveAction}
+              createRuleAction={guimoCreateRuleAction}
+              updateRuleAction={guimoUpdateRuleAction}
+              deleteRuleAction={guimoDeleteRuleAction}
+            />
+          ) : (
+            <form onSubmit={handleCreate}>
+              <div className="provider-conversion-base-fields">
                 <label>
-                  <span className="field-label">Valor medio (R$)</span>
+                  <span className="field-label">Nome da regra</span>
                   <input
-                    value={averageValue}
-                    onChange={(event) => setAverageValue(event.target.value)}
-                    inputMode="decimal"
-                    placeholder="Ex.: 299,90"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    minLength={2}
+                    maxLength={120}
+                    placeholder="Ex.: Compra confirmada"
                     required
                   />
                 </label>
-                <label>
-                  <span className="field-label">Produto</span>
-                  <input
-                    value={contentName}
-                    onChange={(event) => setContentName(event.target.value)}
-                    maxLength={180}
-                    placeholder="Ex.: Pedido medio"
-                  />
-                </label>
-              </>
-            ) : null}
-          </div>
+                {origin === "tag" && conversionEventCarriesValue(eventName) ? (
+                  <>
+                    <label>
+                      <span className="field-label">
+                        {conversionEventRequiresValue(eventName)
+                          ? "Valor medio (R$)"
+                          : "Valor medio (opcional)"}
+                      </span>
+                      <input
+                        value={averageValue}
+                        onChange={(event) =>
+                          setAverageValue(event.target.value)
+                        }
+                        inputMode="decimal"
+                        placeholder="Ex.: 299,90"
+                        required={conversionEventRequiresValue(eventName)}
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">Produto (opcional)</span>
+                      <input
+                        value={contentName}
+                        onChange={(event) => setContentName(event.target.value)}
+                        maxLength={180}
+                        placeholder="Ex.: Pedido medio"
+                      />
+                    </label>
+                  </>
+                ) : null}
+              </div>
 
-          {["purchase_message", "purchase_catalog"].includes(kind) ? (
-            <div className="provider-conversion-base-fields">
-              <label>
-                <span className="field-label">Frases gatilho</span>
-                <textarea
-                  value={triggerPhrases}
-                  onChange={(event) => setTriggerPhrases(event.target.value)}
-                  rows={3}
-                  maxLength={4_800}
-                  placeholder={
-                    kind === "purchase_catalog"
-                      ? "Uma por linha. Ex.: Dados para confirmar o pedido"
-                      : "Uma por linha. Ex.: Aviso de compra"
-                  }
-                  required
+              {origin === "message" ? (
+                <MessagePhraseFields
+                  eventName={eventName}
+                  averageValue={averageValue}
+                  contentName={contentName}
+                  primaryPhrase={primaryPhrase}
+                  variationPhrases={variationPhrases}
+                  exampleMessage={exampleMessage}
+                  valueMode={valueMode}
+                  messageAuthorScope={messageAuthorScope}
+                  onChange={(patch) => {
+                    if (patch.averageValue !== undefined) {
+                      setAverageValue(patch.averageValue);
+                    }
+                    if (patch.contentName !== undefined) {
+                      setContentName(patch.contentName);
+                    }
+                    if (patch.primaryPhrase !== undefined) {
+                      setPrimaryPhrase(patch.primaryPhrase);
+                    }
+                    if (patch.variationPhrases !== undefined) {
+                      setVariationPhrases(patch.variationPhrases);
+                    }
+                    if (patch.exampleMessage !== undefined) {
+                      setExampleMessage(patch.exampleMessage);
+                    }
+                    if (patch.valueMode !== undefined) {
+                      setValueMode(patch.valueMode);
+                    }
+                    if (patch.messageAuthorScope !== undefined) {
+                      setMessageAuthorScope(patch.messageAuthorScope);
+                    }
+                  }}
                 />
-              </label>
-              <label>
-                <span className="field-label">Quem pode enviar</span>
+              ) : null}
+
+              {origin === "tag" ? (
+                <div className="provider-conversion-message-fields">
+                  {resolvedWhatsappInstanceId ? (
+                    <UazapiLabelPicker
+                      whatsappInstanceId={resolvedWhatsappInstanceId}
+                      selectedLabels={triggerLabels}
+                      onLabelsChange={setTriggerLabels}
+                      fallbackValue={triggerPhrases}
+                      onFallbackChange={setTriggerPhrases}
+                    />
+                  ) : (
+                    <label>
+                      <span className="field-label">Etiquetas do WhatsApp</span>
+                      <textarea
+                        value={triggerPhrases}
+                        onChange={(event) =>
+                          setTriggerPhrases(event.target.value)
+                        }
+                        rows={3}
+                        maxLength={4_800}
+                        placeholder="Uma por linha. Ex.: Venda fechada"
+                        required
+                      />
+                      <small className="action-note">
+                        A regra dispara quando a conversa receber uma dessas
+                        etiquetas ou automacoes.
+                      </small>
+                    </label>
+                  )}
+                </div>
+              ) : null}
+
+              {paytOrigin ? (
+                <p className="action-note">
+                  Depois de criar, voce recebe a URL e o token para colar na
+                  Payt. O valor de cada compra vem da propria Payt.
+                </p>
+              ) : null}
+
+              {origin === "catalog" ? (
+                <div className="provider-conversion-base-fields">
+                  <label>
+                    <span className="field-label">Frases gatilho</span>
+                    <textarea
+                      value={triggerPhrases}
+                      onChange={(event) =>
+                        setTriggerPhrases(event.target.value)
+                      }
+                      rows={3}
+                      maxLength={4_800}
+                      placeholder="Uma por linha. Ex.: Dados para confirmar o pedido"
+                      required
+                    />
+                  </label>
+                  <label>
+                    <span className="field-label">Quem pode enviar</span>
+                    <select
+                      value={messageAuthorScope}
+                      onChange={(event) =>
+                        setMessageAuthorScope(
+                          event.target.value as MessageAuthorScope,
+                        )
+                      }
+                    >
+                      <option value="team">Equipe ou bot</option>
+                      <option value="contact">Somente contato</option>
+                      <option value="both">Equipe, bot ou contato</option>
+                    </select>
+                  </label>
+                </div>
+              ) : null}
+
+              <ChannelSelector
+                channels={channels}
+                selectedChannelIds={selectedChannelIds}
+                onToggle={toggleChannel}
+                legend={
+                  paytOrigin
+                    ? "Numeros que recebem as compras da Payt"
+                    : undefined
+                }
+                requiredHint={
+                  paytOrigin && selectedChannelIds.length === 0
+                    ? "Marque ao menos um numero."
+                    : undefined
+                }
+              />
+
+              {paytOrigin ? null : (
+              <label className="provider-conversion-initial-mode">
+                <span className="field-label">Modo inicial</span>
                 <select
-                  value={messageAuthorScope}
+                  value={initialMode}
                   onChange={(event) =>
-                    setMessageAuthorScope(
-                      event.target.value as "team" | "contact" | "both",
+                    setInitialMode(
+                      event.target.value as ProviderConversionRuleMode,
                     )
                   }
                 >
-                  <option value="team">Equipe ou bot</option>
-                  <option value="contact">Somente contato</option>
-                  <option value="both">Equipe, bot ou contato</option>
+                  <option value="observation">Observar primeiro</option>
+                  <option value="production">Ativar envio agora</option>
                 </select>
+                <small className="action-note">
+                  O envio direto só é ativado quando a rota Meta real de cada
+                  canal estiver válida; caso contrário, a API bloqueia a regra.
+                </small>
               </label>
-            </div>
-          ) : null}
+              )}
 
-          <ChannelSelector
-            channels={channels}
-            selectedChannelIds={selectedChannelIds}
-            onToggle={toggleChannel}
-          />
-
-          {kind === "purchase_catalog" ? (
-            <div className="provider-catalog-builder">
-              <div className="provider-catalog-meta">
-                <label>
-                  <span className="field-label">Nome do catalogo</span>
-                  <input
-                    value={catalogName}
-                    onChange={(event) => setCatalogName(event.target.value)}
-                    placeholder="Ex.: Produtos vendidos"
-                    required
-                  />
-                </label>
-                <label>
-                  <span className="field-label">Produto principal</span>
-                  <input
-                    value={productName}
-                    onChange={(event) => setProductName(event.target.value)}
-                    placeholder="Ex.: Cama elastica"
-                    required
-                  />
-                </label>
-              </div>
-
-              <div className="provider-catalog-section">
-                <div className="provider-catalog-section-heading">
-                  <div>
-                    <span className="micro-label">Campos da mensagem</span>
-                    <strong>Atributos</strong>
-                  </div>
-                  {attributes.length < 2 ? (
-                    <button
-                      className="button subtle"
-                      type="button"
-                      onClick={addAttribute}
-                    >
-                      <Plus size={14} aria-hidden="true" />
-                      Adicionar atributo
-                    </button>
-                  ) : null}
-                </div>
-                <div className="provider-catalog-attributes">
-                  {attributes.map((attribute, index) => (
-                    <label key={attribute.id}>
-                      <span className="field-label">Atributo {index + 1}</span>
-                      <span className="provider-catalog-input-action">
-                        <input
-                          value={attribute.label}
-                          onChange={(event) =>
-                            setAttributes((current) =>
-                              current.map((item) =>
-                                item.id === attribute.id
-                                  ? { ...item, label: event.target.value }
-                                  : item,
-                              ),
-                            )
-                          }
-                          placeholder={
-                            index === 0 ? "Ex.: Tamanho" : "Ex.: Modelo"
-                          }
-                          required
-                        />
-                        {attributes.length > 1 ? (
-                          <button
-                            className="icon-button danger"
-                            type="button"
-                            title={`Remover atributo ${index + 1}`}
-                            aria-label={`Remover atributo ${index + 1}`}
-                            onClick={() => removeAttribute(index)}
-                          >
-                            <Trash2 size={14} aria-hidden="true" />
-                          </button>
-                        ) : null}
-                      </span>
+              {origin === "catalog" ? (
+                <div className="provider-catalog-builder">
+                  <div className="provider-catalog-meta">
+                    <label>
+                      <span className="field-label">Nome do catalogo</span>
+                      <input
+                        value={catalogName}
+                        onChange={(event) => setCatalogName(event.target.value)}
+                        placeholder="Ex.: Produtos vendidos"
+                        required
+                      />
                     </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="provider-catalog-section">
-                <div className="provider-catalog-section-heading">
-                  <div>
-                    <span className="micro-label">
-                      Preco fixo por combinacao
-                    </span>
-                    <strong>Variantes</strong>
+                    <label>
+                      <span className="field-label">Produto principal</span>
+                      <input
+                        value={productName}
+                        onChange={(event) => setProductName(event.target.value)}
+                        placeholder="Ex.: Cama elastica"
+                        required
+                      />
+                    </label>
                   </div>
-                  <button
-                    className="button subtle"
-                    type="button"
-                    onClick={addVariant}
-                  >
-                    <Plus size={14} aria-hidden="true" />
-                    Adicionar variante
-                  </button>
-                </div>
-                <div className="provider-catalog-variants">
-                  {variants.map((variant, variantIndex) => (
-                    <div className="provider-catalog-variant" key={variant.id}>
-                      <span className="provider-catalog-variant-index">
-                        {variantIndex + 1}
-                      </span>
-                      <div
-                        className={`provider-catalog-variant-fields attributes-${attributes.length}`}
+
+                  <div className="provider-catalog-section">
+                    <div className="provider-catalog-section-heading">
+                      <div>
+                        <span className="micro-label">Campos da mensagem</span>
+                        <strong>Atributos</strong>
+                      </div>
+                      {attributes.length < 2 ? (
+                        <button
+                          className="button subtle"
+                          type="button"
+                          onClick={addAttribute}
+                        >
+                          <Plus size={14} aria-hidden="true" />
+                          Adicionar atributo
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="provider-catalog-attributes">
+                      {attributes.map((attribute, index) => (
+                        <label key={attribute.id}>
+                          <span className="field-label">
+                            Atributo {index + 1}
+                          </span>
+                          <span className="provider-catalog-input-action">
+                            <input
+                              value={attribute.label}
+                              onChange={(event) =>
+                                setAttributes((current) =>
+                                  current.map((item) =>
+                                    item.id === attribute.id
+                                      ? { ...item, label: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder={
+                                index === 0 ? "Ex.: Tamanho" : "Ex.: Modelo"
+                              }
+                              required
+                            />
+                            {attributes.length > 1 ? (
+                              <button
+                                className="icon-button danger"
+                                type="button"
+                                title={`Remover atributo ${index + 1}`}
+                                aria-label={`Remover atributo ${index + 1}`}
+                                onClick={() => removeAttribute(index)}
+                              >
+                                <Trash2 size={14} aria-hidden="true" />
+                              </button>
+                            ) : null}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="provider-catalog-section">
+                    <div className="provider-catalog-section-heading">
+                      <div>
+                        <span className="micro-label">
+                          Preco fixo por combinacao
+                        </span>
+                        <strong>Variantes</strong>
+                      </div>
+                      <button
+                        className="button subtle"
+                        type="button"
+                        onClick={addVariant}
                       >
-                        <div className="provider-catalog-variant-attributes">
-                          {attributes.map((attribute, attributeIndex) => (
-                            <div
-                              className="provider-catalog-variant-attribute"
-                              key={attribute.id}
-                            >
+                        <Plus size={14} aria-hidden="true" />
+                        Adicionar variante
+                      </button>
+                    </div>
+                    <div className="provider-catalog-variants">
+                      {variants.map((variant, variantIndex) => (
+                        <div
+                          className="provider-catalog-variant"
+                          key={variant.id}
+                        >
+                          <span className="provider-catalog-variant-index">
+                            {variantIndex + 1}
+                          </span>
+                          <div
+                            className={`provider-catalog-variant-fields attributes-${attributes.length}`}
+                          >
+                            <div className="provider-catalog-variant-attributes">
+                              {attributes.map((attribute, attributeIndex) => (
+                                <div
+                                  className="provider-catalog-variant-attribute"
+                                  key={attribute.id}
+                                >
+                                  <label>
+                                    <span className="field-label">
+                                      {attribute.label ||
+                                        `Atributo ${attributeIndex + 1}`}
+                                    </span>
+                                    <input
+                                      value={
+                                        variant.values[attributeIndex] ?? ""
+                                      }
+                                      onChange={(event) =>
+                                        updateVariant(
+                                          variant.id,
+                                          (current) => ({
+                                            ...current,
+                                            values: replaceAt(
+                                              current.values,
+                                              attributeIndex,
+                                              event.target.value,
+                                            ),
+                                          }),
+                                        )
+                                      }
+                                      placeholder="Valor exato"
+                                      required
+                                    />
+                                  </label>
+                                  <label>
+                                    <span className="field-label">
+                                      Outras formas aceitas (opcional)
+                                    </span>
+                                    <input
+                                      value={
+                                        variant.aliases[attributeIndex] ?? ""
+                                      }
+                                      onChange={(event) =>
+                                        updateVariant(
+                                          variant.id,
+                                          (current) => ({
+                                            ...current,
+                                            aliases: replaceAt(
+                                              current.aliases,
+                                              attributeIndex,
+                                              event.target.value,
+                                            ),
+                                          }),
+                                        )
+                                      }
+                                      placeholder="Ex.: abreviacao, outra escrita"
+                                      title="Separe por virgulas apenas quando o mesmo valor puder chegar escrito de outra forma."
+                                    />
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="provider-catalog-variant-commerce">
                               <label>
                                 <span className="field-label">
-                                  {attribute.label ||
-                                    `Atributo ${attributeIndex + 1}`}
+                                  Preco da combinacao (R$)
                                 </span>
                                 <input
-                                  value={variant.values[attributeIndex] ?? ""}
+                                  value={variant.value}
                                   onChange={(event) =>
                                     updateVariant(variant.id, (current) => ({
                                       ...current,
-                                      values: replaceAt(
-                                        current.values,
-                                        attributeIndex,
-                                        event.target.value,
-                                      ),
+                                      value: event.target.value,
                                     }))
                                   }
-                                  placeholder="Valor exato"
+                                  inputMode="decimal"
+                                  placeholder="Ex.: 1.597,00"
                                   required
                                 />
                               </label>
                               <label>
                                 <span className="field-label">
-                                  Outras formas aceitas (opcional)
+                                  Nome da variante na Meta (opcional)
                                 </span>
                                 <input
-                                  value={variant.aliases[attributeIndex] ?? ""}
+                                  value={variant.contentName}
                                   onChange={(event) =>
                                     updateVariant(variant.id, (current) => ({
                                       ...current,
-                                      aliases: replaceAt(
-                                        current.aliases,
-                                        attributeIndex,
-                                        event.target.value,
-                                      ),
+                                      contentName: event.target.value,
                                     }))
                                   }
-                                  placeholder="Ex.: abreviacao, outra escrita"
-                                  title="Separe por virgulas apenas quando o mesmo valor puder chegar escrito de outra forma."
+                                  placeholder="Automatico: produto + atributos"
+                                  title="Se ficar vazio, o nome sera montado automaticamente com o produto e os atributos desta variante."
                                 />
                               </label>
                             </div>
-                          ))}
-                        </div>
-                        <div className="provider-catalog-variant-commerce">
-                          <label>
-                            <span className="field-label">
-                              Preco da combinacao (R$)
-                            </span>
-                            <input
-                              value={variant.value}
-                              onChange={(event) =>
-                                updateVariant(variant.id, (current) => ({
-                                  ...current,
-                                  value: event.target.value,
-                                }))
+                          </div>
+                          {variants.length > 1 ? (
+                            <button
+                              className="icon-button danger"
+                              type="button"
+                              title={`Remover variante ${variantIndex + 1}`}
+                              aria-label={`Remover variante ${variantIndex + 1}`}
+                              onClick={() =>
+                                setVariants((current) =>
+                                  current.filter(
+                                    (item) => item.id !== variant.id,
+                                  ),
+                                )
                               }
-                              inputMode="decimal"
-                              placeholder="Ex.: 1.597,00"
-                              required
-                            />
-                          </label>
-                          <label>
-                            <span className="field-label">
-                              Nome da variante na Meta (opcional)
-                            </span>
-                            <input
-                              value={variant.contentName}
-                              onChange={(event) =>
-                                updateVariant(variant.id, (current) => ({
-                                  ...current,
-                                  contentName: event.target.value,
-                                }))
-                              }
-                              placeholder="Automatico: produto + atributos"
-                              title="Se ficar vazio, o nome sera montado automaticamente com o produto e os atributos desta variante."
-                            />
-                          </label>
+                            >
+                              <Trash2 size={14} aria-hidden="true" />
+                            </button>
+                          ) : null}
                         </div>
-                      </div>
-                      {variants.length > 1 ? (
-                        <button
-                          className="icon-button danger"
-                          type="button"
-                          title={`Remover variante ${variantIndex + 1}`}
-                          aria-label={`Remover variante ${variantIndex + 1}`}
-                          onClick={() =>
-                            setVariants((current) =>
-                              current.filter((item) => item.id !== variant.id),
-                            )
-                          }
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                        </button>
-                      ) : null}
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          ) : null}
+              ) : null}
 
-          <div className="provider-conversion-builder-footer">
-            <span className="action-note">
-              A nova regra sera criada em modo de observacao.
-            </span>
-            <button
-              className="button primary"
-              type="submit"
-              disabled={pending === "create"}
-            >
-              <Check size={15} aria-hidden="true" />
-              {pending === "create" ? "Salvando..." : "Criar regra"}
-            </button>
-          </div>
-        </form>
+              <div className="provider-conversion-builder-footer">
+                <span className="action-note">
+                  {initialMode === "production" && !paytOrigin
+                    ? "O envio será ativado agora, se os canais estiverem prontos."
+                    : "A nova regra será criada em modo de observação."}
+                </span>
+                <button
+                  className="button primary"
+                  type="submit"
+                  disabled={
+                    pending === "create" ||
+                    (paytOrigin && selectedChannelIds.length === 0)
+                  }
+                >
+                  <Check size={15} aria-hidden="true" />
+                  {pending === "create"
+                    ? "Salvando..."
+                    : paytOrigin
+                      ? "Criar webhook Payt"
+                      : "Criar regra"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       ) : null}
 
       <div className="provider-conversion-rule-list">
@@ -719,15 +1053,69 @@ export function ProviderConversionRulePanel({
           rules.map((rule) => {
             const automation =
               rule.conversionRule.triggerType === "provider_automation";
+            const messagePhrase =
+              rule.conversionRule.triggerType === "message_phrase";
+            const isPurchaseRule =
+              rule.conversionRule.triggerType === "structured_catalog" ||
+              rule.conversionRule.eventName === "Purchase";
+            const uazapiAutomation =
+              automation && connectionProvider === "uazapi";
+            const paytAutomation =
+              automation && rule.automationSource === "payt";
+            const umblerAutomation =
+              automation && connectionProvider === "umbler" && !paytAutomation;
             const active = rule.conversionRule.active;
+            const activating = rule.mode !== "production";
+            const confirmation =
+              confirmingKey === `mode-${rule.id}`
+                ? {
+                    message: `Ativar o envio automatico dos novos eventos de ${eventLabel(rule).toLocaleLowerCase("pt-BR")} desta regra? O historico anterior continua so observado.`,
+                    label: "Ativar envio",
+                    danger: false,
+                    run: () =>
+                      runRuleAction(`mode-${rule.id}`, updateAction, {
+                        ruleId: rule.id,
+                        payload: JSON.stringify({ mode: "production" }),
+                      }),
+                  }
+                : confirmingKey === `rotate-${rule.id}`
+                  ? {
+                      message: paytAutomation
+                        ? "A URL atual para de funcionar. Depois, cole a nova URL na Payt."
+                        : "A URL atual desta automacao para de funcionar.",
+                      label: "Gerar nova URL",
+                      danger: false,
+                      run: () =>
+                        runRuleAction(
+                          `rotate-${rule.id}`,
+                          rotateEndpointAction,
+                          { ruleId: rule.id },
+                          paytAutomation ? null : rule.conversionRule.eventName,
+                          paytAutomation ? "payt" : null,
+                        ),
+                    }
+                  : confirmingKey === `remove-${rule.id}`
+                    ? {
+                        message:
+                          "Remover esta regra? O historico observado sera preservado.",
+                        label: "Remover",
+                        danger: true,
+                        run: () =>
+                          runRuleAction(`remove-${rule.id}`, removeAction, {
+                            ruleId: rule.id,
+                          }),
+                      }
+                    : null;
             return (
               <article className="provider-conversion-rule" key={rule.id}>
                 <div className="provider-conversion-rule-main">
                   <div className="provider-conversion-rule-icon">
-                    {rule.conversionRule.eventName === "QualifiedLead" ? (
-                      <Tag size={17} aria-hidden="true" />
-                    ) : automation ? (
+                    {paytAutomation ? (
                       <ShoppingBag size={17} aria-hidden="true" />
+                    ) : automation ? (
+                      <Tag size={17} aria-hidden="true" />
+                    ) : messagePhrase ? (
+                      <MessageSquareText size={17} aria-hidden="true" />
                     ) : (
                       <BookOpen size={17} aria-hidden="true" />
                     )}
@@ -735,6 +1123,9 @@ export function ProviderConversionRulePanel({
                   <div className="provider-conversion-rule-copy">
                     <div className="provider-conversion-rule-title">
                       <strong>{rule.conversionRule.name}</strong>
+                      <span className="event-chip neutral">
+                        {eventLabel(rule)}
+                      </span>
                       <span
                         className={`event-chip ${active ? "success" : "warn"}`}
                       >
@@ -746,15 +1137,25 @@ export function ProviderConversionRulePanel({
                       </span>
                     </div>
                     <span>
-                      {eventLabel(rule)} / {triggerLabel(rule)} /{" "}
+                      {eventLabel(rule)} /{" "}
+                      {uazapiAutomation
+                        ? "Lista WhatsApp (chat_labels)"
+                        : triggerLabel(rule)}
+                      {messagePhrase ? ` / ${valueModeLabel(rule)}` : ""} /{" "}
                       {rule.channelIds.length} canal(is)
                     </span>
                     <small>
                       {rule.lastExecution
-                        ? `Ultimo resultado: ${executionStatusLabel(rule.lastExecution.status)} / ${executionReasonLabel(rule.lastExecution.reasonCode)} / ${formatDateTime(rule.lastExecution.occurredAt)}`
-                        : automation
-                          ? `Ultimo callback: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
-                          : `${rule.catalog?.variants.length ?? 0} variante(s) cadastrada(s)`}
+                        ? `Ultimo resultado: ${executionStatusLabel(rule.lastExecution.status)} / ${executionReasonLabel(rule.lastExecution.reasonCode)}${paytAutomation && rule.lastExecution.valueCents ? ` / ${formatMoney(rule.lastExecution.valueCents, rule.lastExecution.currency ?? "BRL")}` : ""} / ${formatDateTime(rule.lastExecution.occurredAt)}`
+                        : paytAutomation
+                          ? `Ultima compra recebida: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
+                          : uazapiAutomation
+                          ? rule.mode === "observation"
+                            ? "Aguardando contato entrar na lista. Em observacao, lead pago nao e obrigatorio para validar o match."
+                            : "Aguardando contato entrar na lista. Em producao, apenas leads pagos podem gerar eventos."
+                          : automation
+                            ? `Ultimo callback: ${formatDateTime(rule.endpoint?.lastDeliveryAt ?? null)}`
+                            : `${rule.catalog?.variants.length ?? 0} variante(s) cadastrada(s)`}
                     </small>
                   </div>
                 </div>
@@ -777,26 +1178,14 @@ export function ProviderConversionRulePanel({
                         }
                         disabled={Boolean(pending)}
                         onClick={() => {
-                          const activating = rule.mode !== "production";
-                          if (
-                            !activating ||
-                            window.confirm(
-                              `Ativar o envio automatico dos novos eventos de ${eventLabel(rule).toLocaleLowerCase("pt-BR")} reconhecidos por esta regra? O historico anterior permanecera apenas observado.`,
-                            )
-                          ) {
-                            void runRuleAction(
-                              `mode-${rule.id}`,
-                              updateAction,
-                              {
-                                ruleId: rule.id,
-                                payload: JSON.stringify({
-                                  mode: activating
-                                    ? "production"
-                                    : "observation",
-                                }),
-                              },
-                            );
+                          if (activating) {
+                            setConfirmingKey(`mode-${rule.id}`);
+                            return;
                           }
+                          void runRuleAction(`mode-${rule.id}`, updateAction, {
+                            ruleId: rule.id,
+                            payload: JSON.stringify({ mode: "observation" }),
+                          });
                         }}
                       >
                         <Send size={15} aria-hidden="true" />
@@ -830,19 +1219,7 @@ export function ProviderConversionRulePanel({
                         title="Gerar nova URL"
                         aria-label="Gerar nova URL"
                         disabled={Boolean(pending)}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              "Gerar uma nova URL invalida a URL atual desta automacao. Continuar?",
-                            )
-                          ) {
-                            void runRuleAction(
-                              `rotate-${rule.id}`,
-                              rotateEndpointAction,
-                              { ruleId: rule.id },
-                            );
-                          }
-                        }}
+                        onClick={() => setConfirmingKey(`rotate-${rule.id}`)}
                       >
                         <RefreshCw size={15} aria-hidden="true" />
                       </button>
@@ -853,21 +1230,33 @@ export function ProviderConversionRulePanel({
                       title="Remover regra"
                       aria-label="Remover regra"
                       disabled={Boolean(pending)}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "Remover esta regra? O historico observado sera preservado.",
-                          )
-                        ) {
-                          void runRuleAction(
-                            `remove-${rule.id}`,
-                            removeAction,
-                            { ruleId: rule.id },
-                          );
-                        }
-                      }}
+                      onClick={() => setConfirmingKey(`remove-${rule.id}`)}
                     >
                       <Trash2 size={15} aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : null}
+
+                {canManage && confirmation ? (
+                  <div
+                    className="provider-conversion-inline-confirm"
+                    role="alert"
+                  >
+                    <span>{confirmation.message}</span>
+                    <button
+                      className="button subtle"
+                      type="button"
+                      onClick={() => setConfirmingKey(null)}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className={`button ${confirmation.danger ? "danger" : "primary"}`}
+                      type="button"
+                      disabled={Boolean(pending)}
+                      onClick={() => void confirmation.run()}
+                    >
+                      {confirmation.label}
                     </button>
                   </div>
                 ) : null}
@@ -880,13 +1269,33 @@ export function ProviderConversionRulePanel({
                   onResult={applyResult}
                 />
 
-                {automation && canManage ? (
+                {umblerAutomation ? (
+                  <UmblerAutomationSetupDetails
+                    eventName={rule.conversionRule.eventName}
+                  />
+                ) : null}
+
+                {paytAutomation ? <PaytSetupDetails /> : null}
+
+                {automation && !uazapiAutomation && canManage ? (
                   <AutomationCallbackAudit
                     rule={rule}
                     loadAuditAction={loadAutomationAuditAction}
                     loadPayloadAction={loadAutomationPayloadAction}
                     reprocessAction={reprocessAutomationCallbacksAction}
                   />
+                ) : null}
+
+                {messagePhrase && rule.exampleMessage ? (
+                  <details className="provider-conversion-rule-scope">
+                    <summary>
+                      <span>Exemplo da mensagem</span>
+                      <strong>{valueModeLabel(rule)}</strong>
+                    </summary>
+                    <p className="provider-conversion-rule-example">
+                      {rule.exampleMessage}
+                    </p>
+                  </details>
                 ) : null}
 
                 {!automation ? (
@@ -909,10 +1318,17 @@ export function ProviderConversionRulePanel({
                 ) : null}
 
                 {!automation && canManage ? (
-                  <PurchaseRuleAudit
-                    rule={rule}
-                    loadAuditAction={loadPurchaseAuditAction}
-                  />
+                  isPurchaseRule ? (
+                    <PurchaseRuleAudit
+                      rule={rule}
+                      loadAuditAction={loadPurchaseAuditAction}
+                    />
+                  ) : (
+                    <ExecutionRuleAudit
+                      rule={rule}
+                      loadAuditAction={loadExecutionAuditAction}
+                    />
+                  )
                 ) : null}
               </article>
             );
@@ -1239,7 +1655,7 @@ function AutomationCallbackAudit({
           <header className="event-audit-dialog-header">
             <div>
               <span className="micro-label">Auditoria do callback</span>
-              <h3>Payload recebido da Umbler</h3>
+              <h3>Payload recebido do provedor</h3>
               <small>
                 {payload
                   ? `Recebido em ${formatDateTime(payload.receivedAt)}`
@@ -1615,6 +2031,242 @@ function PurchaseAuditRow({ review }: { review: PurchaseReviewDto }) {
   );
 }
 
+type ExecutionAuditFilter =
+  "all" | "observed" | "eligible" | "materialized" | "blocked" | "failed";
+
+function ExecutionRuleAudit({
+  rule,
+  loadAuditAction,
+}: {
+  rule: ProviderConversionRuleDto;
+  loadAuditAction: ProviderRuleAction;
+}) {
+  const [audit, setAudit] =
+    useState<ProviderConversionRuleExecutionAuditDto | null>(null);
+  const [filter, setFilter] = useState<ExecutionAuditFilter>("all");
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+
+  async function loadAudit(showSuccess = false) {
+    if (loading) return;
+    const formData = new FormData();
+    formData.set("ruleId", rule.id);
+    setLoading(true);
+    if (!showSuccess) setNotice(null);
+    const result = await loadAuditAction(formData);
+    if (result.ok && result.executionAudit) {
+      setAudit(result.executionAudit);
+      setNotice(
+        showSuccess ? { tone: "success", message: result.message } : null,
+      );
+    } else {
+      setNotice({ tone: "error", message: result.message });
+    }
+    setLoading(false);
+  }
+
+  const visibleItems = (audit?.items ?? []).filter(
+    (item) => filter === "all" || item.status === filter,
+  );
+
+  return (
+    <details
+      className="provider-callback-audit provider-purchase-audit"
+      onToggle={(event) => {
+        if (event.currentTarget.open && !audit && !loading) {
+          void loadAudit();
+        }
+      }}
+    >
+      <summary>
+        <span className="provider-callback-audit-heading">
+          <ListChecks size={17} aria-hidden="true" />
+          <span>
+            <strong>Auditar execucoes reconhecidas</strong>
+            <small>
+              Diagnostico e status desta regra fora do fluxo de compra
+            </small>
+          </span>
+        </span>
+        <span className="status-chip">
+          {audit ? `${audit.summary.total} registro(s)` : "Abrir"}
+        </span>
+      </summary>
+
+      <div className="provider-callback-audit-body">
+        {notice ? (
+          <div className={`inline-notice ${notice.tone}`}>{notice.message}</div>
+        ) : null}
+
+        {loading && !audit ? (
+          <div className="provider-conversion-empty">
+            <RefreshCw size={17} aria-hidden="true" />
+            <span>Carregando execucoes reconhecidas...</span>
+          </div>
+        ) : audit ? (
+          <>
+            <div
+              className="provider-callback-summary provider-purchase-summary"
+              aria-label="Resumo das execucoes reconhecidas"
+            >
+              <AuditMetric label="Total" value={audit.summary.total} />
+              <AuditMetric label="Observados" value={audit.summary.observed} />
+              <AuditMetric
+                label="Elegiveis"
+                value={audit.summary.eligible}
+                tone="info"
+              />
+              <AuditMetric
+                label="Eventos criados"
+                value={audit.summary.materialized}
+                tone="success"
+              />
+              <AuditMetric
+                label="Duplicados"
+                value={audit.summary.duplicate}
+                tone="warn"
+              />
+              <AuditMetric
+                label="Bloqueados"
+                value={audit.summary.blocked}
+                tone="warn"
+              />
+              <AuditMetric
+                label="Falhas"
+                value={audit.summary.failed}
+                tone="warn"
+              />
+            </div>
+
+            <div className="provider-callback-toolbar">
+              <div
+                className="provider-callback-filters"
+                aria-label="Filtrar execucoes reconhecidas"
+              >
+                {(
+                  [
+                    ["all", "Todas"],
+                    ["observed", "Observados"],
+                    ["eligible", "Elegiveis"],
+                    ["materialized", "Eventos criados"],
+                    ["blocked", "Bloqueados"],
+                    ["failed", "Falhas"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    className={filter === value ? "active" : undefined}
+                    key={value}
+                    type="button"
+                    onClick={() => setFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="provider-callback-toolbar-actions">
+                <button
+                  className="button ghost compact-button"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => void loadAudit(true)}
+                >
+                  <RefreshCw size={14} aria-hidden="true" />
+                  Atualizar
+                </button>
+              </div>
+            </div>
+
+            {audit.summary.total === 0 ? (
+              <p className="action-note">
+                Nenhuma execucao registrada para esta regra ainda.
+              </p>
+            ) : (
+              <div className="provider-purchase-table" role="table">
+                <div
+                  className="provider-purchase-row provider-callback-row-head"
+                  role="row"
+                >
+                  <span>Recebido</span>
+                  <span>Canal</span>
+                  <span>Diagnostico</span>
+                  <span>Lead</span>
+                  <span>Acao</span>
+                </div>
+                {visibleItems.length > 0 ? (
+                  visibleItems.map((item) => (
+                    <ExecutionAuditRow key={item.executionId} item={item} />
+                  ))
+                ) : (
+                  <div className="provider-callback-empty">
+                    Nenhuma execucao encontrada neste filtro.
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function ExecutionAuditRow({
+  item,
+}: {
+  item: ProviderConversionRuleExecutionAuditItemDto;
+}) {
+  return (
+    <div className="provider-purchase-row" role="row">
+      <span>
+        <strong>{formatDateTime(item.occurredAt)}</strong>
+        <small>{item.attemptCount} tentativa(s)</small>
+      </span>
+      <span>
+        <strong>
+          {item.channel?.name ??
+            item.channel?.connectedPhone ??
+            "Canal nao localizado"}
+        </strong>
+        {item.channel ? (
+          <small>
+            <PresentationMask placeholder="Numero oculto">
+              {item.channel.connectedPhone}
+            </PresentationMask>
+          </small>
+        ) : null}
+      </span>
+      <span className="provider-callback-diagnosis">
+        <span className={`event-chip ${executionAuditTone(item.status)}`}>
+          {executionStatusLabel(item.status)}
+        </span>
+        <small>{executionReasonLabel(item.reasonCode)}</small>
+      </span>
+      <span>
+        <strong>
+          {item.leadName ?? item.phoneDisplay ?? "Lead nao localizado"}
+        </strong>
+        <small>
+          {item.valueCents !== null && item.currency
+            ? formatMoney(item.valueCents, item.currency)
+            : (item.matchedTriggerPhrase ?? "Sem valor identificado")}
+        </small>
+      </span>
+      <span className="provider-callback-row-actions">
+        {item.leadId ? (
+          <Link
+            className="icon-button"
+            href={`/leads/${encodeURIComponent(item.leadId)}`}
+            title="Abrir lead"
+            aria-label={`Abrir lead de ${formatDateTime(item.occurredAt)}`}
+          >
+            <Eye size={15} aria-hidden="true" />
+          </Link>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
 function MessageRuleEditor({
   rule,
   canManage,
@@ -1706,43 +2358,625 @@ function MessageRuleEditor({
   );
 }
 
-function RuleKindButton({
-  active,
-  icon,
-  label,
-  onClick,
+/**
+ * Espelha o contrato aceito pelo parser da automacao da Umbler
+ * (apps/api/src/inbound-webhooks/providers/umbler/umbler-automation-v1.parser.ts).
+ * Mude os dois lados juntos se o schema mudar: o operador copia este JSON
+ * literalmente para a automacao HTTP da Umbler.
+ */
+const UMBLER_AUTOMATION_V1_SCHEMA = "wpptrack.umbler.automation.v1";
+const UMBLER_AUTOMATION_V1_SOURCE = "umbler_tag_automation";
+
+export type UmblerAutomationKey = "lead_qualificado" | "compra_aprovada";
+
+/** O parser da automacao so reconhece estes dois eventos. */
+export function umblerAutomationKeyForEvent(
+  eventName: ConversionEventNameDto,
+): UmblerAutomationKey | null {
+  if (eventName === "QualifiedLead") return "lead_qualificado";
+  if (eventName === "Purchase") return "compra_aprovada";
+  return null;
+}
+
+/** Referencia mais proxima quando o evento da regra nao mapeia para um automation valido. */
+function umblerAutomationFallbackForEvent(
+  eventName: ConversionEventNameDto,
+): UmblerAutomationKey {
+  return conversionEventCarriesValue(eventName)
+    ? "compra_aprovada"
+    : "lead_qualificado";
+}
+
+export function buildUmblerAutomationPayloadExample(
+  automation: UmblerAutomationKey,
+): Record<string, unknown> {
+  return {
+    schema: UMBLER_AUTOMATION_V1_SCHEMA,
+    source: UMBLER_AUTOMATION_V1_SOURCE,
+    automation,
+    contact: { phone: "+55..." },
+    conversation: {
+      id: "CONVERSATION_ID",
+      created_at_utc: "YYYY-MM-DD HH:mm:ss",
+    },
+  };
+}
+
+/**
+ * Corpo JSON que a automacao HTTP da Umbler precisa enviar para o callback de
+ * tag/automacao. Aparece logo apos criar (ou rotacionar) a URL de uso unico e
+ * tambem no "Como configurar" de uma regra ja existente.
+ */
+export function UmblerAutomationPayloadPanel({
+  eventName,
 }: {
-  active: boolean;
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
+  eventName: ConversionEventNameDto;
 }) {
+  const automation = umblerAutomationKeyForEvent(eventName);
+  const exampleAutomation =
+    automation ?? umblerAutomationFallbackForEvent(eventName);
+  const payloadJson = JSON.stringify(
+    buildUmblerAutomationPayloadExample(exampleAutomation),
+    null,
+    2,
+  );
+  const [copied, setCopied] = useState(false);
+
+  async function copyPayload() {
+    try {
+      await navigator.clipboard.writeText(payloadJson);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
   return (
-    <button
-      className={active ? "active" : ""}
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-    >
-      {icon}
-      {label}
+    <div className="provider-conversion-payload-helper">
+      <div>
+        <span className="micro-label">Corpo JSON da automacao</span>
+        <strong>Configuracao HTTP na Umbler</strong>
+      </div>
+      {automation ? null : (
+        <p className="action-note warn">
+          O callback da Umbler so reconhece os eventos Lead qualificado
+          (lead_qualificado) ou Compra aprovada (compra_aprovada). Troque o
+          evento desta regra para um dos dois, ou use &quot;{exampleAutomation}
+          &quot; como referencia mais proxima.
+        </p>
+      )}
+      <pre className="payload-block" data-presentation-sensitive-field="true">
+        {payloadJson}
+      </pre>
+      <button
+        className="button subtle"
+        type="button"
+        onClick={() => void copyPayload()}
+      >
+        {copied ? (
+          <Check size={14} aria-hidden="true" />
+        ) : (
+          <Copy size={14} aria-hidden="true" />
+        )}
+        {copied ? "Copiado" : "Copiar JSON"}
+      </button>
+      <ol className="provider-conversion-payload-steps">
+        <li>
+          Copie a URL da automacao e cole no campo de URL da acao HTTP na
+          Umbler.
+        </li>
+        <li>
+          Metodo POST; o token de acesso ja esta na URL, sem cabecalho extra.
+        </li>
+        <li>Cole o corpo JSON acima no campo de body da acao HTTP.</li>
+        <li>
+          Mapeie contact.phone, conversation.id e conversation.created_at_utc
+          para os campos reais do contato e da conversa na automacao da Umbler.
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+/** O token viaja na query `token` da URL; a Payt pode pedir os dois separados. */
+export function paytWebhookToken(webhookUrl: string): string | null {
+  try {
+    return new URL(webhookUrl).searchParams.get("token");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Botao de copiar com o retorno no proprio botao: "Copiada" quando deu certo,
+ * "Copie manualmente" quando o navegador bloqueou a area de transferencia.
+ */
+function CopyValueButton({
+  value,
+  label,
+  copiedLabel,
+}: {
+  value: string;
+  label: string;
+  copiedLabel: string;
+}) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setState("copied");
+    } catch {
+      setState("failed");
+    }
+  }
+
+  return (
+    <button className="button" type="button" onClick={() => void copy()}>
+      {state === "copied" ? (
+        <Check size={15} aria-hidden="true" />
+      ) : (
+        <Copy size={15} aria-hidden="true" />
+      )}
+      {state === "copied"
+        ? copiedLabel
+        : state === "failed"
+          ? "Copie manualmente"
+          : label}
     </button>
   );
+}
+
+/** URL e token do webhook Payt, exibidos uma unica vez apos criar ou rotacionar. */
+export function PaytWebhookSecret({
+  webhookUrl,
+  onHide,
+}: {
+  webhookUrl: string;
+  onHide: () => void;
+}) {
+  const token = paytWebhookToken(webhookUrl);
+
+  return (
+    <div className="provider-conversion-secret-group">
+      <div
+        className="provider-conversion-secret"
+        data-presentation-sensitive-action="true"
+      >
+        <div>
+          <span className="micro-label">Exibida uma unica vez</span>
+          <strong>URL do webhook Payt</strong>
+        </div>
+        <input
+          readOnly
+          value={webhookUrl}
+          aria-label="URL do webhook Payt"
+          data-presentation-sensitive-field="true"
+        />
+        <CopyValueButton
+          value={webhookUrl}
+          label="Copiar URL"
+          copiedLabel="URL copiada"
+        />
+        <button
+          className="icon-button"
+          type="button"
+          title="Ocultar URL e token"
+          aria-label="Ocultar URL e token"
+          onClick={onHide}
+        >
+          <X size={15} aria-hidden="true" />
+        </button>
+      </div>
+      {token ? (
+        <div
+          className="provider-conversion-secret"
+          data-presentation-sensitive-action="true"
+        >
+          <div>
+            <span className="micro-label">Ja incluso na URL</span>
+            <strong>Token</strong>
+          </div>
+          <input
+            readOnly
+            value={token}
+            aria-label="Token do webhook Payt"
+            data-presentation-sensitive-field="true"
+          />
+          <CopyValueButton
+            value={token}
+            label="Copiar token"
+            copiedLabel="Token copiado"
+          />
+        </div>
+      ) : null}
+      <p className="action-note">
+        Na Payt, cadastre um webhook de vendas e cole a URL completa. So use o
+        token se a Payt pedir em um campo separado.
+      </p>
+    </div>
+  );
+}
+
+function PaytSetupDetails() {
+  return (
+    <details className="provider-conversion-rule-scope">
+      <summary>
+        <span>Como configurar na Payt</span>
+        <strong>Webhook de vendas</strong>
+      </summary>
+      <div className="provider-conversion-payload-helper-body">
+        <p className="action-note">
+          A URL e o token so aparecem uma vez, na criacao. Se perdeu, gere uma
+          nova URL acima e cole de novo na Payt. So compras aprovadas contam, nos
+          numeros vinculados abaixo.
+        </p>
+      </div>
+    </details>
+  );
+}
+
+/** "Como configurar" para uma regra de automacao Umbler ja existente na lista. */
+function UmblerAutomationSetupDetails({
+  eventName,
+}: {
+  eventName: ConversionEventNameDto;
+}) {
+  return (
+    <details className="provider-conversion-rule-scope">
+      <summary>
+        <span>Como configurar na Umbler</span>
+        <strong>Corpo JSON da automacao</strong>
+      </summary>
+      <div className="provider-conversion-payload-helper-body">
+        <p className="action-note">
+          A URL secreta so aparece uma vez, na criacao da regra. Se perdeu, gere
+          uma nova URL acima e repita a configuracao na automacao da Umbler.
+        </p>
+        <UmblerAutomationPayloadPanel eventName={eventName} />
+      </div>
+    </details>
+  );
+}
+
+/**
+ * Origem do gatilho e evento enviado a Meta, os dois eixos independentes da
+ * regra. O catalogo estruturado e o unico caso preso a um evento (Purchase):
+ * ele deriva o valor dos itens da mensagem e alimenta a fila de revisao.
+ */
+export function ConversionRuleOriginEventSelector({
+  origin,
+  eventName,
+  onOriginChange,
+  onEventChange,
+  guimoEnabled = true,
+}: {
+  origin: ConversionRuleOrigin;
+  eventName: ConversionEventNameDto;
+  onOriginChange: (origin: ConversionRuleOrigin) => void;
+  onEventChange: (eventName: ConversionEventNameDto) => void;
+  guimoEnabled?: boolean;
+}) {
+  const catalogOnly = originLocksPurchase(origin);
+  const isGuimoOrigin = origin === "guimo";
+  const events = catalogOnly
+    ? conversionEventCatalogOrdered.filter(
+        (event) => event.eventName === catalogOriginEventName,
+      )
+    : conversionEventCatalogOrdered;
+  const categories = [...new Set(events.map((event) => event.category))];
+  const originOptions = (
+    Object.keys(conversionRuleOriginLabels) as ConversionRuleOrigin[]
+  ).filter((value) => value !== "guimo" || guimoEnabled);
+
+  return (
+    <div className="provider-conversion-target">
+      <div className="provider-conversion-target-selects">
+        <label>
+          <span className="field-label">Origem do gatilho</span>
+          <select
+            value={origin}
+            onChange={(event) =>
+              onOriginChange(event.target.value as ConversionRuleOrigin)
+            }
+          >
+            {originOptions.map((value) => (
+              <option key={value} value={value}>
+                {conversionRuleOriginLabels[value]}
+              </option>
+            ))}
+          </select>
+        </label>
+        {isGuimoOrigin ? null : (
+          <label>
+            <span className="field-label">Evento enviado a Meta</span>
+            <select
+              value={eventName}
+              disabled={catalogOnly}
+              onChange={(event) =>
+                onEventChange(event.target.value as ConversionEventNameDto)
+              }
+            >
+              {categories.map((category) => (
+                <optgroup
+                  key={category}
+                  label={conversionEventCategoryLabels[category]}
+                >
+                  {events
+                    .filter((event) => event.category === category)
+                    .map((event) => (
+                      <option key={event.eventName} value={event.eventName}>
+                        {event.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      {isGuimoOrigin ? (
+        <div className="provider-conversion-event-hint">
+          <span className="micro-label">Movimentacao no CRM (Guimo)</span>
+          <small>
+            A conversao disparada e escolhida em cada regra Guimo, pelo nome do
+            estagio — nao ha um unico evento Meta fixo para essa origem.
+          </small>
+        </div>
+      ) : (
+        <ConversionEventHint eventName={eventName} />
+      )}
+    </div>
+  );
+}
+
+function ConversionEventHint({
+  eventName,
+}: {
+  eventName: ConversionEventNameDto;
+}) {
+  const event = conversionEventMetadata(eventName);
+
+  return (
+    <div className="provider-conversion-event-hint">
+      <span className="micro-label">{event.label}</span>
+      <small>{event.description}</small>
+    </div>
+  );
+}
+
+/**
+ * Trigger phrases, example message and value pipeline of a message_phrase rule.
+ * The preview mirrors the server heuristics: contains match on the normalized
+ * phrase and a single distinct money value in the message.
+ */
+export function MessagePhraseFields({
+  eventName,
+  averageValue,
+  contentName,
+  primaryPhrase,
+  variationPhrases,
+  exampleMessage,
+  valueMode,
+  messageAuthorScope,
+  onChange,
+}: MessagePhraseValues & {
+  eventName: ConversionEventNameDto;
+  onChange: (patch: Partial<MessagePhraseValues>) => void;
+}) {
+  const carriesValue = conversionEventCarriesValue(eventName);
+  const extracting = carriesValue && valueMode === "message_extracted";
+  const preview = previewMessagePhrase({
+    triggerPhrases: mergeTriggerPhrases(primaryPhrase, variationPhrases),
+    exampleMessage,
+    valueMode: extracting ? "message_extracted" : "fixed",
+    averageValue,
+  });
+
+  return (
+    <div className="provider-conversion-message-fields">
+      <label>
+        <span className="field-label">Frase principal</span>
+        <input
+          value={primaryPhrase}
+          onChange={(event) => onChange({ primaryPhrase: event.target.value })}
+          maxLength={2_400}
+          placeholder="Ex.: A sua consulta esta agendada"
+          required
+        />
+      </label>
+      <label>
+        <span className="field-label">Variacoes (opcional)</span>
+        <textarea
+          value={variationPhrases}
+          onChange={(event) =>
+            onChange({ variationPhrases: event.target.value })
+          }
+          rows={3}
+          maxLength={4_800}
+          placeholder={
+            "Uma por linha. Ex.: consulta confirmada\nestou confirmando sua consulta"
+          }
+        />
+        <small className="action-note">
+          Secretarias nem sempre usam a mesma frase. Cadastre variacoes comuns.
+        </small>
+      </label>
+
+      <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
+        <label>
+          <span className="field-label">Exemplo da mensagem</span>
+          <textarea
+            value={exampleMessage}
+            onChange={(event) =>
+              onChange({ exampleMessage: event.target.value })
+            }
+            rows={3}
+            maxLength={2_000}
+            placeholder={
+              carriesValue
+                ? "Ex.: Pagamento confirmado no valor de R$ 1.397,00"
+                : "Ex.: Perfeito! Vou te passar os valores agora."
+            }
+          />
+        </label>
+        <label>
+          <span className="field-label">Quem pode enviar</span>
+          <select
+            value={messageAuthorScope}
+            onChange={(event) =>
+              onChange({
+                messageAuthorScope: event.target.value as MessageAuthorScope,
+              })
+            }
+          >
+            <option value="team">Equipe ou bot</option>
+            <option value="contact">Somente contato</option>
+            <option value="both">Equipe, bot ou contato</option>
+          </select>
+        </label>
+      </div>
+
+      {carriesValue ? (
+        <>
+          <fieldset className="provider-conversion-value-modes">
+            <legend className="field-label">Modo de valor</legend>
+            <div>
+              <label>
+                <input
+                  type="radio"
+                  name="messagePhraseValueMode"
+                  value="fixed"
+                  checked={!extracting}
+                  onChange={() => onChange({ valueMode: "fixed" })}
+                />
+                <span>Valor fixo</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="messagePhraseValueMode"
+                  value="message_extracted"
+                  checked={extracting}
+                  onChange={() => onChange({ valueMode: "message_extracted" })}
+                />
+                <span>Extrair da mensagem</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div className="provider-conversion-base-fields provider-conversion-base-fields-2col">
+            <label>
+              <span className="field-label">
+                {averageValueLabel(eventName, extracting)}
+              </span>
+              <input
+                value={averageValue}
+                onChange={(event) =>
+                  onChange({ averageValue: event.target.value })
+                }
+                inputMode="decimal"
+                placeholder="Ex.: 250,00"
+                required={
+                  !extracting && conversionEventRequiresValue(eventName)
+                }
+              />
+            </label>
+            <label>
+              <span className="field-label">Produto (opcional)</span>
+              <input
+                value={contentName}
+                onChange={(event) =>
+                  onChange({ contentName: event.target.value })
+                }
+                maxLength={180}
+                placeholder="Ex.: Consulta"
+              />
+            </label>
+          </div>
+        </>
+      ) : null}
+
+      <div className="provider-conversion-preview">
+        <span className="micro-label">Previa do reconhecimento</span>
+        <strong>
+          {preview.matchedPhrase
+            ? `Frase gatilho reconhecida: ${preview.matchedPhrase}`
+            : exampleMessage.trim()
+              ? "Nenhuma frase gatilho encontrada no exemplo."
+              : "Escreva um exemplo para conferir o reconhecimento."}
+        </strong>
+        <small>
+          {carriesValue
+            ? previewValueLabel(preview, extracting, eventName)
+            : "Este evento nao envia valor monetario."}
+        </small>
+      </div>
+    </div>
+  );
+}
+
+function averageValueLabel(
+  eventName: ConversionEventNameDto,
+  extracting: boolean,
+): string {
+  if (extracting) return "Valor medio (fallback, opcional)";
+
+  return conversionEventRequiresValue(eventName)
+    ? "Valor medio (R$)"
+    : "Valor medio (opcional)";
+}
+
+function previewValueLabel(
+  preview: MessagePhrasePreview,
+  extracting: boolean,
+  eventName: ConversionEventNameDto,
+): string {
+  if (preview.ambiguousValue) {
+    return "O exemplo tem mais de um valor. A regra vai pedir revisao manual.";
+  }
+  if (preview.valueCents === null) {
+    if (extracting) {
+      return conversionEventRequiresValue(eventName)
+        ? "Nenhum valor no exemplo e sem valor medio de fallback: a conversao ficaria em revisao."
+        : "Nenhum valor no exemplo. Este evento pode ser enviado sem valor.";
+    }
+
+    return conversionEventRequiresValue(eventName)
+      ? "Informe o valor medio enviado por esta regra."
+      : "Sem valor medio: este evento seria enviado sem valor.";
+  }
+
+  const money = formatMoney(preview.valueCents, "BRL");
+  if (preview.valueSource === "message") {
+    return `Valor extraido do exemplo: ${money}`;
+  }
+  if (preview.valueSource === "fallback") {
+    return `Sem valor no exemplo. Seria enviado o valor medio: ${money}`;
+  }
+
+  return `Valor fixo enviado em toda conversao: ${money}`;
 }
 
 function ChannelSelector({
   channels,
   selectedChannelIds,
   onToggle,
+  legend = "Canais desta regra",
+  requiredHint,
 }: {
   channels: InboundWebhookChannelDto[];
   selectedChannelIds: string[];
   onToggle: (channelId: string) => void;
+  legend?: string;
+  requiredHint?: string;
 }) {
   return (
     <fieldset className="provider-conversion-channels">
-      <legend className="field-label">Canais desta regra</legend>
+      <legend className="field-label">{legend}</legend>
+      {requiredHint ? (
+        <small className="action-note">{requiredHint}</small>
+      ) : null}
       <div>
         {channels.map((channel) => (
           <label key={channel.id}>
@@ -2058,15 +3292,20 @@ function catalogAliasDrafts(
   );
 }
 
-function buildCreatePayload(input: {
+export function buildCreatePayload(input: {
   connectionId: string;
-  kind: RuleKind;
+  origin: ConversionRuleOrigin;
+  eventName: ConversionEventNameDto;
   name: string;
   selectedChannelIds: string[];
+  mode?: ProviderConversionRuleMode;
   averageValue: string;
   contentName: string;
   triggerPhrases: string;
-  messageAuthorScope: "team" | "contact" | "both";
+  triggerLabels?: UazapiTriggerLabel[];
+  exampleMessage: string;
+  valueMode: MessagePhraseValueMode;
+  messageAuthorScope: MessageAuthorScope;
   catalogName: string;
   productName: string;
   attributes: CatalogAttributeDraft[];
@@ -2077,40 +3316,80 @@ function buildCreatePayload(input: {
     return { ok: false, message: "Informe um nome para a regra." };
   }
   if (input.selectedChannelIds.length === 0) {
-    return { ok: false, message: "Selecione ao menos um canal." };
+    return {
+      ok: false,
+      message:
+        input.origin === "payt"
+          ? "Marque ao menos um numero para receber as compras da Payt."
+          : "Selecione ao menos um canal.",
+    };
   }
 
   const base = {
     name,
     connectionId: input.connectionId,
     channelIds: input.selectedChannelIds,
-    mode: "observation" as const,
+    mode: input.mode ?? "observation",
   };
 
-  if (input.kind === "qualified_automation") {
+  if (input.origin === "payt") {
     return {
       ok: true,
       value: {
         ...base,
         triggerType: "provider_automation",
-        eventName: "QualifiedLead",
+        eventName: catalogOriginEventName,
+        automationSource: "payt",
       },
     };
   }
 
-  if (
-    input.kind === "purchase_automation" ||
-    input.kind === "purchase_message"
-  ) {
-    const defaultValueCents = parseMoneyToCents(input.averageValue);
-    if (!defaultValueCents) {
-      return { ok: false, message: "Informe um valor medio valido." };
-    }
-    const messagePhrases = parseTriggerPhrases(input.triggerPhrases);
-    if (input.kind === "purchase_message" && messagePhrases.length === 0) {
+  const carriesValue = conversionEventCarriesValue(input.eventName);
+
+  if (input.origin === "tag") {
+    const selectedLabels = (input.triggerLabels ?? [])
+      .map((label) => ({
+        id: label.id.trim(),
+        name: label.name.trim(),
+      }))
+      .filter((label) => label.id.length > 0 && label.name.length > 0);
+    const triggerPhrases =
+      selectedLabels.length > 0
+        ? selectedLabels.map((label) => label.name)
+        : parseTriggerPhrases(input.triggerPhrases);
+    if (triggerPhrases.length === 0) {
       return {
         ok: false,
-        message: "Informe ao menos uma frase gatilho para reconhecer a compra.",
+        message: "Selecione ou informe ao menos uma etiqueta para a regra.",
+      };
+    }
+    const automation = {
+      ...base,
+      triggerType: "provider_automation",
+      eventName: input.eventName,
+      triggerPhrases,
+      ...(selectedLabels.length > 0 ? { triggerLabels: selectedLabels } : {}),
+    };
+    if (!carriesValue) return { ok: true, value: automation };
+
+    const valueFields = buildEventValueFields(input, false);
+    if (!valueFields.ok) return valueFields;
+
+    return { ok: true, value: { ...automation, ...valueFields.value } };
+  }
+
+  if (input.origin === "message") {
+    const extracting = carriesValue && input.valueMode === "message_extracted";
+    const valueFields = carriesValue
+      ? buildEventValueFields(input, extracting)
+      : ({ ok: true, value: {} } as const);
+    if (!valueFields.ok) return valueFields;
+
+    const messagePhrases = parseTriggerPhrases(input.triggerPhrases);
+    if (messagePhrases.length === 0) {
+      return {
+        ok: false,
+        message: `Informe ao menos uma frase gatilho para reconhecer o evento ${conversionEventBuilderLabel(input.eventName)}.`,
       };
     }
 
@@ -2118,20 +3397,14 @@ function buildCreatePayload(input: {
       ok: true,
       value: {
         ...base,
-        triggerType:
-          input.kind === "purchase_automation"
-            ? "provider_automation"
-            : "message_phrase",
-        eventName: "Purchase",
-        defaultValueCents,
-        defaultCurrency: "BRL",
-        defaultContentName: input.contentName.trim() || null,
-        ...(input.kind === "purchase_message"
-          ? {
-              triggerPhrases: messagePhrases,
-              messageAuthorScope: input.messageAuthorScope,
-            }
-          : {}),
+        triggerType: "message_phrase",
+        eventName: input.eventName,
+        // Evento sem valor recusa "message_extracted" no contrato compartilhado.
+        valueMode: extracting ? "message_extracted" : "fixed",
+        exampleMessage: input.exampleMessage.trim() || null,
+        ...valueFields.value,
+        triggerPhrases: messagePhrases,
+        messageAuthorScope: input.messageAuthorScope,
       },
     };
   }
@@ -2185,7 +3458,7 @@ function buildCreatePayload(input: {
     value: {
       ...base,
       triggerType: "structured_catalog",
-      eventName: "Purchase",
+      eventName: catalogOriginEventName,
       triggerPhrases,
       messageAuthorScope: input.messageAuthorScope,
       catalog: {
@@ -2202,6 +3475,159 @@ function buildCreatePayload(input: {
   };
 }
 
+/**
+ * Campos monetarios de um evento que carrega valor. Eventos "required"
+ * (Purchase, InitiateCheckout) exigem valor medio quando o modo e fixo;
+ * "optional" aceita a ausencia, mas nunca um valor invalido.
+ */
+function buildEventValueFields(
+  input: {
+    eventName: ConversionEventNameDto;
+    averageValue: string;
+    contentName: string;
+  },
+  extracting: boolean,
+):
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; message: string } {
+  const defaultValueCents = parseMoneyToCents(input.averageValue);
+  const required = !extracting && conversionEventRequiresValue(input.eventName);
+  if (!defaultValueCents && (required || input.averageValue.trim())) {
+    return { ok: false, message: "Informe um valor medio valido." };
+  }
+
+  return {
+    ok: true,
+    value: {
+      defaultValueCents,
+      defaultCurrency: "BRL",
+      defaultContentName: input.contentName.trim() || null,
+    },
+  };
+}
+
+/**
+ * Client-side rehearsal of the server decision for message_phrase rules:
+ * normalized "contains" match of the trigger phrases plus the money value of
+ * the example. Values only count when the example carries a single amount, the
+ * same guard the parser applies before trusting a message value.
+ */
+export function previewMessagePhrase(input: {
+  triggerPhrases: string;
+  exampleMessage: string;
+  valueMode: MessagePhraseValueMode;
+  averageValue: string;
+}): MessagePhrasePreview {
+  const example = input.exampleMessage.trim();
+  const matchedPhrase = matchTriggerPhrase(
+    example,
+    parseTriggerPhrases(input.triggerPhrases),
+  );
+  const fallbackCents = parseMoneyToCents(input.averageValue);
+
+  if (input.valueMode === "fixed") {
+    return {
+      matchedPhrase,
+      valueCents: fallbackCents,
+      valueSource: fallbackCents === null ? null : "fixed",
+      ambiguousValue: false,
+    };
+  }
+
+  const values = messageMoneyValues(example);
+  if (values.length > 1) {
+    return {
+      matchedPhrase,
+      valueCents: null,
+      valueSource: null,
+      ambiguousValue: true,
+    };
+  }
+
+  const extracted = values[0] ?? null;
+  const valueCents = extracted ?? fallbackCents;
+  return {
+    matchedPhrase,
+    valueCents,
+    valueSource:
+      valueCents === null ? null : extracted === null ? "fallback" : "message",
+    ambiguousValue: false,
+  };
+}
+
+function normalizeMessageText(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .replace(/\s+/g, " ");
+}
+
+function matchTriggerPhrase(
+  message: string,
+  triggerPhrases: string[],
+): string | null {
+  if (!message) return null;
+
+  const normalizedMessage = normalizeMessageText(message);
+  return (
+    triggerPhrases.find((phrase) => {
+      const normalizedPhrase = normalizeMessageText(phrase);
+      return (
+        normalizedPhrase.length > 0 &&
+        normalizedMessage.includes(normalizedPhrase)
+      );
+    }) ?? null
+  );
+}
+
+const messageMoneyPattern =
+  /(?:^|[^\d])((?:R\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}|(?:US\$\s*|\$\s*)?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2})(?=$|[^\d])/giu;
+
+/** Distinct money values of a message, in cents. Mirrors the server parser. */
+function messageMoneyValues(message: string): number[] {
+  const values = new Set<number>();
+  for (const match of message.matchAll(messageMoneyPattern)) {
+    const cents = parseMessageMoneyToken(match[1]);
+    if (cents !== null) values.add(cents);
+  }
+
+  return [...values];
+}
+
+function parseMessageMoneyToken(token: string): number | null {
+  const normalized = token.replace(/R\$|US\$|\$/giu, "").replace(/\s+/g, "");
+  const decimalSeparator =
+    normalized.lastIndexOf(",") > normalized.lastIndexOf(".") ? "," : ".";
+  const [wholePart, decimalPart] = normalized.split(decimalSeparator);
+  if (!wholePart || !/^\d{2}$/u.test(decimalPart ?? "")) return null;
+
+  const wholeDigits = wholePart.replace(/[.,]/g, "");
+  if (!/^\d+$/u.test(wholeDigits)) return null;
+
+  const cents = Number(wholeDigits) * 100 + Number(decimalPart);
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
+}
+
+/**
+ * First selected channel bridged to a WhatsApp instance, in selection order.
+ * UAZAPI channels carry this id; other providers (Umbler, Gupshup) leave it
+ * null, which keeps the free-text trigger phrases textarea instead of the
+ * live label picker.
+ */
+function resolveUazapiWhatsappInstanceId(
+  channels: InboundWebhookChannelDto[],
+  selectedChannelIds: string[],
+): string | null {
+  for (const channelId of selectedChannelIds) {
+    const channel = channels.find((item) => item.id === channelId);
+    if (channel?.whatsappInstanceId) return channel.whatsappInstanceId;
+  }
+
+  return null;
+}
+
 function parseTriggerPhrases(value: string): string[] {
   return [
     ...new Set(
@@ -2211,6 +3637,21 @@ function parseTriggerPhrases(value: string): string[] {
         .filter(Boolean),
     ),
   ];
+}
+
+/**
+ * Combines the primary phrase and the "one per line" variations into the
+ * single newline-separated string the rest of the pipeline expects.
+ * Deduping, trimming and dropping empties happens downstream in
+ * parseTriggerPhrases, which every caller of this string already runs.
+ */
+export function mergeTriggerPhrases(
+  primaryPhrase: string,
+  variationPhrases: string,
+): string {
+  return [primaryPhrase, variationPhrases]
+    .filter((part) => part.trim())
+    .join("\n");
 }
 
 function emptyVariant(id: number, attributeCount: number): CatalogVariantDraft {
@@ -2268,9 +3709,7 @@ export function parseMoneyToCents(value: string): number | null {
 }
 
 function eventLabel(rule: ProviderConversionRuleDto): string {
-  return rule.conversionRule.eventName === "QualifiedLead"
-    ? "Lead qualificado"
-    : "Compra";
+  return conversionEventBuilderLabel(rule.conversionRule.eventName);
 }
 
 function triggerLabel(rule: ProviderConversionRuleDto): string {
@@ -2278,9 +3717,18 @@ function triggerLabel(rule: ProviderConversionRuleDto): string {
     return "Mensagem com catalogo";
   }
   if (rule.conversionRule.triggerType === "message_phrase") {
-    return "Mensagem com valor medio";
+    return "Mensagem com frase gatilho";
+  }
+  if (rule.automationSource === "payt") {
+    return "Compra aprovada na Payt";
   }
   return "Automacao por tag";
+}
+
+function valueModeLabel(rule: ProviderConversionRuleDto): string {
+  return rule.valueMode === "message_extracted"
+    ? "Valor na mensagem"
+    : "Valor fixo";
 }
 
 function executionStatusLabel(
@@ -2304,9 +3752,9 @@ function executionStatusLabel(
 function automationEventLabel(
   eventName: ProviderConversionAutomationAuditItemDto["eventName"],
 ): string {
-  if (eventName === "QualifiedLead") return "Lead qualificado";
-  if (eventName === "Purchase") return "Compra";
-  return "Evento nao identificado";
+  return eventName
+    ? conversionEventBuilderLabel(eventName)
+    : "Evento nao identificado";
 }
 
 function automationAuditStatusLabel(
@@ -2333,14 +3781,19 @@ function automationAuditTone(
   status: ProviderConversionAutomationAuditItemDto["status"],
 ): "" | "warn" | "bad" | "neutral" {
   if (status === "materialized") return "";
-  if (
-    status === "observed" ||
-    status === "eligible" ||
-    status === "ignored"
-  ) {
+  if (status === "observed" || status === "eligible" || status === "ignored") {
     return "neutral";
   }
   if (status === "blocked" || status === "duplicate") return "warn";
+  return "bad";
+}
+
+function executionAuditTone(
+  status: ProviderConversionRuleExecutionAuditItemDto["status"],
+): "" | "warn" | "bad" | "neutral" {
+  if (status === "materialized") return "";
+  if (status === "observed" || status === "eligible") return "neutral";
+  if (status === "duplicate" || status === "blocked") return "warn";
   return "bad";
 }
 

@@ -4,6 +4,14 @@ import type { BackofficeActionState } from "../../../../components/backoffice-ac
 import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../../lib/server-api";
 import { parseMoneyInputToCents } from "../../../../lib/money-input";
+import { DEFAULT_END_CONTRACT_REASON } from "./end-contract-eligibility";
+import { parseTrialReminderTemplates } from "./reminder-templates";
+import {
+  DEFAULT_DISABLE_AUTOCONVERT_REASON,
+  TRIAL_MAX_CAPACITY,
+  TRIAL_MIN_CAPACITY,
+  parseTrialCapacity,
+} from "./trial-eligibility";
 
 function result(
   status: "success" | "error",
@@ -130,6 +138,153 @@ export async function assignPackagePlanAction(
       error instanceof Error
         ? error.message
         : "Nao foi possivel atribuir o pacote.",
+    );
+  }
+}
+
+export async function cancelPackageContractAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const subscriptionId = String(formData.get("subscriptionId") ?? "").trim();
+  const reason =
+    String(formData.get("reason") ?? "").trim() || DEFAULT_END_CONTRACT_REASON;
+
+  if (reason.length < 3) {
+    return result("error", "Escreva um motivo com pelo menos 3 letras.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/billing/package-contracts/${encodeURIComponent(
+        workspaceId,
+      )}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
+    revalidatePath("/backoffice/billing");
+    return result("success", "Contrato encerrado e retirado da lista.");
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel encerrar o contrato.",
+    );
+  }
+}
+
+export async function startWorkspaceTrialAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const capacity = parseTrialCapacity(formData.get("capacity"));
+  const reason = String(formData.get("reason") ?? "").trim();
+
+  if (capacity === null) {
+    return result(
+      "error",
+      `Escolha um numero inteiro de ${TRIAL_MIN_CAPACITY} a ${TRIAL_MAX_CAPACITY} para o trial.`,
+    );
+  }
+
+  if (reason.length < 3) {
+    return result("error", "Escreva um motivo com pelo menos 3 letras.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/billing/package-contracts/${encodeURIComponent(
+        workspaceId,
+      )}/start-trial`,
+      {
+        method: "POST",
+        body: JSON.stringify({ capacity, reason }),
+      },
+    );
+    revalidatePath("/backoffice/billing");
+    return result(
+      "success",
+      `Trial de 30 dias iniciado com ${capacity} numero(s).`,
+    );
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel iniciar o trial.",
+    );
+  }
+}
+
+export async function saveTrialReminderTemplatesAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const parsed = parseTrialReminderTemplates(formData);
+
+  if (!parsed.ok) {
+    return result("error", parsed.message);
+  }
+
+  try {
+    await serverApiFetch("/backoffice/billing/trial-reminder-templates", {
+      method: "PUT",
+      body: JSON.stringify({ templates: parsed.templates }),
+    });
+    revalidatePath("/backoffice/billing");
+    return result(
+      "success",
+      "Mensagens salvas. Os proximos lembretes ja usam este texto.",
+    );
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel salvar as mensagens.",
+    );
+  }
+}
+
+export async function disableTrialAutoconvertAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const reason =
+    String(formData.get("reason") ?? "").trim() ||
+    DEFAULT_DISABLE_AUTOCONVERT_REASON;
+
+  if (reason.length < 3) {
+    return result("error", "Escreva um motivo com pelo menos 3 letras.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/billing/package-contracts/${encodeURIComponent(
+        workspaceId,
+      )}/trial-autoconvert/disable`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
+    revalidatePath("/backoffice/billing");
+    return result(
+      "success",
+      "Auto-cobranca desligada. O trial termina sem gerar cobranca.",
+    );
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel desligar a auto-cobranca.",
     );
   }
 }

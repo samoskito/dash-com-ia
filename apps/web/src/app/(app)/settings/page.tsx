@@ -4,19 +4,25 @@ import type {
   ConversionRuleDto,
   CurrentWorkspaceDto,
   FunnelConfigurationDto,
+  GuimoIntegrationListDto,
   InboundWebhookChannelDto,
   InboundWebhookConnectionDto,
   ProviderConversionRuleDto,
   WhatsappInstanceSummaryDto,
   WhatsappLabelDto,
+  WorkspaceOpsAlertSettings,
   WorkspaceInviteDto,
   WorkspaceMemberDto,
 } from "@wpptrack/shared";
-import { conversionEventDisplayLabels } from "@wpptrack/shared";
+import {
+  conversionEventDisplayLabels,
+  workspaceOpsAlertSettingsSchema,
+} from "@wpptrack/shared";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import {
   ArrowLeftRight,
+  Bell,
   Building2,
   ChevronDown,
   ShieldCheck,
@@ -33,6 +39,7 @@ import { ClientSwapPanel } from "../../../components/client-swap-panel";
 import { ConversionRuleBuilder } from "../../../components/conversion-rule-builder";
 import { CopyLinkButton } from "../../../components/copy-link-button";
 import { LinkResultActionForm } from "../../../components/link-result-action-form";
+import { OpsAlertPhonesEditor } from "../../../components/ops-alert-phones-editor";
 import { PendingSubmitButton } from "../../../components/pending-submit-button";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { TeamActionButton } from "../../../components/team-action-button";
@@ -40,12 +47,22 @@ import { displayTimeZone } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { ProviderConversionRulePanel } from "../integrations/provider-conversion-rule-panel";
+import {
+  createGuimoConversionRuleAction,
+  deleteGuimoConversionRuleAction,
+  provisionGuimoIntegrationAction,
+  rotateGuimoWebhookTokenAction,
+  setGuimoIntegrationActiveAction,
+  updateGuimoConversionRuleAction,
+} from "../integrations/guimo-actions";
 import { clientSwapAction } from "./client-swap-actions";
+import { saveOpsAlertSettingsAction } from "./ops-alert-settings-actions";
 import {
   adaptProviderConversionRuleAction,
   createProviderConversionRuleAction,
   loadProviderConversionAutomationAuditAction,
   loadProviderConversionAutomationPayloadAction,
+  loadProviderConversionExecutionAuditAction,
   loadProviderConversionPurchaseAuditAction,
   removeProviderConversionRuleAction,
   reprocessProviderConversionAutomationCallbacksAction,
@@ -70,6 +87,43 @@ type AccountSettingsResult = {
   user: AccountUserDto | null;
   state: "real" | "error";
 };
+
+type WorkspaceOpsAlertSettingsDto = WorkspaceOpsAlertSettings;
+
+type OpsAlertSettingsResult = {
+  settings: WorkspaceOpsAlertSettingsDto | null;
+  workspaceId: string | null;
+  state: "real" | "forbidden" | "error";
+};
+
+const opsAlertSettingsDefaults: Pick<
+  WorkspaceOpsAlertSettingsDto,
+  | "enabled"
+  | "alertPhonesE164"
+  | "alertPhoneE164"
+  | "disconnectAlerts"
+  | "webhookSilenceAlerts"
+  | "silenceThresholdHours"
+  | "debounceHours"
+> = {
+  enabled: false,
+  alertPhonesE164: [],
+  alertPhoneE164: null,
+  disconnectAlerts: true,
+  webhookSilenceAlerts: true,
+  silenceThresholdHours: 24,
+  debounceHours: 6,
+};
+
+function defaultOpsAlertSettings(workspaceId: string): WorkspaceOpsAlertSettingsDto {
+  return workspaceOpsAlertSettingsSchema.parse({
+    id: null,
+    workspaceId,
+    ...opsAlertSettingsDefaults,
+    createdAt: null,
+    updatedAt: null,
+  });
+}
 
 type ConversionRulesResult = {
   rules: ConversionRuleDto[];
@@ -255,6 +309,31 @@ async function getAccountSettings(): Promise<AccountSettingsResult> {
   }
 }
 
+async function getOpsAlertSettings(): Promise<OpsAlertSettingsResult> {
+  let workspaceId: string | null = null;
+
+  try {
+    const workspace = await getCurrentWorkspace();
+    workspaceId = workspace.id;
+
+    if (!workspace.permissions.canManageWorkspaceSettings) {
+      return { settings: null, state: "forbidden", workspaceId: workspace.id };
+    }
+
+    const payload = await serverApiFetch<unknown>(
+      `/workspaces/${encodeURIComponent(workspace.id)}/ops-alerts/settings`,
+    );
+    const parsed = workspaceOpsAlertSettingsSchema.safeParse(payload);
+    const settings = parsed.success
+      ? parsed.data
+      : defaultOpsAlertSettings(workspace.id);
+
+    return { settings, state: "real", workspaceId: workspace.id };
+  } catch {
+    return { settings: null, state: "error", workspaceId };
+  }
+}
+
 async function getConversionRules(): Promise<ConversionRulesResult> {
   try {
     const rules =
@@ -277,9 +356,8 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
     const connections = await serverApiFetch<InboundWebhookConnectionDto[]>(
       "/integrations/inbound-webhooks",
     );
-    const umblerConnections = connections.filter(
-      (connection) => connection.provider === "umbler",
-    );
+    // Todas as conexões inbound (Umbler, Gupshup, …) usam o mesmo centro de gatilhos.
+    const inboundConnections = connections;
     const [providerRulesResult, channelResults] = await Promise.all([
       serverApiFetch<ProviderConversionRuleDto[]>(
         "/conversion-rules/providers",
@@ -288,7 +366,7 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
         () => ({ ok: false as const, rules: [] }),
       ),
       Promise.allSettled(
-        umblerConnections.map((connection) =>
+        inboundConnections.map((connection) =>
           serverApiFetch<InboundWebhookChannelDto[]>(
             `/integrations/inbound-webhooks/${encodeURIComponent(connection.id)}/channels`,
           ),
@@ -296,7 +374,7 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
       ),
     ]);
     const providerRules = providerRulesResult.rules;
-    const scopedConnections = umblerConnections.map((connection, index) => ({
+    const scopedConnections = inboundConnections.map((connection, index) => ({
       connection,
       channels:
         channelResults[index]?.status === "fulfilled"
@@ -324,6 +402,39 @@ async function getProviderConversionSettings(): Promise<ProviderConversionSettin
       enabled: false,
       state: "error",
     };
+  }
+}
+
+type GuimoIntegrationsResult = {
+  integrations: GuimoIntegrationListDto;
+  state: "real" | "empty" | "error";
+};
+
+async function getGuimoIntegrations(): Promise<GuimoIntegrationsResult> {
+  try {
+    const workspace = await getCurrentWorkspace();
+    // Guimo endpoints are owner-only server-side (WorkspaceOwnerGuard); gating on
+    // canManageIntegrations alone would let non-owner managers hit a 403.
+    const isPlatformSupport = workspace.accessMode === "platform_support";
+    const isPlatformOwnerSupport =
+      isPlatformSupport && workspace.platformRole === "platform_owner";
+    const canManageGuimo =
+      workspace.role === "owner" && (!isPlatformSupport || isPlatformOwnerSupport);
+
+    if (!canManageGuimo) {
+      return { integrations: [], state: "empty" };
+    }
+
+    const integrations = await serverApiFetch<GuimoIntegrationListDto>(
+      `/workspaces/${encodeURIComponent(workspace.id)}/guimo/integrations`,
+    );
+
+    return {
+      integrations,
+      state: integrations.length > 0 ? "real" : "empty",
+    };
+  } catch {
+    return { integrations: [], state: "error" };
   }
 }
 
@@ -420,6 +531,15 @@ async function getWhatsappLabelSuggestions(): Promise<WhatsappLabelSuggestionsRe
 
 function triggerLabel(rule: Pick<ConversionRuleDto, "triggerType">): string {
   return rule.triggerType === "keyword" ? "Palavra-chave" : "Etiqueta WhatsApp";
+}
+
+function inboundProviderLabel(provider: string): string {
+  const labels: Record<string, string> = {
+    umbler: "Umbler Talk",
+    gupshup: "Gupshup",
+    uazapi: "UAZAPI",
+  };
+  return labels[provider] ?? provider;
 }
 
 function matchLabel(
@@ -892,16 +1012,20 @@ export default async function SettingsPage() {
     workspaceSettings,
     conversionRules,
     providerConversionSettings,
+    guimoIntegrationsResult,
     funnelConfiguration,
     accountSettings,
     whatsappLabelSuggestions,
+    opsAlertSettings,
   ] = await Promise.all([
     getWorkspaceSettings(),
     getConversionRules(),
     getProviderConversionSettings(),
+    getGuimoIntegrations(),
     getFunnelConfiguration(),
     getAccountSettings(),
     getWhatsappLabelSuggestions(),
+    getOpsAlertSettings(),
   ]);
   const { rules } = conversionRules;
   const providerRules = providerConversionSettings.rules;
@@ -913,7 +1037,7 @@ export default async function SettingsPage() {
       !providerRuleIds.has(rule.id) &&
       ["keyword", "whatsapp_label"].includes(rule.triggerType),
   );
-  const umblerConnections = providerConversionSettings.connections;
+  const inboundConnections = providerConversionSettings.connections;
   const { workspace, members, invites } = workspaceSettings;
   const accountUser = accountSettings.user;
   const whatsappLabels = whatsappLabelSuggestions.labels;
@@ -928,17 +1052,35 @@ export default async function SettingsPage() {
   const isPlatformOwnerSupport = Boolean(
     isPlatformSupport && workspace?.platformRole === "platform_owner",
   );
+  // Mirrors WorkspaceOwnerGuard on the Guimo endpoints.
+  const canManageGuimo = Boolean(
+    workspace &&
+      workspace.role === "owner" &&
+      (!isPlatformSupport || isPlatformOwnerSupport),
+  );
+  const guimoIntegrations = guimoIntegrationsResult.integrations;
   const canManageTeam = Boolean(
     workspace?.permissions.canManageMembers &&
     (!isPlatformSupport || isPlatformOwnerSupport),
   );
   const canSwapClient = Boolean(
-    workspace && workspace.role === "owner" && !isPlatformSupport,
+    workspace &&
+    workspace.role === "owner" &&
+    (!isPlatformSupport || isPlatformOwnerSupport),
   );
   const canGrantMemberManager = Boolean(
     workspace?.permissions.canGrantMemberManager &&
     (!isPlatformSupport || isPlatformOwnerSupport),
   );
+  const opsAlertFormValues = opsAlertSettings.settings ?? opsAlertSettingsDefaults;
+  const opsAlertStatusLabel =
+    opsAlertSettings.state === "forbidden"
+      ? "Sem permissao"
+      : opsAlertSettings.state === "error"
+        ? "Indisponivel"
+        : opsAlertFormValues.enabled
+          ? "Ativado"
+          : "Desativado";
   const pendingInviteCount = invites.filter((invite) =>
     ["pending", "sent", "failed"].includes(invite.status),
   ).length;
@@ -1091,6 +1233,10 @@ export default async function SettingsPage() {
         <a href="#configuracao-conversoes">
           <Workflow size={16} aria-hidden="true" />
           Conversoes
+        </a>
+        <a href="#configuracao-operacao">
+          <Bell size={16} aria-hidden="true" />
+          Operacao
         </a>
         {canSwapClient ? (
           <a href="#configuracao-trocar-cliente">
@@ -1692,10 +1838,10 @@ export default async function SettingsPage() {
               </span>
               <span className="settings-automation-copy">
                 <span className="eyebrow">Mapeamento de eventos</span>
-                <strong>Gatilhos do WhatsApp</strong>
+                <strong>Gatilhos de conversao</strong>
                 <small>
-                  Defina o que precisa acontecer na conversa e qual evento sera
-                  registrado.
+                  Um unico lugar para frase, checkout, compra, catalogo e tags —
+                  vale para qualquer conexao WhatsApp do workspace.
                 </small>
               </span>
               <span
@@ -1717,8 +1863,9 @@ export default async function SettingsPage() {
                     <span className="eyebrow">Origens conectadas</span>
                     <h3>Regras por conexao e canal</h3>
                     <p className="muted">
-                      Escolha a origem Umbler e limite cada gatilho aos canais
-                      que realmente devem gerar conversoes.
+                      Configure checkout, compra, catalogo e tags no mesmo fluxo
+                      para cada conexao (Umbler, Gupshup e demais origens
+                      inbound). Limite o gatilho aos canais que devem converter.
                     </p>
                   </div>
                   <Link className="button" href="/integrations">
@@ -1726,9 +1873,9 @@ export default async function SettingsPage() {
                   </Link>
                 </header>
 
-                {umblerConnections.length > 0 ? (
+                {inboundConnections.length > 0 ? (
                   <div className="trigger-source-list">
-                    {umblerConnections.map(({ connection, channels }) => {
+                    {inboundConnections.map(({ connection, channels }) => {
                       const connectionRules = providerRules.filter(
                         (rule) => rule.connectionId === connection.id,
                       );
@@ -1737,11 +1884,13 @@ export default async function SettingsPage() {
                         <details
                           className="trigger-source-details"
                           key={connection.id}
-                          open={umblerConnections.length === 1}
+                          open={inboundConnections.length === 1}
                         >
                           <summary>
                             <span className="trigger-source-identity">
-                              <span className="micro-label">Umbler Talk</span>
+                              <span className="micro-label">
+                                {inboundProviderLabel(connection.provider)}
+                              </span>
                               <strong>{connection.displayName}</strong>
                               <small>
                                 {channels.length} canal(is) descoberto(s)
@@ -1755,6 +1904,7 @@ export default async function SettingsPage() {
                           <div className="trigger-source-body">
                             <ProviderConversionRulePanel
                               connectionId={connection.id}
+                              connectionProvider={connection.provider}
                               channels={channels}
                               rules={connectionRules}
                               enabled={providerConversionSettings.enabled}
@@ -1773,12 +1923,34 @@ export default async function SettingsPage() {
                               loadPurchaseAuditAction={
                                 loadProviderConversionPurchaseAuditAction
                               }
+                              loadExecutionAuditAction={
+                                loadProviderConversionExecutionAuditAction
+                              }
                               reprocessAutomationCallbacksAction={
                                 reprocessProviderConversionAutomationCallbacksAction
                               }
                               removeAction={removeProviderConversionRuleAction}
                               testMessageAction={
                                 testProviderCatalogMessageAction
+                              }
+                              guimoEnabled={canManageGuimo}
+                              workspaceId={workspace?.id ?? ""}
+                              guimoIntegrations={guimoIntegrations}
+                              guimoProvisionAction={
+                                provisionGuimoIntegrationAction
+                              }
+                              guimoRotateAction={rotateGuimoWebhookTokenAction}
+                              guimoSetActiveAction={
+                                setGuimoIntegrationActiveAction
+                              }
+                              guimoCreateRuleAction={
+                                createGuimoConversionRuleAction
+                              }
+                              guimoUpdateRuleAction={
+                                updateGuimoConversionRuleAction
+                              }
+                              guimoDeleteRuleAction={
+                                deleteGuimoConversionRuleAction
                               }
                             />
                           </div>
@@ -1788,10 +1960,11 @@ export default async function SettingsPage() {
                   </div>
                 ) : (
                   <div className="trigger-source-empty">
-                    <strong>Nenhuma conexao Umbler disponivel</strong>
+                    <strong>Nenhuma conexao WhatsApp disponivel</strong>
                     <span>
-                      Crie a conexao em Integracoes; depois os canais aparecerao
-                      aqui para configurar os gatilhos.
+                      Crie a conexao em Integracoes (Umbler, Gupshup, etc.);
+                      depois os canais aparecem aqui para configurar os
+                      gatilhos no mesmo lugar.
                     </span>
                     <Link className="button" href="/integrations">
                       Abrir Integracoes
@@ -1804,10 +1977,12 @@ export default async function SettingsPage() {
                 <header className="trigger-center-section-heading">
                   <div>
                     <span className="eyebrow">Compatibilidade</span>
-                    <h3>WhatsApp direto e regras anteriores</h3>
+                    <h3>Regras antigas sem conexao</h3>
                     <p className="muted">
-                      Regras sem conexao ou canal permanecem aqui ate serem
-                      adaptadas para uma origem Umbler.
+                      Regras legadas (keyword/etiqueta sem canal) ficam aqui ate
+                      serem adaptadas para uma conexao acima. O fluxo novo de
+                      checkout/compra por mensagem e catalogo e o bloco de
+                      origens conectadas.
                     </p>
                   </div>
                   <span className="status-chip">
@@ -1819,16 +1994,16 @@ export default async function SettingsPage() {
                   <details
                     className="legacy-trigger-create"
                     open={
-                      umblerConnections.length === 0 && legacyRules.length === 0
+                      inboundConnections.length === 0 && legacyRules.length === 0
                     }
                   >
                     <summary>
-                      <span>Criar regra para WhatsApp direto</span>
+                      <span>Criar regra legada (sem conexao)</span>
                       <ChevronDown size={16} aria-hidden="true" />
                     </summary>
                     <p className="muted">
-                      Use apenas para fontes diretas que nao passam pelas
-                      conexoes Umbler acima.
+                      Preferira o bloco de origens conectadas. Use isto so para
+                      fontes que ainda nao tem conexao inbound no workspace.
                     </p>
                     <ConversionRuleBuilder
                       action={createConversionRule}
@@ -1904,10 +2079,10 @@ export default async function SettingsPage() {
                                   rule.defaultValueCents != null &&
                                   rule.defaultValueCents > 0 &&
                                   rule.defaultCurrency &&
-                                  umblerConnections.length > 0 ? (
+                                  inboundConnections.length > 0 ? (
                                     <LegacyRuleAdaptForm
                                       action={adaptProviderConversionRuleAction}
-                                      connections={umblerConnections}
+                                      connections={inboundConnections}
                                       rule={rule}
                                     />
                                   ) : null}
@@ -2010,6 +2185,133 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      <section
+        className="settings-domain-section settings-ops-alerts-domain"
+        id="configuracao-operacao"
+        aria-labelledby="settings-ops-alerts-title"
+      >
+        <div className="settings-domain-heading">
+          <span className="settings-domain-number" aria-hidden="true">
+            04
+          </span>
+          <div>
+            <span className="eyebrow">Operacao</span>
+            <h2 id="settings-ops-alerts-title">Alertas WhatsApp</h2>
+            <p>
+              Aviso no celular se a instancia NOD desconectar ou o webhook
+              ficar sem entrega.
+            </p>
+          </div>
+          <span
+            className={`status-chip${
+              opsAlertSettings.state === "real" && opsAlertFormValues.enabled
+                ? ""
+                : " neutral"
+            }`}
+          >
+            {opsAlertStatusLabel}
+          </span>
+        </div>
+
+        <div className="surface-panel ops-alert-settings-panel">
+          {opsAlertSettings.state === "forbidden" ? (
+            <p className="muted">
+              Sem permissao para gerenciar alertas operacionais.
+            </p>
+          ) : opsAlertSettings.state === "error" ||
+            !opsAlertSettings.workspaceId ? (
+            <p className="muted">
+              Nao foi possivel carregar as configuracoes de alerta.
+            </p>
+          ) : (
+            <div data-presentation-sensitive-action="true">
+              <BackofficeActionForm
+                action={saveOpsAlertSettingsAction}
+                className="ops-alert-settings-form"
+              >
+                <input
+                  name="workspaceId"
+                  type="hidden"
+                  value={opsAlertSettings.workspaceId}
+                />
+                <label className="ops-alert-toggle">
+                  <span className="ops-alert-toggle-copy">
+                    <span className="field-label">Ativar alertas</span>
+                    <small>Envia aviso no telefone cadastrado abaixo.</small>
+                  </span>
+                  <input
+                    defaultChecked={opsAlertFormValues.enabled}
+                    name="enabled"
+                    type="checkbox"
+                  />
+                </label>
+                <OpsAlertPhonesEditor
+                  initialPhones={opsAlertFormValues.alertPhonesE164}
+                  name="alertPhones"
+                />
+                <div className="ops-alert-checks-group">
+                  <span className="field-label">O que monitorar</span>
+                  <div className="ops-alert-checks">
+                    <label>
+                      <input
+                        defaultChecked={opsAlertFormValues.disconnectAlerts}
+                        name="disconnectAlerts"
+                        type="checkbox"
+                      />
+                      <span>Desconexao da instancia WhatsApp</span>
+                    </label>
+                    <label>
+                      <input
+                        defaultChecked={
+                          opsAlertFormValues.webhookSilenceAlerts
+                        }
+                        name="webhookSilenceAlerts"
+                        type="checkbox"
+                      />
+                      <span>Silencio de webhook</span>
+                    </label>
+                  </div>
+                </div>
+                <details className="ops-alert-advanced">
+                  <summary>Configuracoes avancadas</summary>
+                  <div className="ops-alert-advanced-fields">
+                    <label>
+                      <span className="field-label">Horas de silencio</span>
+                      <input
+                        defaultValue={opsAlertFormValues.silenceThresholdHours}
+                        min={1}
+                        name="silenceThresholdHours"
+                        type="number"
+                      />
+                    </label>
+                    <label>
+                      <span className="field-label">Horas de debounce</span>
+                      <input
+                        defaultValue={opsAlertFormValues.debounceHours}
+                        min={1}
+                        name="debounceHours"
+                        type="number"
+                      />
+                    </label>
+                  </div>
+                </details>
+                <div className="form-command-row">
+                  <span>
+                    Silencio padrao 24h. Nao dispara se o telefone estiver
+                    vazio ou os alertas estiverem desligados.
+                  </span>
+                  <PendingSubmitButton
+                    className="button primary"
+                    label="Salvar alertas"
+                    pendingLabel="Salvando..."
+                  />
+                </div>
+              </BackofficeActionForm>
+            </div>
+          )}
+        </div>
+      </section>
+
       {canSwapClient && workspace ? (
         <section
           className="settings-domain-section settings-client-swap-domain"
@@ -2018,7 +2320,7 @@ export default async function SettingsPage() {
         >
           <div className="settings-domain-heading">
             <span className="settings-domain-number" aria-hidden="true">
-              04
+              05
             </span>
             <div>
               <span className="eyebrow">Operacao da agencia</span>
@@ -2038,6 +2340,11 @@ export default async function SettingsPage() {
               workspaceId={workspace.id}
               workspaceName={workspace.name}
               swapAction={clientSwapAction}
+              successRedirect={
+                isPlatformOwnerSupport
+                  ? "/backoffice/clients?swapped=1"
+                  : undefined
+              }
             />
           </div>
         </section>

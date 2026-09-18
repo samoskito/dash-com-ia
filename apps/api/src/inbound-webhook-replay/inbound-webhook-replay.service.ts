@@ -41,11 +41,6 @@ const replaySelectionLimits: Record<InboundWebhookReplaySelectionDto, number> =
     canary_10: 10,
     remaining: REPLAY_BATCH_LIMIT,
   };
-const transientReplayErrorCodes = [
-  "inbound_webhook_replay_disabled",
-  "inbound_webhook_replay_queue_unavailable",
-  "inbound_webhook_replay_unexpected",
-] as const;
 const terminalItemStatuses = new Set([
   "materialized",
   "duplicate",
@@ -306,20 +301,24 @@ export class InboundWebhookReplayService {
           items: {
             where: {
               status: "failed",
-              errorCode: {
-                in: [...transientReplayErrorCodes],
-              },
+            },
+            select: {
+              errorCode: true,
               event: {
-                delivery: {
-                  payloadExpiresAt: { gt: now },
-                  encryptedPayload: { not: null },
-                  payloadIv: { not: null },
-                  payloadTag: { not: null },
-                  encryptionKeyVersion: { not: null },
+                select: {
+                  delivery: {
+                    select: {
+                      payloadExpiresAt: true,
+                      encryptedPayload: true,
+                      payloadIv: true,
+                      payloadTag: true,
+                      encryptionKeyVersion: true,
+                    },
+                  },
                 },
               },
             },
-            select: { id: true },
+            orderBy: [{ processedAt: "desc" }, { id: "desc" }],
           },
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -442,13 +441,20 @@ export class InboundWebhookReplayService {
       latestBatch: recentBatches[0]
         ? this.batchDto({
             ...recentBatches[0],
-            retryableFailedCount: recentBatches[0].items.length,
+            retryableFailedCount: recentBatches[0].items.filter((item) =>
+              this.payloadAvailable(item.event.delivery, now),
+            ).length,
+            latestFailureErrorCode:
+              recentBatches[0].items[0]?.errorCode ?? null,
           })
         : null,
       recentBatches: recentBatches.map((batch) =>
         this.batchDto({
           ...batch,
-          retryableFailedCount: batch.items.length,
+          retryableFailedCount: batch.items.filter((item) =>
+            this.payloadAvailable(item.event.delivery, now),
+          ).length,
+          latestFailureErrorCode: batch.items[0]?.errorCode ?? null,
         }),
       ),
     };
@@ -714,7 +720,7 @@ export class InboundWebhookReplayService {
     return this.batchDto(batch);
   }
 
-  async retryTransientFailures(
+  async retryFailedItems(
     connectionId: string,
     batchId: string,
     confirmation: string,
@@ -772,9 +778,6 @@ export class InboundWebhookReplayService {
           workspaceId: connection.workspaceId,
           batchId: batch.id,
           status: "failed",
-          errorCode: {
-            in: [...transientReplayErrorCodes],
-          },
           event: {
             delivery: {
               payloadExpiresAt: { gt: now },
@@ -790,7 +793,7 @@ export class InboundWebhookReplayService {
 
       if (items.length === 0) {
         throw new BadRequestException(
-          "Nenhuma falha transitoria possui payload disponivel",
+          "Nenhuma falha possui payload disponivel para recuperacao",
         );
       }
 
@@ -828,7 +831,7 @@ export class InboundWebhookReplayService {
           workspaceId: connection.workspaceId,
           actorUserId: actor.id,
           actorType: actor.role,
-          action: "inbound_webhook.replay.retry_transient",
+          action: "inbound_webhook.replay.retry_failed",
           targetType: "inbound_webhook_replay_batch",
           targetId: batch.id,
           sourceIp: this.sourceIp(sourceIp),
@@ -1149,7 +1152,9 @@ export class InboundWebhookReplayService {
       parserVersion: connection.parserRelease.version,
       parserReleaseStatus: connection.parserRelease.status,
     });
-    const result = parser.parse(payload);
+    const result = parser.parse(payload, {
+      organizationId: delivery.workspaceId,
+    });
     const parsedEvent = result.events.find(
       (candidate) => candidate.dedupeKey === item.event.dedupeKey,
     );
@@ -1170,6 +1175,20 @@ export class InboundWebhookReplayService {
     batchId: string,
     workspaceId: string,
   ): Promise<BackofficeInboundWebhookReplayBatchDto> {
+    const retryableFailedWhere = {
+      batchId,
+      workspaceId,
+      status: "failed" as const,
+      event: {
+        delivery: {
+          payloadExpiresAt: { gt: new Date() },
+          encryptedPayload: { not: null },
+          payloadIv: { not: null },
+          payloadTag: { not: null },
+          encryptionKeyVersion: { not: null },
+        },
+      },
+    };
     const [
       materializedCount,
       duplicateCount,
@@ -1182,14 +1201,7 @@ export class InboundWebhookReplayService {
       this.itemCount(batchId, workspaceId, "skipped"),
       this.itemCount(batchId, workspaceId, "failed"),
       this.prisma.inboundWebhookReplayItem.count({
-        where: {
-          batchId,
-          workspaceId,
-          status: "failed",
-          errorCode: {
-            in: [...transientReplayErrorCodes],
-          },
-        },
+        where: retryableFailedWhere,
       }),
     ]);
     const status =
@@ -1278,8 +1290,14 @@ export class InboundWebhookReplayService {
           workspaceId: batch.workspaceId,
           batchId: batch.id,
           status: "failed",
-          errorCode: {
-            in: [...transientReplayErrorCodes],
+          event: {
+            delivery: {
+              payloadExpiresAt: { gt: new Date() },
+              encryptedPayload: { not: null },
+              payloadIv: { not: null },
+              payloadTag: { not: null },
+              encryptionKeyVersion: { not: null },
+            },
           },
         },
       });
@@ -1367,8 +1385,14 @@ export class InboundWebhookReplayService {
           workspaceId: batch.workspaceId,
           batchId: batch.id,
           status: "failed",
-          errorCode: {
-            in: [...transientReplayErrorCodes],
+          event: {
+            delivery: {
+              payloadExpiresAt: { gt: new Date() },
+              encryptedPayload: { not: null },
+              payloadIv: { not: null },
+              payloadTag: { not: null },
+              encryptionKeyVersion: { not: null },
+            },
           },
         },
       });
@@ -1455,6 +1479,7 @@ export class InboundWebhookReplayService {
     skippedCount: number;
     failedCount: number;
     retryableFailedCount: number;
+    latestFailureErrorCode?: string | null;
     retryCount: number;
     startedAt: Date | null;
     completedAt: Date | null;
@@ -1477,6 +1502,7 @@ export class InboundWebhookReplayService {
       skippedCount: batch.skippedCount,
       failedCount: batch.failedCount,
       retryableFailedCount: batch.retryableFailedCount,
+      latestFailureErrorCode: batch.latestFailureErrorCode ?? null,
       retryCount: batch.retryCount,
       startedAt: batch.startedAt?.toISOString() ?? null,
       completedAt: batch.completedAt?.toISOString() ?? null,
@@ -1590,10 +1616,10 @@ export class InboundWebhookReplayService {
   ): boolean {
     return Boolean(
       delivery.payloadExpiresAt.getTime() > now.getTime() &&
-      delivery.encryptedPayload &&
-      delivery.payloadIv &&
-      delivery.payloadTag &&
-      delivery.encryptionKeyVersion,
+      delivery.encryptedPayload !== null &&
+      delivery.payloadIv !== null &&
+      delivery.payloadTag !== null &&
+      delivery.encryptionKeyVersion !== null,
     );
   }
 

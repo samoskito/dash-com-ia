@@ -7,6 +7,8 @@ export const EXTERNAL_DATA_SYNC_QUEUE = "external-data-sync";
 export const INBOUND_WEBHOOK_QUEUE = "inbound-webhooks";
 export const INBOUND_WEBHOOK_REPLAY_QUEUE = "inbound-webhook-replay";
 export const INBOUND_WEBHOOK_PRODUCTION_QUEUE = "inbound-webhook-production";
+export const OPS_ALERTS_QUEUE = "ops-alerts";
+export const GUIMO_WEBHOOK_QUEUE = "guimo-webhooks";
 
 export interface InboundWebhookJobPayload {
   deliveryId: string;
@@ -62,4 +64,9 @@ export interface ExternalDataSyncJobPayload {
   streams: Array<"leads" | "events">;
   projectionRefresh?: boolean;
   requestedByUserId?: string;
+}
+
+export interface GuimoWebhookJobPayload {
+  eventId: string;
+  workspaceId: string;
 }

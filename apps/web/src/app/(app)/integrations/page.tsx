@@ -1013,6 +1013,10 @@ export default async function IntegrationsPage({
     workspace?.permissions.canManageIntegrations,
   );
   const canManageBilling = Boolean(workspace?.permissions.canManageBilling);
+  const isPlatformSupport = workspace?.accessMode === "platform_support";
+  const isPlatformOwnerSupport = Boolean(
+    isPlatformSupport && workspace?.platformRole === "platform_owner",
+  );
   const maxPipelineValue = Math.max(
     ...(pipeline?.stages ?? []).map((stage) => stage.value),
     0,

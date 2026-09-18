@@ -6,11 +6,12 @@ import {
   Headers,
   HttpCode,
   Inject,
+  Logger,
   Param,
   Post,
   Query,
   RawBody,
-  UnauthorizedException
+  UnauthorizedException,
 } from "@nestjs/common";
 import { BillingService } from "../billing/billing.service";
 import { PackageBillingWebhookService } from "../billing/package-billing-webhook.service";
@@ -19,8 +20,12 @@ import { PrismaService } from "../common/prisma/prisma.service";
 import { ConversionEventsService } from "../conversion-events/conversion-events.service";
 import { ConversionRulesService } from "../conversion-rules/conversion-rules.service";
 import { DiagnosticsService } from "../diagnostics/diagnostics.service";
+import { UazapiProviderConversionService } from "../inbound-webhooks/uazapi-provider-conversion.service";
 import { LeadsService } from "../leads/leads.service";
-import { parseUazapiWebhook } from "./uazapi-webhook-parser";
+import {
+  parseUazapiWebhook,
+  type ParsedUazapiWebhook,
+} from "./uazapi-webhook-parser";
 
 type WebhookBody = Record<string, unknown>;
 
@@ -37,6 +42,8 @@ type VerifiedMetaContext = {
 
 @Controller("webhooks")
 export class WebhooksController {
+  private readonly logger = new Logger(WebhooksController.name);
+
   constructor(
     @Inject(DiagnosticsService)
     private readonly diagnosticsService: DiagnosticsService,
@@ -52,15 +59,17 @@ export class WebhooksController {
     private readonly conversionEventsQueueService: ConversionEventsQueueService,
     @Inject(LeadsService)
     private readonly leadsService: LeadsService,
+    @Inject(UazapiProviderConversionService)
+    private readonly uazapiProviderConversion: UazapiProviderConversionService,
     @Inject(PrismaService)
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get("meta")
   verifyMetaWebhook(
     @Query("hub.mode") mode?: string,
     @Query("hub.verify_token") verifyToken?: string,
-    @Query("hub.challenge") challenge?: string
+    @Query("hub.challenge") challenge?: string,
   ) {
     const expectedToken = process.env.META_WEBHOOK_VERIFY_TOKEN;
 
@@ -83,10 +92,10 @@ export class WebhooksController {
     @Headers("x-workspace-id") workspaceId?: string,
     @Headers("x-wpptrack-webhook-token") webhookToken?: string,
     @Headers("authorization") authorization?: string,
-    @Query("token") queryToken?: string
+    @Query("token") queryToken?: string,
   ) {
     this.assertUazapiWebhookToken(
-      webhookToken ?? this.getBearerToken(authorization) ?? queryToken
+      webhookToken ?? this.getBearerToken(authorization) ?? queryToken,
     );
 
     return this.recordUazapiWebhook(body, undefined, workspaceId);
@@ -99,19 +108,19 @@ export class WebhooksController {
     @Body() body: WebhookBody,
     @Headers("x-wpptrack-webhook-token") webhookToken?: string,
     @Headers("authorization") authorization?: string,
-    @Query("token") queryToken?: string
+    @Query("token") queryToken?: string,
   ) {
     const instance = await this.prisma.whatsappInstance.findFirst({
       where: {
         id: instanceId,
-        provider: "uazapi"
+        provider: "uazapi",
       },
       select: {
         id: true,
         workspaceId: true,
         providerInstanceId: true,
-        webhookTokenHash: true
-      }
+        webhookTokenHash: true,
+      },
     });
     const receivedToken =
       webhookToken ?? this.getBearerToken(authorization) ?? queryToken;
@@ -127,7 +136,7 @@ export class WebhooksController {
     return this.recordUazapiWebhook(body, {
       workspaceId: instance.workspaceId,
       whatsappInstanceId: instance.id,
-      providerInstanceId: instance.providerInstanceId
+      providerInstanceId: instance.providerInstanceId,
     });
   }
 
@@ -136,7 +145,7 @@ export class WebhooksController {
   async recordAsaas(
     @Body() body: WebhookBody,
     @Headers("asaas-access-token") asaasAccessToken?: string,
-    @Headers("x-workspace-id") workspaceId?: string
+    @Headers("x-workspace-id") workspaceId?: string,
   ) {
     this.assertAsaasWebhookToken(asaasAccessToken);
     const packageBilling = await this.packageBillingWebhook.tryProcess(body);
@@ -155,8 +164,8 @@ export class WebhooksController {
         billing: {
           processed: packageBilling.status === "processed",
           status: packageBilling.status ?? "processed",
-          code: packageBilling.code
-        }
+          code: packageBilling.code,
+        },
       };
     }
 
@@ -168,8 +177,8 @@ export class WebhooksController {
         status: "ignored",
         billing: {
           processed: false,
-          status: "ignored"
-        }
+          status: "ignored",
+        },
       };
     }
 
@@ -186,7 +195,7 @@ export class WebhooksController {
     @Body() body: WebhookBody,
     @RawBody() rawBody: Buffer | undefined,
     @Headers("x-hub-signature-256") signature?: string,
-    @Headers("x-workspace-id") workspaceId?: string
+    @Headers("x-workspace-id") workspaceId?: string,
   ) {
     this.assertMetaWebhookSignature(rawBody, signature);
     const context = await this.resolveMetaContext(body);
@@ -200,7 +209,7 @@ export class WebhooksController {
 
   private async recordAsaasWebhook(
     body: WebhookBody,
-    context: { workspaceId: string; paymentId: string }
+    context: { workspaceId: string; paymentId: string },
   ) {
     const eventType = this.firstString(body.event) ?? "asaas.webhook";
     const externalEventId =
@@ -216,9 +225,9 @@ export class WebhooksController {
         "asaas",
         context.workspaceId,
         context.paymentId,
-        externalEventId ?? eventType
+        externalEventId ?? eventType,
       ].join(":"),
-      summaryPayload: body
+      summaryPayload: body,
     });
 
     if (diagnostic.status === "duplicate") {
@@ -226,8 +235,8 @@ export class WebhooksController {
         ...diagnostic,
         billing: {
           processed: false,
-          status: "ignored"
-        }
+          status: "ignored",
+        },
       };
     }
 
@@ -235,7 +244,7 @@ export class WebhooksController {
 
     return {
       ...diagnostic,
-      billing
+      billing,
     };
   }
 
@@ -258,7 +267,7 @@ export class WebhooksController {
       campaignId: meta.campaignId,
       adSetId: meta.adSetId,
       adId: meta.adId,
-      summaryPayload: body
+      summaryPayload: body,
     });
   }
 
@@ -295,7 +304,7 @@ export class WebhooksController {
             this.firstString(valueObject.adSetId),
           adId:
             this.firstString(valueObject.ad_id) ??
-            this.firstString(valueObject.adId)
+            this.firstString(valueObject.adId),
         };
       }
     }
@@ -304,12 +313,12 @@ export class WebhooksController {
       eventType:
         this.firstString(body.object) ??
         this.firstString(body.event) ??
-        "meta.webhook"
+        "meta.webhook",
     };
   }
 
   private getFirstMetaChange(
-    body: WebhookBody
+    body: WebhookBody,
   ): Record<string, unknown> | null {
     const entries = Array.isArray(body.entry) ? body.entry : [];
 
@@ -336,7 +345,7 @@ export class WebhooksController {
 
   private assertMetaWebhookSignature(
     rawBody: Buffer | undefined,
-    signature: string | undefined
+    signature: string | undefined,
   ) {
     const appSecret = process.env.META_APP_SECRET;
     const signatureHex = signature?.startsWith("sha256=")
@@ -366,15 +375,15 @@ export class WebhooksController {
   }
 
   private async resolveMetaContext(
-    body: WebhookBody
+    body: WebhookBody,
   ): Promise<VerifiedMetaContext> {
     const entries = Array.isArray(body.entry) ? body.entry : [];
     const pageIds = Array.from(
       new Set(
         entries
           .map((entry) => this.firstString(this.recordValue(entry)?.id))
-          .filter((pageId): pageId is string => Boolean(pageId))
-      )
+          .filter((pageId): pageId is string => Boolean(pageId)),
+      ),
     );
 
     if (pageIds.length !== 1) {
@@ -383,12 +392,12 @@ export class WebhooksController {
 
     const destinations = await this.prisma.metaConversionDestination.findMany({
       where: {
-        pageId: pageIds[0]
+        pageId: pageIds[0],
       },
       select: {
-        workspaceId: true
+        workspaceId: true,
       },
-      take: 2
+      take: 2,
     });
 
     if (destinations.length !== 1) {
@@ -397,17 +406,22 @@ export class WebhooksController {
 
     return {
       workspaceId: destinations[0].workspaceId,
-      pageId: pageIds[0]
+      pageId: pageIds[0],
     };
   }
 
   private assertAsaasWebhookToken(receivedToken?: string) {
     const expectedToken = process.env.ASAAS_WEBHOOK_AUTH_TOKEN;
 
+    if (!expectedToken || !receivedToken) {
+      throw new UnauthorizedException("Webhook Asaas nao autorizado");
+    }
+
+    const expectedBuffer = Buffer.from(expectedToken, "utf8");
+    const receivedBuffer = Buffer.from(receivedToken, "utf8");
     if (
-      !expectedToken ||
-      !receivedToken ||
-      this.hashToken(receivedToken) !== this.hashToken(expectedToken)
+      expectedBuffer.length !== receivedBuffer.length ||
+      !timingSafeEqual(receivedBuffer, expectedBuffer)
     ) {
       throw new UnauthorizedException("Webhook Asaas nao autorizado");
     }
@@ -440,7 +454,7 @@ export class WebhooksController {
   private async recordUazapiWebhook(
     body: WebhookBody,
     verifiedContext?: VerifiedUazapiContext,
-    claimedWorkspaceId?: string
+    claimedWorkspaceId?: string,
   ) {
     const parsed = parseUazapiWebhook(body);
     const resolvedContext =
@@ -455,7 +469,16 @@ export class WebhooksController {
       body,
       parsed.providerInstanceId,
       claimedWorkspaceId,
-      resolvedContext
+      resolvedContext,
+    );
+
+    const attribution = await this.resolveUazapiMetaAttribution(
+      resolvedContext.workspaceId,
+      {
+        campaignId: parsed.campaignId,
+        adSetId: parsed.adSetId,
+        adId: parsed.adId,
+      },
     );
 
     const diagnostic = await this.diagnosticsService.recordWebhookLog({
@@ -469,15 +492,15 @@ export class WebhooksController {
             "uazapi",
             resolvedContext.workspaceId,
             resolvedContext.whatsappInstanceId,
-            parsed.externalEventId
+            parsed.externalEventId,
           ].join(":")
         : undefined,
       leadId: parsed.leadId,
       phoneHash: parsed.phoneHash,
-      campaignId: parsed.campaignId,
-      adSetId: parsed.adSetId,
-      adId: parsed.adId,
-      summaryPayload: body
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId,
+      summaryPayload: body,
     });
 
     if (diagnostic.status === "duplicate") {
@@ -486,18 +509,58 @@ export class WebhooksController {
         conversion: {
           created: [],
           duplicates: [],
-          queued: []
-        }
+          queued: [],
+        },
+      };
+    }
+
+    const message = this.recordValue(body.message);
+    const isInboundMessage =
+      message !== undefined &&
+      message.fromMe === false &&
+      parsed.isGroupChat !== true;
+    const isTeamMessage =
+      message !== undefined &&
+      message.fromMe === true &&
+      parsed.isGroupChat !== true;
+
+    // U2c: attendant (fromMe=true) messages evaluate message_phrase
+    // Checkout/Purchase conversion rules against the paid lead of the contact
+    // being messaged; never creates or touches a platform lead.
+    if (isTeamMessage) {
+      await this.evaluateUazapiTeamMessage(resolvedContext, parsed);
+    }
+
+    // Labels can arrive on chat updates as well as inbound CTWA messages.
+    // They are evaluated independently of lead creation, and the conversion
+    // service fails closed unless the contact resolves to a paid lead.
+    if (
+      parsed.labelEventKind === "chat_labels" &&
+      parsed.phone &&
+      !parsed.isGroupChat
+    ) {
+      await this.evaluateUazapiLabels(resolvedContext, parsed);
+    }
+
+    // Product rule: Uazapi only creates platform leads for paid CTWA inbound messages.
+    if (!isInboundMessage || !parsed.ctwaClid) {
+      return {
+        ...diagnostic,
+        conversion: {
+          created: [],
+          duplicates: [],
+          queued: [],
+        },
       };
     }
 
     const triggerInput = {
       messageText: parsed.messageText,
-      labels: parsed.labels
+      labels: parsed.labels,
     };
     const rules = await this.conversionRulesService.evaluateTriggers(
       resolvedContext.workspaceId,
-      triggerInput
+      triggerInput,
     );
     const lead = await this.leadsService.upsertFromWhatsappWebhook({
       workspaceId: resolvedContext.workspaceId,
@@ -507,48 +570,44 @@ export class WebhooksController {
       phoneHash: parsed.phoneHash,
       source: "uazapi",
       labels: triggerInput.labels,
-      campaignId: parsed.campaignId,
-      adSetId: parsed.adSetId,
-      adId: parsed.adId,
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId,
       ctwaClid: parsed.ctwaClid,
       ctwaSourceUrl: parsed.ctwaSourceUrl,
-      occurredAt: new Date()
+      occurredAt: new Date(),
     });
-    const automatic = parsed.ctwaClid
-      ? await this.conversionEventsService.recordAutomaticLeadSubmitted({
-          workspaceId: resolvedContext.workspaceId,
-          leadId: lead?.id ?? parsed.leadId,
-          phoneHash: parsed.phoneHash,
-          campaignId: parsed.campaignId,
-          adSetId: parsed.adSetId,
-          adId: parsed.adId,
-          ctwaClid: parsed.ctwaClid
-        })
-      : {
-          created: [],
-          duplicates: []
-        };
+    const automatic =
+      await this.conversionEventsService.recordAutomaticLeadSubmitted({
+        workspaceId: resolvedContext.workspaceId,
+        leadId: lead?.id ?? parsed.leadId,
+        phoneHash: parsed.phoneHash,
+        campaignId: attribution.campaignId,
+        adSetId: attribution.adSetId,
+        adId: attribution.adId,
+        ctwaClid: parsed.ctwaClid,
+      });
     const conversion = await this.conversionEventsService.recordRuleMatches({
       workspaceId: resolvedContext.workspaceId,
       rules,
       leadId: lead?.id ?? parsed.leadId,
       phoneHash: parsed.phoneHash,
-      campaignId: parsed.campaignId,
-      adSetId: parsed.adSetId,
-      adId: parsed.adId,
-      ctwaClid: parsed.ctwaClid
+      campaignId: attribution.campaignId,
+      adSetId: attribution.adSetId,
+      adId: attribution.adId,
+      ctwaClid: parsed.ctwaClid,
     });
     const readyLogIds = await this.conversionEventsService.listReadyLogIds([
       ...automatic.created,
-      ...conversion.created
+      ...conversion.created,
     ]);
     const queued = await Promise.all(
       readyLogIds.map((logId) =>
         this.conversionEventsQueueService.enqueueSend(
           logId,
-          resolvedContext.workspaceId
-        )
-      )
+          resolvedContext.workspaceId,
+        ),
+      ),
     );
 
     return {
@@ -556,8 +615,137 @@ export class WebhooksController {
       conversion: {
         ...conversion,
         automatic,
-        queued
+        queued,
+      },
+    };
+  }
+
+  private async evaluateUazapiTeamMessage(
+    context: VerifiedUazapiContext,
+    parsed: ParsedUazapiWebhook,
+  ): Promise<void> {
+    if (!parsed.phone || !parsed.messageText) {
+      return;
+    }
+
+    try {
+      const instance = await this.prisma.whatsappInstance.findFirst({
+        where: {
+          id: context.whatsappInstanceId,
+          workspaceId: context.workspaceId,
+        },
+        select: {
+          id: true,
+          workspaceId: true,
+          name: true,
+          providerInstanceId: true,
+        },
+      });
+
+      if (!instance) {
+        return;
       }
+
+      await this.uazapiProviderConversion.evaluateTeamMessage({
+        workspaceId: context.workspaceId,
+        instance,
+        phone: parsed.phone,
+        messageText: parsed.messageText,
+        externalMessageId: parsed.externalEventId,
+        occurredAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: "uazapi_team_message_evaluation_failed",
+          workspaceId: context.workspaceId,
+          whatsappInstanceId: context.whatsappInstanceId,
+          errorName: error instanceof Error ? error.name : "unknown",
+        }),
+      );
+    }
+  }
+
+  private async evaluateUazapiLabels(
+    context: VerifiedUazapiContext,
+    parsed: ParsedUazapiWebhook,
+  ): Promise<void> {
+    if (!parsed.phone) return;
+
+    try {
+      const instance = await this.prisma.whatsappInstance.findFirst({
+        where: {
+          id: context.whatsappInstanceId,
+          workspaceId: context.workspaceId,
+        },
+        select: {
+          id: true,
+          workspaceId: true,
+          name: true,
+          providerInstanceId: true,
+          providerTokenEncrypted: true,
+          providerTokenIv: true,
+          providerTokenTag: true,
+        },
+      });
+      if (!instance) return;
+
+      await this.uazapiProviderConversion.evaluateLabels({
+        workspaceId: context.workspaceId,
+        instance,
+        phone: parsed.phone,
+        labelIds: parsed.waLabelIds,
+        waChatId: parsed.waChatId,
+        externalEventId: parsed.externalEventId,
+        occurredAt: new Date(),
+      });
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: "uazapi_label_evaluation_failed",
+          workspaceId: context.workspaceId,
+          whatsappInstanceId: context.whatsappInstanceId,
+          errorName: error instanceof Error ? error.name : "unknown",
+        }),
+      );
+    }
+  }
+
+  private async resolveUazapiMetaAttribution(
+    workspaceId: string,
+    input: {
+      campaignId?: string;
+      adSetId?: string;
+      adId?: string;
+    },
+  ): Promise<{
+    campaignId?: string;
+    adSetId?: string;
+    adId?: string;
+  }> {
+    if (!input.adId) {
+      return input;
+    }
+
+    const ad = await this.prisma.metaAd.findFirst({
+      where: {
+        workspaceId,
+        adId: input.adId,
+      },
+      select: {
+        campaignId: true,
+        adSetId: true,
+      },
+    });
+
+    if (!ad) {
+      return input;
+    }
+
+    return {
+      adId: input.adId,
+      campaignId: input.campaignId ?? ad.campaignId ?? undefined,
+      adSetId: input.adSetId ?? ad.adSetId ?? undefined,
     };
   }
 
@@ -575,7 +763,7 @@ export class WebhooksController {
     body: WebhookBody,
     providerInstanceId: string | undefined,
     claimedWorkspaceId: string | undefined,
-    context: VerifiedUazapiContext
+    context: VerifiedUazapiContext,
   ) {
     const workspace = this.recordValue(body.workspace);
     const claimedWorkspaceIds = [
@@ -583,19 +771,19 @@ export class WebhooksController {
       this.firstString(body.workspaceId),
       this.firstString(body.workspace_id),
       this.firstString(workspace?.id),
-      this.firstString(workspace?.workspaceId)
+      this.firstString(workspace?.workspaceId),
     ].filter((value): value is string => Boolean(value));
     const claimedLocalInstanceIds = [
       this.firstString(body.whatsappInstanceId),
-      this.firstString(body.whatsapp_instance_id)
+      this.firstString(body.whatsapp_instance_id),
     ].filter((value): value is string => Boolean(value));
 
     if (
       claimedWorkspaceIds.some(
-        (workspaceId) => workspaceId !== context.workspaceId
+        (workspaceId) => workspaceId !== context.workspaceId,
       ) ||
       claimedLocalInstanceIds.some(
-        (instanceId) => instanceId !== context.whatsappInstanceId
+        (instanceId) => instanceId !== context.whatsappInstanceId,
       ) ||
       (providerInstanceId && providerInstanceId !== context.providerInstanceId)
     ) {
@@ -604,7 +792,7 @@ export class WebhooksController {
   }
 
   private async resolveUazapiContext(
-    providerInstanceId?: string
+    providerInstanceId?: string,
   ): Promise<VerifiedUazapiContext | null> {
     if (!providerInstanceId) {
       return null;
@@ -613,21 +801,21 @@ export class WebhooksController {
     const instances = await this.prisma.whatsappInstance.findMany({
       where: {
         provider: "uazapi",
-        providerInstanceId
+        providerInstanceId,
       },
       select: {
         id: true,
         workspaceId: true,
-        providerInstanceId: true
+        providerInstanceId: true,
       },
-      take: 2
+      take: 2,
     });
 
     return instances.length === 1
       ? {
           workspaceId: instances[0].workspaceId,
           whatsappInstanceId: instances[0].id,
-          providerInstanceId: instances[0].providerInstanceId
+          providerInstanceId: instances[0].providerInstanceId,
         }
       : null;
   }

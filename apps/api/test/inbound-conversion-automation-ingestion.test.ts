@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { PrismaService } from "../src/common/prisma/prisma.service";
 import { InboundConversionAutomationIngestionService } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
@@ -54,14 +56,14 @@ function createHarness(options?: {
   const eventName = options?.eventName ?? "QualifiedLead";
   const production = options?.production ?? false;
   const channel = {
-    id: "channel_1",
-    workspaceId: "workspace_safe",
-    connectionId: "connection_1",
-    channelName: "Comercial",
-    connectedPhone: "+5511999999999",
-    status: "active" as const,
-    productionActivatedAt: activatedAt,
-  };
+      id: "channel_1",
+      workspaceId: "workspace_safe",
+      connectionId: "connection_1",
+      channelName: "Comercial",
+      connectedPhone: "+551****9999",
+      status: "active" as const,
+      productionActivatedAt: activatedAt as Date | null,
+    };
   const endpoint = {
     id: "endpoint_1",
     workspaceId: "workspace_safe",
@@ -106,7 +108,7 @@ function createHarness(options?: {
       connection: {
         id: "connection_1",
         workspaceId: "workspace_safe",
-        provider: "umbler" as const,
+        provider: "umbler" as "umbler" | "gupshup" | "uazapi" | "datacrazy" | "payt",
         displayName: "Umbler Teste",
         parserReleaseId: "inbound_parser_umbler_v1",
         secretHash: "connection-hash",
@@ -120,7 +122,7 @@ function createHarness(options?: {
         updatedAt: now,
         parserRelease: {
           id: "inbound_parser_umbler_v1",
-          provider: "umbler" as const,
+          provider: "umbler" as "umbler" | "gupshup" | "uazapi" | "datacrazy" | "payt",
           version: "v1",
           status: "certified" as const,
           certifiedByUserId: "user_1",
@@ -131,7 +133,7 @@ function createHarness(options?: {
       },
       parserRelease: {
         id: "inbound_parser_umbler_automation_v1",
-        provider: "umbler" as const,
+        provider: "umbler" as "umbler" | "gupshup" | "uazapi" | "datacrazy" | "payt",
         version: "automation-v1",
         status: "certified" as const,
         certifiedByUserId: "user_1",
@@ -784,6 +786,7 @@ function createHarness(options?: {
   );
 
   return {
+    channel,
     deliveries,
     decisions,
     encryption,
@@ -810,6 +813,51 @@ function input(rawBody: Buffer, token: unknown = secret) {
 }
 
 describe("inbound conversion automation ingestion", () => {
+  it("uses the Payt parser for a rule attached to a non-Payt connection", async () => {
+    const harness = createHarness({ eventName: "Purchase" });
+    harness.endpoint.providerRule.connection.provider = "gupshup";
+    harness.endpoint.providerRule.connection.parserRelease.provider = "gupshup";
+    harness.endpoint.providerRule.parserRelease.provider = "payt";
+
+    const paid = Buffer.from(
+      readFileSync(
+        resolve(__dirname, "fixtures/payt/order-paid.sanitized.json"),
+      ),
+    );
+    const accepted = await harness.service.ingest(input(paid));
+
+    expect(accepted).toMatchObject({
+      status: "accepted",
+      duplicate: false,
+      observationStatus: "observed",
+    });
+    expect(harness.conversionObservation.observeAutomation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automation: expect.objectContaining({
+          provider: "payt",
+          externalExecutionKey: "PAYTS2",
+          valueCents: 296616,
+        }),
+      }),
+    );
+
+    const nonPaidHarness = createHarness({ eventName: "Purchase" });
+    nonPaidHarness.endpoint.providerRule.connection.provider = "gupshup";
+    nonPaidHarness.endpoint.providerRule.connection.parserRelease.provider =
+      "gupshup";
+    nonPaidHarness.endpoint.providerRule.parserRelease.provider = "payt";
+    const nonPaid = Buffer.from(
+      readFileSync(
+        resolve(__dirname, "fixtures/payt/order-nonpaid.sanitized.json"),
+      ),
+    );
+    await expect(nonPaidHarness.service.ingest(input(nonPaid))).resolves.toMatchObject({
+      status: "accepted",
+      observationStatus: "ignored",
+    });
+    expect(nonPaidHarness.conversionObservation.observeAutomation).not.toHaveBeenCalled();
+  });
+
   it("fails closed for disabled, invalid, paused, or removed endpoints", async () => {
     const harnesses = [
       createHarness({ enabled: false }),
@@ -1146,6 +1194,7 @@ describe("inbound conversion automation ingestion", () => {
     harness.endpoint.providerRule.connection.productionActivatedAt = new Date(
       "2026-07-22T18:00:00.000Z",
     );
+    harness.channel.productionActivatedAt = null;
 
     const replay = await harness.service.reprocessSelectedCallbacks(
       "workspace_safe",

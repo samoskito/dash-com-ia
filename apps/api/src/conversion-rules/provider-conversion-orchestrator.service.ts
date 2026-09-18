@@ -53,11 +53,36 @@ export class ProviderConversionOrchestrator {
   async orchestrate(input: {
     persistedDecision: PersistedProviderConversionDecision;
     disposition: ProviderConversionTechnicalDisposition;
+    /**
+     * A UAZAPI chat-label match in observation mode is useful evidence even
+     * without paid attribution. Keep that one fail-closed outcome visible to
+     * the operator, but never make it eligible for production processing.
+     */
+    recordIgnoredObservation?: boolean;
   }): Promise<ProviderConversionOrchestrationResult> {
     const { persistedDecision } = input;
     const outcome = providerConversionDecisionOutcome(
       persistedDecision.decision,
     );
+
+    if (
+      outcome === "ignored" &&
+      input.recordIgnoredObservation &&
+      persistedDecision.decision.decisionCode === "ignored_untracked_lead" &&
+      persistedDecision.decision.rule.mode === "observation" &&
+      input.disposition.state === "blocked"
+    ) {
+      const execution = await this.persistExecution({
+        persistedDecision,
+        disposition: input.disposition,
+      });
+      this.logResult(input, "execution_blocked", execution.id);
+      return {
+        executionId: execution.id,
+        eligibleExecutionId: null,
+        reviewId: null,
+      };
+    }
 
     if (outcome === "ignored" || outcome === "duplicate") {
       this.logResult(input, "audit_only");
@@ -76,24 +101,11 @@ export class ProviderConversionOrchestrator {
       };
     }
 
-    if (input.disposition.state === "observed") {
-      this.logResult(input, "observation_only");
-      return this.emptyResult();
-    }
-
     const execution = await this.persistExecution({
       persistedDecision,
       disposition: input.disposition,
     });
-    this.logResult(
-      input,
-      execution.status === "eligible"
-        ? "execution_eligible"
-        : execution.status === "blocked"
-          ? "execution_blocked"
-          : `execution_${execution.status}`,
-      execution.id,
-    );
+    this.logResult(input, `execution_${execution.status}`, execution.id);
 
     return {
       executionId: execution.id,
@@ -105,15 +117,14 @@ export class ProviderConversionOrchestrator {
 
   private async persistExecution(input: {
     persistedDecision: PersistedProviderConversionDecision;
-    disposition: Exclude<
-      ProviderConversionTechnicalDisposition,
-      { state: "observed" }
-    >;
+    disposition: ProviderConversionTechnicalDisposition;
   }): Promise<{ id: string; status: string }> {
     const persisted = input.persistedDecision;
     const decision = persisted.decision;
-    const status =
-      input.disposition.state === "eligible" ? "eligible" : "blocked";
+    // The disposition state is the execution status one-to-one: only
+    // `eligible` is ever picked up by the production pipeline, so `observed`
+    // stays visible in the audit UI without any chance of reaching CAPI.
+    const status = input.disposition.state;
     const existing =
       await this.prisma.providerConversionRuleExecution.findUnique({
         where: {

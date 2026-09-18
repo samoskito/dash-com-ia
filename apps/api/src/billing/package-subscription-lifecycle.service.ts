@@ -13,6 +13,7 @@ import { PackageAsaasAdapter } from "./package-asaas.adapter";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import { addDays } from "./package-billing.policy";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
+import { PackageTrialAutoconvertService } from "./package-trial-autoconvert.service";
 
 @Injectable()
 export class PackageSubscriptionLifecycleService
@@ -31,7 +32,9 @@ export class PackageSubscriptionLifecycleService
     @Inject(PackageAsaasAdapter)
     private readonly asaas: PackageAsaasAdapter,
     @Inject(WhatsappSeatService)
-    private readonly seats: WhatsappSeatService
+    private readonly seats: WhatsappSeatService,
+    @Inject(PackageTrialAutoconvertService)
+    private readonly trials?: PackageTrialAutoconvertService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -256,6 +259,7 @@ export class PackageSubscriptionLifecycleService
     this.running = true;
     try {
       const expiredReservations = await this.seats.expireAllReservations(now);
+      await this.trials?.processDueTrials(now);
 
       const graceContracts = await this.prisma.workspaceSubscription.findMany({
         where: {

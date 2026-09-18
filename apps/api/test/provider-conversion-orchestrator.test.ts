@@ -8,6 +8,7 @@ function decision(
     | "eligible"
     | "review_required"
     | "ignored_empty_template"
+    | "ignored_untracked_lead"
     | "duplicate",
 ): ProviderConversionDecisionDto {
   const resolvedLead = {
@@ -30,6 +31,8 @@ function decision(
         ? "unknown_combination"
         : decisionCode === "ignored_empty_template"
           ? "empty_template"
+          : decisionCode === "ignored_untracked_lead"
+            ? "paid_lead_not_found"
           : decisionCode === "duplicate"
             ? "business_duplicate"
             : "catalog_matched",
@@ -66,7 +69,8 @@ function decision(
       defaultValueCents: null,
       defaultCurrency: "BRL",
       defaultContentName: "Cama elastica",
-    },
+      valueMode: "fixed" as const,
+      exampleMessage: null,    },
     catalog: {
       version: "catalog-v1",
       catalog: {
@@ -145,6 +149,21 @@ function decision(
         items: [],
       },
       leadResolution: resolvedLead,
+    };
+  }
+  if (decisionCode === "ignored_untracked_lead") {
+    return {
+      ...base,
+      decisionCode,
+      occurrence: {
+        ...base.occurrence,
+        businessDedupePolicy: null,
+      },
+      leadResolution: {
+        status: "not_found",
+        reasonCode: "paid_lead_not_found",
+        candidateLeadId: null,
+      },
     };
   }
   if (decisionCode === "duplicate") {
@@ -228,6 +247,40 @@ function createHarness() {
 }
 
 describe("provider conversion orchestrator", () => {
+  it("upgrades an observed execution to eligible during recovery", async () => {
+    const harness = createHarness();
+    harness.providerConversionRuleExecution.findUnique.mockResolvedValue({
+      id: "execution_observed",
+      status: "observed",
+      providerDecisionId: "decision_1",
+    });
+    harness.providerConversionRuleExecution.upsert.mockResolvedValue({
+      id: "execution_observed",
+      status: "eligible",
+    });
+
+    const result = await harness.orchestrator.orchestrate({
+      persistedDecision: persisted(decision("eligible")),
+      disposition: { state: "eligible", reasonCode: "catalog_matched" },
+    });
+
+    expect(result).toEqual({
+      executionId: "execution_observed",
+      eligibleExecutionId: "execution_observed",
+      reviewId: null,
+    });
+    expect(
+      harness.providerConversionRuleExecution.upsert,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          status: "eligible",
+          processedAt: null,
+        }),
+      }),
+    );
+  });
+
   it.each(["ignored_empty_template", "duplicate"] as const)(
     "keeps %s as internal audit only",
     async (decisionCode) => {
@@ -288,7 +341,7 @@ describe("provider conversion orchestrator", () => {
     ).not.toHaveBeenCalled();
   });
 
-  it("keeps an eligible observation decision free of side effects", async () => {
+  it("materializes an eligible observation decision as a visible observed execution", async () => {
     const harness = createHarness();
 
     const result = await harness.orchestrator.orchestrate({
@@ -296,6 +349,65 @@ describe("provider conversion orchestrator", () => {
       disposition: {
         state: "observed",
         reasonCode: "catalog_matched_observation",
+      },
+    });
+
+    // The operator must see the match in the audit UI, which lists executions
+    // and not decision audits. Observation stays out of production: the
+    // execution is never `eligible`, so nothing is ever queued for CAPI.
+    expect(result).toEqual({
+      executionId: "execution_1",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+    expect(harness.providerConversionRuleExecution.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          providerDecisionId: "decision_1",
+          status: "observed",
+          reasonCode: "catalog_matched_observation",
+          valueCents: 359_700,
+          leadId: "lead_1",
+        }),
+      }),
+    );
+    expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps an observed execution out of the production queue on recovery", async () => {
+    const harness = createHarness();
+    harness.providerConversionRuleExecution.findUnique.mockResolvedValueOnce({
+      id: "execution_existing",
+      status: "observed",
+      providerDecisionId: "decision_1",
+    });
+
+    const result = await harness.orchestrator.orchestrate({
+      persistedDecision: persisted(decision("eligible")),
+      disposition: {
+        state: "observed",
+        reasonCode: "average_value_message_matched_observation",
+      },
+    });
+
+    expect(result).toEqual({
+      executionId: "execution_existing",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+    expect(
+      harness.providerConversionRuleExecution.upsert,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("still skips observed dispositions for ignored decisions", async () => {
+    const harness = createHarness();
+
+    const result = await harness.orchestrator.orchestrate({
+      persistedDecision: persisted(decision("ignored_untracked_lead")),
+      disposition: {
+        state: "observed",
+        reasonCode: "paid_lead_not_found_observation",
       },
     });
 
@@ -307,7 +419,33 @@ describe("provider conversion orchestrator", () => {
     expect(
       harness.providerConversionRuleExecution.upsert,
     ).not.toHaveBeenCalled();
-    expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it("records an unpaid observation match as a blocked execution", async () => {
+    const harness = createHarness();
+    const unpaidObservation = decision("ignored_untracked_lead");
+    unpaidObservation.rule.mode = "observation";
+
+    const result = await harness.orchestrator.orchestrate({
+      persistedDecision: persisted(unpaidObservation),
+      disposition: { state: "blocked", reasonCode: "paid_lead_not_found" },
+      recordIgnoredObservation: true,
+    });
+
+    expect(result).toEqual({
+      executionId: "execution_1",
+      eligibleExecutionId: null,
+      reviewId: null,
+    });
+    expect(harness.providerConversionRuleExecution.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          status: "blocked",
+          reasonCode: "paid_lead_not_found",
+          leadId: null,
+        }),
+      }),
+    );
   });
 
   it("creates one linked technical execution for eligible production", async () => {

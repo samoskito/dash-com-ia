@@ -5,7 +5,7 @@ import { PackageAsaasAdapter } from "../src/billing/package-asaas.adapter";
 function response(status: number, payload: unknown = {}) {
   return new Response(JSON.stringify(payload), {
     status,
-    headers: { "content-type": "application/json" }
+    headers: { "content-type": "application/json" },
   });
 }
 
@@ -14,7 +14,7 @@ function createAdapter() {
     asaasApiKey: () => "test_key",
     asaasApiUrl: () => "https://asaas.example.test/v3",
     checkoutSuccessUrl: () => "https://app.example.test/success",
-    checkoutCancelUrl: () => "https://app.example.test/cancel"
+    checkoutCancelUrl: () => "https://app.example.test/cancel",
   } as never);
 }
 
@@ -25,13 +25,47 @@ afterEach(() => {
 });
 
 describe("PackageAsaasAdapter", () => {
+  it("creates an exact R$30 additive payment without creating a subscription", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(200, {
+        id: "payment_1",
+        invoiceUrl: "https://asaas.example.test/pay/payment_1",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createAdapter().createAdditivePayment({
+        customerId: "customer_1",
+        workspaceId: "workspace_1",
+        subscriptionId: "contract_1",
+        itemId: "item_1",
+        amountCents: 3000,
+        description: "Numero WhatsApp adicional — R$ 30,00",
+      }),
+    ).resolves.toEqual({
+      id: "payment_1",
+      invoiceUrl: "https://asaas.example.test/pay/payment_1",
+    });
+
+    const request = JSON.parse(
+      String(fetchMock.mock.calls[0]?.[1]?.body),
+    ) as Record<string, unknown>;
+    expect(request).toMatchObject({
+      customer: "customer_1",
+      value: 30,
+      externalReference: "wpptrack:additive:workspace_1:contract_1:item_1",
+    });
+    expect(request).not.toHaveProperty("subscription");
+  });
+
   it("uses the hosted checkout customerData contract", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       response(200, {
         id: "checkout_1",
         link: "https://asaas.example.test/checkout_1",
-        status: "ACTIVE"
-      })
+        status: "ACTIVE",
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -50,12 +84,12 @@ describe("PackageAsaasAdapter", () => {
         addressNumber: "10",
         addressComplement: "Sala 1",
         postalCode: "01001-000",
-        district: "Centro"
-      } as WorkspaceBillingProfile
+        district: "Centro",
+      } as WorkspaceBillingProfile,
     });
 
     const request = JSON.parse(
-      String(fetchMock.mock.calls[0]?.[1]?.body)
+      String(fetchMock.mock.calls[0]?.[1]?.body),
     ) as Record<string, unknown>;
     expect(request.billingTypes).toEqual(["CREDIT_CARD"]);
     expect(request.chargeTypes).toEqual(["RECURRENT"]);
@@ -70,7 +104,7 @@ describe("PackageAsaasAdapter", () => {
       complement: "Sala 1",
       postalCode: "01001000",
       province: "Centro",
-      city: 3550308
+      city: 3550308,
     });
   });
 
@@ -80,29 +114,26 @@ describe("PackageAsaasAdapter", () => {
       vi.fn().mockResolvedValue(
         response(200, {
           id: "customer_1",
-          city: 3550308
-        })
-      )
+          city: 3550308,
+        }),
+      ),
     );
 
     await expect(
-      createAdapter().createCustomer(
-        "workspace_1",
-        {
-          payerName: "Cliente Teste",
-          taxId: "12345678909",
-          billingEmail: "billing@example.test",
-          phone: "5511999999999",
-          addressLine: "Rua A",
-          addressNumber: "10",
-          addressComplement: null,
-          postalCode: "01001000",
-          district: "Centro"
-        } as WorkspaceBillingProfile
-      )
+      createAdapter().createCustomer("workspace_1", {
+        payerName: "Cliente Teste",
+        taxId: "12345678909",
+        billingEmail: "billing@example.test",
+        phone: "5511999999999",
+        addressLine: "Rua A",
+        addressNumber: "10",
+        addressComplement: null,
+        postalCode: "01001000",
+        district: "Centro",
+      } as WorkspaceBillingProfile),
     ).resolves.toEqual({
       id: "customer_1",
-      cityId: 3550308
+      cityId: 3550308,
     });
   });
 
@@ -113,26 +144,26 @@ describe("PackageAsaasAdapter", () => {
           {
             id: "customer_other",
             city: 3550308,
-            externalReference: "wpptrack:workspace:other"
+            externalReference: "wpptrack:workspace:other",
           },
           {
             id: "customer_1",
             city: 3550308,
-            externalReference: "wpptrack:workspace:workspace_1"
-          }
-        ]
-      })
+            externalReference: "wpptrack:workspace:workspace_1",
+          },
+        ],
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      createAdapter().findCustomerByExternalReference("workspace_1")
+      createAdapter().findCustomerByExternalReference("workspace_1"),
     ).resolves.toEqual({
       id: "customer_1",
-      cityId: 3550308
+      cityId: 3550308,
     });
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "externalReference=wpptrack%3Aworkspace%3Aworkspace_1"
+      "externalReference=wpptrack%3Aworkspace%3Aworkspace_1",
     );
   });
 
@@ -148,12 +179,12 @@ describe("PackageAsaasAdapter", () => {
       municipalServiceId: "service_1",
       municipalServiceCode: null,
       observations: null,
-      taxes: {}
+      taxes: {},
     });
 
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual([
       "GET",
-      "POST"
+      "POST",
     ]);
   });
 
@@ -169,25 +200,25 @@ describe("PackageAsaasAdapter", () => {
       municipalServiceId: "service_1",
       municipalServiceCode: null,
       observations: null,
-      taxes: {}
+      taxes: {},
     });
 
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual([
       "GET",
-      "PUT"
+      "PUT",
     ]);
   });
 
   it("treats an already removed subscription as canceled", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        response(404, { errors: [{ code: "not_found" }] })
-      )
+      vi
+        .fn()
+        .mockResolvedValue(response(404, { errors: [{ code: "not_found" }] })),
     );
 
     await expect(
-      createAdapter().removeSubscription("subscription_1")
+      createAdapter().removeSubscription("subscription_1"),
     ).resolves.toBeUndefined();
   });
 
@@ -199,20 +230,20 @@ describe("PackageAsaasAdapter", () => {
           errors: [
             {
               code: "unavailable",
-              description: "Provider temporarily unavailable"
-            }
-          ]
-        })
-      )
+              description: "Provider temporarily unavailable",
+            },
+          ],
+        }),
+      ),
     );
 
     await expect(
-      createAdapter().removeSubscription("subscription_1")
+      createAdapter().removeSubscription("subscription_1"),
     ).rejects.toMatchObject({
       code: "asaas_unavailable",
       statusCode: 500,
       retryable: true,
-      description: "Provider temporarily unavailable"
+      description: "Provider temporarily unavailable",
     });
   });
 
@@ -229,17 +260,17 @@ describe("PackageAsaasAdapter", () => {
               error.name = "AbortError";
               reject(error);
             },
-            { once: true }
+            { once: true },
           );
         });
-      })
+      }),
     );
 
     const request = createAdapter().removeSubscription("subscription_1");
     const result = expect(request).rejects.toMatchObject({
       code: "asaas_timeout",
       statusCode: null,
-      retryable: true
+      retryable: true,
     });
 
     await vi.advanceTimersByTimeAsync(15_000);

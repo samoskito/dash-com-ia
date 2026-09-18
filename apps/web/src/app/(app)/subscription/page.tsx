@@ -26,8 +26,13 @@ import {
   saveBillingProfileAction,
   startPackageCheckoutAction,
 } from "./actions";
+import { AddWhatsappNumberButton } from "./add-whatsapp-number-button";
 import { PackageBillingActionForm } from "./package-billing-action-form";
 import { PackageInstanceRemoveButton } from "./package-instance-remove-button";
+import {
+  subscriptionTrialNotice,
+  trialStatusChipLabel,
+} from "./trial-status";
 
 type BillingResource = {
   data: WorkspacePackageBillingStateDto | null;
@@ -176,6 +181,8 @@ export default async function SubscriptionPage() {
   const canManageBilling = workspace.permissions.canManageBilling;
   const canManageIntegrations = workspace.permissions.canManageIntegrations;
   const contract = billing.contract;
+  const trialChip = trialStatusChipLabel(contract);
+  const trialNotice = subscriptionTrialNotice(contract);
   const planIsManagedByPlatform =
     contract?.status === "exempt" || contract?.status === "legacy_protected";
   const checkoutPending =
@@ -198,6 +205,17 @@ export default async function SubscriptionPage() {
     billing.capabilities.uazapiProvisioning &&
     billing.seats.available > 0 &&
     Boolean(contract && contractAllowsProvisioning(contract.status));
+  const canAddNumber =
+    canManageBilling &&
+    billing.capabilities.packageBilling &&
+    contract?.status === "active";
+  const addNumberDisabledReason = canAddNumber
+    ? null
+    : !canManageBilling
+      ? "Somente quem gerencia a cobranca pode adicionar numeros."
+      : !billing.capabilities.packageBilling
+        ? "Recurso ainda em rollout protegido."
+        : "Disponivel apenas com assinatura ativa.";
 
   return (
     <section className="page-stack page-standard package-billing-page">
@@ -214,10 +232,20 @@ export default async function SubscriptionPage() {
           <span
             className={`status-chip${contractStatusTone(contract?.status)}`}
           >
-            {contractStatusLabel(contract?.status)}
+            {trialChip ?? contractStatusLabel(contract?.status)}
           </span>
         </div>
       </header>
+
+      {trialNotice ? (
+        <div
+          className={`feedback-banner${trialNotice.tone === "warn" ? " warn" : ""}`}
+          role="status"
+        >
+          <strong>{trialNotice.title}</strong>
+          <span>{trialNotice.description}</span>
+        </div>
+      ) : null}
 
       {!billing.capabilities.packageBilling ? (
         <div className="feedback-banner warn" role="status">
@@ -251,7 +279,7 @@ export default async function SubscriptionPage() {
           <Fact
             icon={CreditCard}
             label="Pagamento"
-            value={contractStatusLabel(contract?.status)}
+            value={trialChip ?? contractStatusLabel(contract?.status)}
           />
           <Fact
             icon={Smartphone}
@@ -261,10 +289,14 @@ export default async function SubscriptionPage() {
           <Fact
             icon={CalendarClock}
             label="Periodo atual"
-            value={periodLabel(
-              contract?.currentPeriodStart,
-              contract?.currentPeriodEnd,
-            )}
+            value={
+              contract?.trialEndsAt && !contract.currentPeriodStart
+                ? `Trial ate ${dateLabel(contract.trialEndsAt)}`
+                : periodLabel(
+                    contract?.currentPeriodStart,
+                    contract?.currentPeriodEnd,
+                  )
+            }
           />
           <Fact
             icon={FileCheck2}
@@ -272,7 +304,7 @@ export default async function SubscriptionPage() {
             value={invoiceStatusLabel(contract?.fiscalStatus)}
           />
         </div>
-        {contract?.status === "grace_period" ? (
+        {contract?.status === "grace_period" && !contract.trialEndsAt ? (
           <div className="package-alert">
             <strong>Pagamento em atraso</strong>
             <span>
@@ -369,16 +401,28 @@ export default async function SubscriptionPage() {
             {billing.seats.suspended}
           </strong>
         </div>
-        <div className="package-instance-inventory">
-          <div className="package-instance-heading">
-            <div>
-              <span className="eyebrow">Conexoes por QR code</span>
-              <h3>Instancias do pacote</h3>
-            </div>
-            <span className="status-chip">
-              {whatsappResources.instances.length} instancia(s)
-            </span>
+        {billing.seats.available <= 0 ? (
+          <p className="muted package-seat-zero-hint">
+            {zeroAvailabilityExplanation(contract)}
+          </p>
+        ) : null}
+      </section>
+
+      <section
+        className="surface-panel package-instances-panel"
+        id="uazapi"
+        aria-labelledby="package-instance-title"
+      >
+        <div className="package-section-heading">
+          <div>
+            <span className="eyebrow">Conexoes por QR code</span>
+            <h2 id="package-instance-title">Instancias do pacote</h2>
           </div>
+          <span className="status-chip">
+            {whatsappResources.instances.length} instancia(s)
+          </span>
+        </div>
+        <div className="package-instance-inventory">
           {whatsappResources.instances.length ? (
             <div className="package-instance-list">
               {whatsappResources.instances.map((instance) => (
@@ -426,10 +470,85 @@ export default async function SubscriptionPage() {
           <Link className="button ghost" href="/integrations">
             Gerenciar fontes externas
           </Link>
-          <Link className="button ghost" href="/subscription#uazapi">
-            Conectar por QR
-          </Link>
         </div>
+        <div className="package-uazapi-form-block">
+          <div className="package-section-heading">
+            <div>
+              <span className="eyebrow">Nova conexao</span>
+              <h3>Conectar numero por QR code</h3>
+            </div>
+            <QrCode aria-hidden="true" size={26} />
+          </div>
+          <PackageBillingActionForm
+            action={provisionPackageUazapiAction}
+            className="inline-form package-uazapi-form"
+            resumeProvisioning={whatsappResources.resumeProvisioning}
+            showProvisionResult
+          >
+            <input
+              minLength={2}
+              name="instanceName"
+              placeholder="Nome do numero ou setor"
+              required
+              aria-label="Nome da conexao WhatsApp"
+            />
+            <SubmitButton
+              className="button primary"
+              disabled={!canProvision}
+              pendingLabel="Preparando QR..."
+              statusText="Criando a instancia e reservando uma vaga."
+            >
+              Gerar QR code
+            </SubmitButton>
+          </PackageBillingActionForm>
+          {!canProvision && !whatsappResources.resumeProvisioning ? (
+            <p className="muted">
+              {billing.seats.available <= 0
+                ? "O pacote esta sem vagas disponiveis."
+                : "O provisionamento por QR ainda nao esta liberado para este contrato."}
+            </p>
+          ) : null}
+        </div>
+        {contract && !planIsManagedByPlatform ? (
+          <div className="package-contract-checkout package-additive-cta">
+            <div>
+              <strong>Numero avulso adicional</strong>
+              <span>
+                Precisa de mais um numero alem da capacidade do pacote?
+                Adicione por R$ 30,00/mes.
+              </span>
+            </div>
+            <AddWhatsappNumberButton
+              disabled={!canAddNumber}
+              disabledReason={addNumberDisabledReason}
+            />
+          </div>
+        ) : null}
+        {additiveItems(contract).length ? (
+          <div className="package-additive-items">
+            <div className="package-section-heading">
+              <div>
+                <span className="eyebrow">Numeros avulsos</span>
+                <h3>Estado dos numeros adicionais</h3>
+              </div>
+            </div>
+            <ul>
+              {additiveItems(contract).map((item) => (
+                <li key={item.id} className="package-additive-item-row">
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>{additiveItemDescription(item)}</span>
+                  </div>
+                  <span
+                    className={`status-chip${additiveItemTone(item)}`}
+                  >
+                    {additiveItemLabel(item)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </section>
 
       <section
@@ -632,49 +751,6 @@ export default async function SubscriptionPage() {
           </div>
         </section>
       ) : null}
-
-      <section
-        className="surface-panel package-uazapi-panel"
-        id="uazapi"
-        aria-labelledby="uazapi-title"
-      >
-        <div className="package-section-heading">
-          <div>
-            <span className="eyebrow">WhatsApp por QR code</span>
-            <h2 id="uazapi-title">Nova conexao NOD API</h2>
-          </div>
-          <QrCode aria-hidden="true" size={28} />
-        </div>
-        <PackageBillingActionForm
-          action={provisionPackageUazapiAction}
-          className="inline-form package-uazapi-form"
-          resumeProvisioning={whatsappResources.resumeProvisioning}
-          showProvisionResult
-        >
-          <input
-            minLength={2}
-            name="instanceName"
-            placeholder="Nome do numero ou setor"
-            required
-            aria-label="Nome da conexao WhatsApp"
-          />
-          <SubmitButton
-            className="button primary"
-            disabled={!canProvision}
-            pendingLabel="Preparando QR..."
-            statusText="Criando a instancia e reservando uma vaga."
-          >
-            Gerar QR code
-          </SubmitButton>
-        </PackageBillingActionForm>
-        {!canProvision && !whatsappResources.resumeProvisioning ? (
-          <p className="muted">
-            {billing.seats.available <= 0
-              ? "O pacote esta sem vagas disponiveis."
-              : "O provisionamento por QR ainda nao esta liberado para este contrato."}
-          </p>
-        ) : null}
-      </section>
 
       <section
         className="surface-panel package-invoice-panel"
@@ -973,6 +1049,101 @@ function packageInstanceStatusTone(instance: PackageWhatsappInstance): string {
   }
 
   return instance.connectionStatus === "error" ? " bad" : " warn";
+}
+
+type PackageContractItem = NonNullable<
+  WorkspacePackageBillingStateDto["contract"]
+>["items"][number];
+
+function additiveItems(
+  contract: WorkspacePackageBillingStateDto["contract"],
+): PackageContractItem[] {
+  return contract?.items ?? [];
+}
+
+/**
+ * Honest label for an additive number purchase. Only "items[].status" and
+ * "items[].providerSyncStatus" (both always present on the DTO) are used, no
+ * available>0 is ever implied here: a pending Asaas provider sync still
+ * shows the item as "activating", never as connected/available capacity.
+ */
+function additiveItemLabel(item: PackageContractItem): string {
+  if (item.status === "active") {
+    return item.providerSyncStatus === "synced"
+      ? "Ativo"
+      : "Ativo (sincronizando)";
+  }
+
+  if (
+    item.providerSyncStatus === "pending" ||
+    item.providerSyncStatus === "failed"
+  ) {
+    return "Pago, ativando capacidade";
+  }
+
+  return "Aguardando pagamento";
+}
+
+function additiveItemTone(item: PackageContractItem): string {
+  if (item.status === "active") {
+    return item.providerSyncStatus === "synced" ? "" : " warn";
+  }
+
+  return item.providerSyncStatus === "pending" ||
+    item.providerSyncStatus === "failed"
+    ? " warn"
+    : " neutral";
+}
+
+function additiveItemDescription(item: PackageContractItem): string {
+  if (item.status === "active" && item.providerSyncStatus === "synced") {
+    return "Capacidade ativa no pacote.";
+  }
+
+  if (item.status === "active") {
+    return "Ativo. Sincronizacao com o provedor de pagamento em andamento.";
+  }
+
+  if (item.providerSyncStatus === "pending") {
+    return "Pagamento confirmado. Ativando a capacidade no pacote.";
+  }
+
+  if (item.providerSyncStatus === "failed") {
+    return "Pagamento confirmado. A sincronizacao falhou e sera reprocessada automaticamente.";
+  }
+
+  return "Aguardando confirmacao do pagamento para liberar a capacidade.";
+}
+
+/**
+ * Explains a zero-availability state honestly instead of just showing "0
+ * disponiveis": distinguishes real capacity exhaustion from a paid additive
+ * item still activating or an unpaid one awaiting payment.
+ */
+function zeroAvailabilityExplanation(
+  contract: WorkspacePackageBillingStateDto["contract"],
+): string {
+  const items = additiveItems(contract);
+  const activating = items.some(
+    (item) =>
+      item.status === "pending_payment" &&
+      (item.providerSyncStatus === "pending" ||
+        item.providerSyncStatus === "failed"),
+  );
+  if (activating) {
+    return "Sem vagas livres no momento: ha pagamento(s) confirmado(s) aguardando a ativacao da capacidade.";
+  }
+
+  const awaitingPayment = items.some(
+    (item) =>
+      item.status === "pending_payment" &&
+      item.providerSyncStatus === "not_required",
+  );
+  if (awaitingPayment) {
+    return "Sem vagas livres. Ha um numero avulso aguardando confirmacao de pagamento.";
+  }
+
+  return "O pacote atingiu a capacidade contratada.";
 }
 
 function formatWhatsappPhone(value: string | null): string | null {

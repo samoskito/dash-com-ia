@@ -247,7 +247,13 @@ export class InboundWebhookIngestionService {
   ): Buffer {
     const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase();
 
-    if (mediaType !== "application/json") {
+    const allowsJson =
+      mediaType === "application/json" ||
+      mediaType === "text/plain" ||
+      mediaType === "application/octet-stream" ||
+      !mediaType;
+
+    if (!allowsJson) {
       throw new UnsupportedMediaTypeException(
         "Webhook requer Content-Type application/json",
       );
@@ -261,13 +267,37 @@ export class InboundWebhookIngestionService {
       throw new PayloadTooLargeException("Payload do webhook excede o limite");
     }
 
+    let payload: unknown;
     try {
-      JSON.parse(rawBody.toString("utf8"));
+      let plaintext = rawBody.toString("utf8");
+      if (plaintext.charCodeAt(0) === 0xfeff) {
+        plaintext = plaintext.slice(1);
+      }
+      plaintext = plaintext.trim();
+      if (plaintext === "[object Object]") {
+        throw new SyntaxError("Object string is not JSON");
+      }
+      payload = JSON.parse(plaintext);
+      for (let index = 0; index < 3 && typeof payload === "string"; index++) {
+        const nestedPayload = payload.trim();
+        if (
+          !nestedPayload.startsWith("{") &&
+          !nestedPayload.startsWith("[") &&
+          !nestedPayload.startsWith('"')
+        ) {
+          break;
+        }
+        payload = JSON.parse(nestedPayload);
+      }
     } catch {
       throw new BadRequestException("Payload JSON invalido");
     }
 
-    return rawBody;
+    if (!payload || typeof payload !== "object") {
+      throw new BadRequestException("Payload JSON invalido");
+    }
+
+    return Buffer.from(JSON.stringify(payload), "utf8");
   }
 
   private extractIdentity(
@@ -489,8 +519,7 @@ export class InboundWebhookIngestionService {
     results: PromiseSettledResult<unknown>[],
   ): void {
     const failures = results.filter(
-      (result): result is PromiseRejectedResult =>
-        result.status === "rejected",
+      (result): result is PromiseRejectedResult => result.status === "rejected",
     );
 
     if (failures.length === 0) {
@@ -503,9 +532,7 @@ export class InboundWebhookIngestionService {
         connectionId,
         deliveryId,
         failureCount: failures.length,
-        failureTypes: failures.map((failure) =>
-          this.errorType(failure.reason),
-        ),
+        failureTypes: failures.map((failure) => this.errorType(failure.reason)),
       }),
     );
   }

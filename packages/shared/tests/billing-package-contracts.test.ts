@@ -1,16 +1,31 @@
 import { describe, expect, it } from "vitest";
 import {
   billingInvoiceStatusSchema,
+  backofficePackageContractCancellationInputSchema,
+  billingTrialReminderTemplatesInputSchema,
   legacyBillingBackfillApplyInputSchema,
   legacyBillingBackfillReportSchema,
   whatsappPackagePlanSchema,
   whatsappSeatSchema,
   workspaceBillingProfileInputSchema,
+  workspaceAddWhatsappNumberInputSchema,
   workspacePackageCheckoutSchema,
   workspaceSubscriptionCancellationInputSchema,
+  workspaceTrialStartInputSchema,
 } from "../src";
 
 describe("WhatsApp package billing contracts", () => {
+  it("does not accept an additive idempotency key from the request body", () => {
+    expect(workspaceAddWhatsappNumberInputSchema.safeParse({}).success).toBe(
+      true,
+    );
+    expect(
+      workspaceAddWhatsappNumberInputSchema.parse({
+        idempotencyKey: "request-0001",
+      }),
+    ).toEqual({});
+  });
+
   it("accepts negotiated and exempt packages with explicit capacity", () => {
     expect(
       whatsappPackagePlanSchema.parse({
@@ -102,6 +117,19 @@ describe("WhatsApp package billing contracts", () => {
       workspaceSubscriptionCancellationInputSchema.safeParse({
         confirmation: true,
         reason: "Encerramento solicitado pelo cliente",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires a reason when backoffice ends a stale package contract", () => {
+    expect(
+      backofficePackageContractCancellationInputSchema.safeParse({
+        reason: "ok",
+      }).success,
+    ).toBe(false);
+    expect(
+      backofficePackageContractCancellationInputSchema.safeParse({
+        reason: "Encerrar rascunho antigo",
       }).success,
     ).toBe(true);
   });
@@ -213,5 +241,77 @@ describe("WhatsApp package billing contracts", () => {
     expect(parsed.applyEnabled).toBe(false);
     expect(parsed.summary.blockingIssues).toBe(1);
     expect(parsed.workspaces[0]?.eligible).toBe(false);
+  });
+
+  it("accepts trial capacity from 1 to 20 and rejects outside that range", () => {
+    expect(
+      workspaceTrialStartInputSchema.safeParse({
+        capacity: 5,
+        reason: "Trial comercial",
+      }).success,
+    ).toBe(true);
+    expect(
+      workspaceTrialStartInputSchema.safeParse({
+        capacity: 20,
+        reason: "Trial comercial",
+      }).success,
+    ).toBe(true);
+    expect(
+      workspaceTrialStartInputSchema.safeParse({
+        capacity: 0,
+        reason: "Trial comercial",
+      }).success,
+    ).toBe(false);
+    expect(
+      workspaceTrialStartInputSchema.safeParse({
+        capacity: 21,
+        reason: "Trial comercial",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires the three trial reminder templates with known placeholders only", () => {
+    const valid = billingTrialReminderTemplatesInputSchema.safeParse({
+      templates: [
+        {
+          moment: "d3",
+          emailSubject: "Faltam 3 dias",
+          body: "Ola {{cliente}}, fim em {{data_fim}} por {{valor}}",
+        },
+        {
+          moment: "day_of",
+          emailSubject: "Hoje",
+          body: "{{numeros}} numeros — {{link_assinatura}}",
+        },
+        {
+          moment: "post",
+          emailSubject: "Grace",
+          body: "Regularize {{cliente}}",
+        },
+      ],
+    });
+    expect(valid.success).toBe(true);
+
+    expect(
+      billingTrialReminderTemplatesInputSchema.safeParse({
+        templates: [
+          {
+            moment: "d3",
+            emailSubject: "x",
+            body: "Oi {{invalido}}",
+          },
+          {
+            moment: "day_of",
+            emailSubject: "y",
+            body: "ok",
+          },
+          {
+            moment: "post",
+            emailSubject: "z",
+            body: "ok",
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });

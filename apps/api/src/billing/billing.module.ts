@@ -2,9 +2,14 @@ import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
+import { IdempotencyGuard } from "../common/guards/idempotency.guard";
+import { UazapiConversionBridgeModule } from "../inbound-webhooks/uazapi-conversion-bridge.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { EmailModule } from "../email/email.module";
+import { OpsAlertsModule } from "../ops-alerts/ops-alerts.module";
 import { AsaasAdapter } from "./asaas.adapter";
+import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
 import { BackofficePackageBillingController } from "./backoffice-package-billing.controller";
 import { BackofficeBillingController } from "./backoffice-billing.controller";
 import { BillingSeatModule } from "./billing-seat.module";
@@ -20,12 +25,15 @@ import { PackageFiscalService } from "./package-fiscal.service";
 import { PackagePlanService } from "./package-plan.service";
 import { PackageAsaasAdapter } from "./package-asaas.adapter";
 import { PackageSubscriptionLifecycleService } from "./package-subscription-lifecycle.service";
+import { PackageTrialAutoconvertService } from "./package-trial-autoconvert.service";
 import { PackageUazapiProvisioningService } from "./package-uazapi-provisioning.service";
 import { LegacyBillingBackfillService } from "./legacy-billing-backfill.service";
 import { SplitController } from "./split.controller";
 import { SplitService } from "./split.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
+import { BillingTrialReminderTemplateService } from "./billing-trial-reminder-template.service";
+import { BillingTrialReminderService } from "./billing-trial-reminder.service";
 
 @Module({
   imports: [
@@ -34,6 +42,9 @@ import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
     PrismaModule,
     IntegrationsModule,
     BillingSeatModule,
+    UazapiConversionBridgeModule,
+    EmailModule,
+    OpsAlertsModule,
   ],
   controllers: [
     BillingController,
@@ -48,6 +59,8 @@ import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
       useFactory: () => new AsaasAdapter(),
     },
     BillingService,
+    IdempotencyGuard,
+    AdditiveWhatsappBillingService,
     PackageAsaasAdapter,
     PackageBillingReconciliationService,
     PackageBillingWebhookService,
@@ -61,11 +74,15 @@ import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
     PackageFiscalService,
     LegacyBillingBackfillService,
     PackageSubscriptionLifecycleService,
+    PackageTrialAutoconvertService,
+    BillingTrialReminderTemplateService,
+    BillingTrialReminderService,
     PackageUazapiProvisioningService,
     SplitService,
   ],
   exports: [
     BillingService,
+    AdditiveWhatsappBillingService,
     BillingSeatModule,
     PackageAsaasAdapter,
     PackageBillingReconciliationService,
@@ -76,6 +93,9 @@ import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
     LegacyBillingBackfillService,
     PackagePlanService,
     PackageSubscriptionLifecycleService,
+    PackageTrialAutoconvertService,
+    BillingTrialReminderTemplateService,
+    BillingTrialReminderService,
     PackageUazapiProvisioningService,
     SplitService,
   ],

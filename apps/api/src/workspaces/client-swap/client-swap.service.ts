@@ -22,6 +22,15 @@ export const CLIENT_SWAP_COMPLETED_ACTION = "workspace.client_swapped";
 
 /** Workspace-scoped Prisma delegates wiped in FK-safe order (children first). */
 export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
+  "workspaceOpsAlertSettings",
+  "workspaceOpsAlertDelivery",
+  "billingTrialReminderDelivery",
+  "workspaceSubscriptionItem",
+  "xmaxShadowEvent",
+  "xmaxAccount",
+  "guimoConversionRule",
+  "guimoWebhookEvent",
+  "guimoWebhookRateLimit",
   "purchaseValueAdjustment",
   "purchaseReviewItem",
   "purchaseReview",
@@ -41,6 +50,7 @@ export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
   "inboundWebhookDelivery",
   "inboundWebhookChannelRoute",
   "externalIngestionRecord",
+  "uazapiChatLabelState",
   "whatsappSeat",
   "inboundWebhookChannel",
   "inboundWebhookConnection",
@@ -49,6 +59,7 @@ export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
 export const CLIENT_SWAP_CURSOR_DELEGATE = "externalSyncCursor";
 
 export const CLIENT_SWAP_POST_CONNECTOR_DELEGATES = [
+  "guimoIntegration",
   "externalCapiCutover",
   "externalDataConnector",
   "metaAdDailyInsight",
@@ -101,6 +112,10 @@ export const CLIENT_SWAP_WIPE_DELEGATES = [
  * list (or CLIENT_SWAP_WIPE_DELEGATES' order) drifts from the real schema.
  */
 export const CLIENT_SWAP_RESTRICT_EDGES = [
+  ["guimoConversionRule", "guimoIntegration"],
+  ["guimoWebhookEvent", "guimoIntegration"],
+  ["guimoWebhookRateLimit", "guimoIntegration"],
+  ["uazapiChatLabelState", "whatsappInstance"],
   ["whatsappSeat", "whatsappInstance"],
   ["whatsappSeat", "inboundWebhookChannel"],
   ["whatsappInstanceActivation", "whatsappInstance"],
@@ -156,6 +171,7 @@ export const CLIENT_SWAP_RESTRICT_EDGES = [
  */
 export const CLIENT_SWAP_EXTERNAL_HARD_PARENT_EDGES = [
   ["whatsappInstance", "workspace", "workspace", "default-required"],
+  ["uazapiChatLabelState", "workspace", "workspace", "Restrict"],
   ["whatsappSeat", "workspace", "workspace", "Restrict"],
   ["whatsappSeat", "workspaceSubscription", "subscription", "Restrict"],
   ["whatsappInstanceActivation", "workspace", "workspace", "default-required"],
@@ -208,6 +224,26 @@ export const CLIENT_SWAP_EXTERNAL_HARD_PARENT_EDGES = [
   ["inboundWebhookReplayBatch", "user", "requestedBy", "Restrict"],
   ["inboundWebhookReplayItem", "workspace", "workspace", "Restrict"],
   ["inboundWebhookProductionItem", "workspace", "workspace", "Restrict"],
+  [
+    "billingTrialReminderDelivery",
+    "workspace",
+    "workspace",
+    "Restrict",
+  ],
+  ["workspaceSubscriptionItem", "workspace", "workspace", "Restrict"],
+  [
+    "workspaceSubscriptionItem",
+    "workspaceSubscription",
+    "subscription",
+    "Restrict",
+  ],
+  ["guimoIntegration", "workspace", "workspace", "Restrict"],
+  ["guimoConversionRule", "workspace", "workspace", "Restrict"],
+  ["guimoWebhookEvent", "workspace", "workspace", "Restrict"],
+  ["guimoWebhookRateLimit", "workspace", "workspace", "Restrict"],
+  ["xmaxAccount", "workspace", "workspace", "Restrict"],
+  ["xmaxAccount", "xmaxIngress", "ingress", "Restrict"],
+  ["xmaxShadowEvent", "workspace", "workspace", "Restrict"],
   ["metaCampaign", "workspace", "workspace", "default-required"],
   ["metaAdSet", "workspace", "workspace", "default-required"],
   ["metaAd", "workspace", "workspace", "default-required"],
@@ -237,6 +273,12 @@ export const CLIENT_SWAP_EXTERNAL_PARENT_HANDLING = {
     referentialIntegrity: "delete-child",
     reason:
       "Parser releases are shared platform configuration, not workspace data.",
+  },
+  xmaxIngress: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason:
+      "XMAX ingress credentials are shared configuration, not prior-client data.",
   },
   user: {
     action: "preserve-parent",
@@ -272,6 +314,7 @@ export class ClientSwapService {
     actorUserId: string,
     dto: ClientSwapDto,
     idempotencyKey?: string,
+    actorType: "user" | "platform_admin" = "user",
   ): Promise<ClientSwapResult> {
     if (dto.confirm !== true) {
       throw new BadRequestException("Payload invalido");
@@ -302,7 +345,7 @@ export class ClientSwapService {
           }
 
           await this.rateLimitService.assertAllowed(workspaceId, tx);
-          await this.validateSwap(tx, workspaceId, actorUserId);
+          await this.validateSwap(tx, workspaceId, actorUserId, actorType);
 
           const connectorIds = (
             await tx.externalDataConnector.findMany({
@@ -329,7 +372,7 @@ export class ClientSwapService {
             data: {
               workspaceId,
               actorUserId,
-              actorType: "user",
+              actorType,
               action: CLIENT_SWAP_COMPLETED_ACTION,
               targetType: "Workspace",
               targetId: workspaceId,
@@ -418,6 +461,7 @@ export class ClientSwapService {
     tx: Prisma.TransactionClient,
     workspaceId: string,
     actorUserId: string,
+    actorType: "user" | "platform_admin",
   ): Promise<void> {
     const workspace = await tx.workspace.findUnique({
       where: { id: workspaceId },
@@ -437,11 +481,13 @@ export class ClientSwapService {
       );
     }
 
-    const membership = workspace.members[0];
-    if (!membership || membership.role !== "owner") {
-      throw new ForbiddenException(
-        "Apenas o owner do workspace pode executar esta operação",
-      );
+    if (actorType !== "platform_admin") {
+      const membership = workspace.members[0];
+      if (!membership || membership.role !== "owner") {
+        throw new ForbiddenException(
+          "Apenas o owner do workspace pode executar esta operação",
+        );
+      }
     }
 
     const activeSubscription = workspace.subscriptions.find(

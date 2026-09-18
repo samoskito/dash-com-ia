@@ -127,6 +127,37 @@ describe("EmailMessageRenderer", () => {
     expect(message.text).not.toContain(rawToken);
   });
 
+  it("renders the license key delivery email with the raw key in monospace", () => {
+    const configuration = new EmailConfigurationService(smtpEnvironment());
+    const renderer = new EmailMessageRenderer(configuration);
+    const message = renderer.render({
+      to: { address: "aluno@example.com", name: "Aluno" },
+      template: "license_key_delivery",
+      data: {
+        recipientName: "Aluno",
+        licenseKey: "PALMUP-ABCD-EFGH-IJKL-MNOP",
+        keyPrefix: "PALMUP-ABCD",
+        expiresAt: "2027-08-19T00:00:00.000Z",
+        productName: "RastrackDash",
+        repoUrl: "https://github.com/samoskito/nod-rastrackdash-wpp",
+        supportEmail: "suporte@palmup.com.br",
+      },
+    });
+
+    expect(message.subject).toBe("Sua chave RastrackDash");
+    expect(message.subject).not.toContain("PALMUP-ABCD-EFGH-IJKL-MNOP");
+    expect(message.html).toContain("PALMUP-ABCD-EFGH-IJKL-MNOP");
+    expect(message.text).toContain("PALMUP-ABCD-EFGH-IJKL-MNOP");
+    expect(message.html).toContain("Abrir repositório");
+    expect(message.html).toContain(
+      "https://github.com/samoskito/nod-rastrackdash-wpp",
+    );
+    expect(message.text).toContain(
+      "https://github.com/samoskito/nod-rastrackdash-wpp",
+    );
+    expect(message.html).toContain("suporte@palmup.com.br");
+  });
+
   it("escapes user-controlled display values before rendering HTML", () => {
     const configuration = new EmailConfigurationService(smtpEnvironment());
     const crypto = new EmailEnvelopeCryptoService(configuration);

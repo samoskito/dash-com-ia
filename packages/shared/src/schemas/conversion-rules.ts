@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  conversionEventCarriesValue,
+  conversionEventRequiresValue,
+} from "./conversion-event-catalog";
+import {
   conversionEventItemSchema,
   conversionEventNameSchema,
 } from "./conversion-events";
@@ -17,6 +21,24 @@ export const conversionTriggerTypes = [
   ...legacyConversionTriggerTypes,
   ...providerConversionTriggerTypes,
 ] as const;
+
+/**
+ * Estado tecnico de entrega de uma execucao de regra. Vive aqui (e nao em
+ * provider-conversion-decisions) porque a auditoria da regra tambem precisa
+ * dele e aquele modulo ja depende deste.
+ */
+export const providerConversionTechnicalDeliveryStates = [
+  "observed",
+  "queued",
+  "sent",
+  "blocked_configuration",
+  "failed_retryable",
+  "failed_permanent",
+] as const;
+
+export const providerConversionTechnicalDeliveryStateSchema = z.enum(
+  providerConversionTechnicalDeliveryStates,
+);
 
 export const legacyConversionTriggerTypeSchema = z.enum(
   legacyConversionTriggerTypes,
@@ -36,6 +58,17 @@ export const providerConversionRuleModeSchema = z.enum(
   providerConversionRuleModes,
 );
 
+/**
+ * Plataforma externa que chama a URL da automacao. Ausente (null) mantem o
+ * comportamento original, em que o proprio provedor WhatsApp (Umbler) envia o
+ * callback. "payt" marca uma regra de compra aprovada vinda do checkout Payt:
+ * o valor chega em centavos no payload, entao a regra nao pede valor medio.
+ */
+export const providerConversionAutomationSources = ["payt"] as const;
+export const providerConversionAutomationSourceSchema = z.enum(
+  providerConversionAutomationSources,
+);
+
 export const providerConversionMessageAuthorScopes = [
   "team",
   "contact",
@@ -44,6 +77,36 @@ export const providerConversionMessageAuthorScopes = [
 export const providerConversionMessageAuthorScopeSchema = z.enum(
   providerConversionMessageAuthorScopes,
 );
+
+export const messagePhraseValueModes = ["fixed", "message_extracted"] as const;
+export const messagePhraseValueModeSchema = z.enum(messagePhraseValueModes);
+
+/**
+ * message_phrase rules reuse ConversionRule.defaultItems (Json?) to persist the
+ * value pipeline. Catalog and legacy rules keep storing product item arrays, so
+ * the object shape below is the only accepted message_phrase payload.
+ */
+export const messagePhraseConfigKind = "message_phrase_config_v1";
+
+export const messagePhraseConfigSchema = z.object({
+  kind: z.literal(messagePhraseConfigKind),
+  valueMode: messagePhraseValueModeSchema,
+  exampleMessage: z.string().max(2_000).nullable(),
+});
+
+/** Rules created before U2 have `defaultItems` null or an item array: fixed value. */
+export function readMessagePhraseConfig(
+  value: unknown,
+): z.infer<typeof messagePhraseConfigSchema> {
+  const parsed = messagePhraseConfigSchema.safeParse(value);
+  return parsed.success
+    ? parsed.data
+    : {
+        kind: messagePhraseConfigKind,
+        valueMode: "fixed",
+        exampleMessage: null,
+      };
+}
 
 export const providerConversionExecutionStatuses = [
   "observed",
@@ -205,6 +268,97 @@ const providerConversionMessageRuleShape = {
   messageAuthorScope: providerConversionMessageAuthorScopeSchema,
 };
 
+const messagePhraseExampleSchema = z.string().trim().max(2_000);
+
+type ValuedRuleInput = {
+  eventName: z.infer<typeof conversionEventNameSchema>;
+  valueMode?: z.infer<typeof messagePhraseValueModeSchema>;
+  defaultValueCents?: number | null;
+  defaultCurrency?: string;
+  defaultContentName?: string | null;
+};
+
+/**
+ * O evento decide o que pode ser configurado: eventos sem valor
+ * (QualifiedLead, OrderShipped, ...) recusam qualquer campo monetario e
+ * recusam extrair valor da mensagem; Purchase e InitiateCheckout exigem um
+ * valor medio quando o modo e "fixed".
+ */
+function refineEventValueFields(
+  input: ValuedRuleInput,
+  context: z.RefinementCtx,
+): void {
+  if (!conversionEventCarriesValue(input.eventName)) {
+    if (input.defaultValueCents != null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este evento nao envia valor monetario",
+        path: ["defaultValueCents"],
+      });
+    }
+    if (input.defaultContentName != null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este evento nao envia produto",
+        path: ["defaultContentName"],
+      });
+    }
+    if (input.valueMode === "message_extracted") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Este evento nao extrai valor da mensagem",
+        path: ["valueMode"],
+      });
+    }
+    return;
+  }
+
+  if (
+    conversionEventRequiresValue(input.eventName) &&
+    input.valueMode !== "message_extracted" &&
+    !input.defaultValueCents
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Informe o valor medio para regras com valor fixo",
+      path: ["defaultValueCents"],
+    });
+  }
+}
+
+/**
+ * Eventos sem valor saem do parse sem nenhuma chave monetaria; eventos com
+ * valor ganham "BRL" como moeda padrao. Manter os campos ausentes (em vez de
+ * nulos) e o que impede o servico de gravar valor fantasma.
+ *
+ * O transform nao mexe em valueMode: o refine acima ja recusa
+ * "message_extracted" em evento sem valor, e o default do proprio campo
+ * garante "fixed".
+ */
+function normalizeEventValueFields<Input extends ValuedRuleInput>(
+  input: Input,
+): Input {
+  if (conversionEventCarriesValue(input.eventName)) {
+    return { ...input, defaultCurrency: input.defaultCurrency ?? "BRL" };
+  }
+
+  const {
+    defaultValueCents: _valueCents,
+    defaultCurrency: _currency,
+    defaultContentName: _contentName,
+    ...rest
+  } = input;
+
+  return rest as Input;
+}
+
+const eventValueShape = {
+  // Required when valueMode is "fixed"; optional fallback when extracting.
+  defaultValueCents: z.number().int().positive().nullable().optional(),
+  defaultCurrency: currencySchema.optional(),
+  defaultContentName: catalogTextSchema.nullable().optional(),
+};
+
 export const providerConversionRuleAdaptInputSchema = z.object({
   connectionId: providerConversionRuleBaseShape.connectionId,
   channelIds: providerConversionRuleBaseShape.channelIds,
@@ -212,36 +366,76 @@ export const providerConversionRuleAdaptInputSchema = z.object({
   messageAuthorScope: providerConversionMessageRuleShape.messageAuthorScope,
 });
 
-export const providerConversionRuleCreateInputSchema = z.union([
-  z.object({
+const providerAutomationCreateSchema = z
+  .object({
     ...providerConversionRuleBaseShape,
+    // Umbler callbacks select the automation server-side and leave this
+    // empty. UAZAPI uses these as the WhatsApp label names to match.
+    triggerPhrases:
+      providerConversionMessageRuleShape.triggerPhrases.optional(),
+    triggerLabels: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1).max(240),
+          name: messageTriggerPhraseSchema,
+        }),
+      )
+      .min(1)
+      .max(50)
+      .optional(),
+    ...eventValueShape,
     triggerType: z.literal("provider_automation"),
-    eventName: z.literal("QualifiedLead"),
-  }),
-  z.object({
-    ...providerConversionRuleBaseShape,
-    triggerType: z.literal("provider_automation"),
-    eventName: z.literal("Purchase"),
-    defaultValueCents: z.number().int().positive(),
-    defaultCurrency: currencySchema.default("BRL"),
-    defaultContentName: catalogTextSchema.nullable().optional(),
-  }),
-  z.object({
+    eventName: conversionEventNameSchema,
+    automationSource: providerConversionAutomationSourceSchema.optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.automationSource !== "payt") {
+      refineEventValueFields(input, context);
+      return;
+    }
+    // A Payt so envia compra aprovada e traz o valor real de cada venda.
+    if (input.eventName !== "Purchase") {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A Payt so envia compras aprovadas",
+        path: ["eventName"],
+      });
+    }
+    if (input.triggerPhrases || input.triggerLabels) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A automacao da Payt nao usa etiquetas",
+        path: ["triggerPhrases"],
+      });
+    }
+  })
+  .transform(normalizeEventValueFields);
+
+const messagePhraseCreateSchema = z
+  .object({
     ...providerConversionRuleBaseShape,
     ...providerConversionMessageRuleShape,
+    ...eventValueShape,
     triggerType: z.literal("message_phrase"),
-    eventName: z.literal("Purchase"),
-    defaultValueCents: z.number().int().positive(),
-    defaultCurrency: currencySchema.default("BRL"),
-    defaultContentName: catalogTextSchema.nullable().optional(),
-  }),
-  z.object({
-    ...providerConversionRuleBaseShape,
-    ...providerConversionMessageRuleShape,
-    triggerType: z.literal("structured_catalog"),
-    eventName: z.literal("Purchase"),
-    catalog: providerConversionCatalogInputSchema,
-  }),
+    eventName: conversionEventNameSchema,
+    valueMode: messagePhraseValueModeSchema.default("fixed"),
+    exampleMessage: messagePhraseExampleSchema.nullable().optional(),
+  })
+  .superRefine(refineEventValueFields)
+  .transform(normalizeEventValueFields);
+
+const structuredCatalogCreateSchema = z.object({
+  ...providerConversionRuleBaseShape,
+  ...providerConversionMessageRuleShape,
+  triggerType: z.literal("structured_catalog"),
+  eventName: z.literal("Purchase"),
+  catalog: providerConversionCatalogInputSchema,
+});
+
+export const providerConversionRuleCreateInputSchema = z.union([
+  providerAutomationCreateSchema,
+  messagePhraseCreateSchema,
+  structuredCatalogCreateSchema,
 ]);
 
 export const providerConversionRuleUpdateInputSchema = z
@@ -252,10 +446,22 @@ export const providerConversionRuleUpdateInputSchema = z
     defaultValueCents: z.number().int().positive().nullable().optional(),
     defaultCurrency: currencySchema.nullable().optional(),
     defaultContentName: catalogTextSchema.nullable().optional(),
+    valueMode: messagePhraseValueModeSchema.optional(),
+    exampleMessage: messagePhraseExampleSchema.nullable().optional(),
     triggerPhrases: z
       .array(messageTriggerPhraseSchema)
       .min(1)
       .max(20)
+      .optional(),
+    triggerLabels: z
+      .array(
+        z.object({
+          id: z.string().trim().min(1).max(240),
+          name: messageTriggerPhraseSchema,
+        }),
+      )
+      .min(1)
+      .max(50)
       .optional(),
     messageAuthorScope: providerConversionMessageAuthorScopeSchema.optional(),
     catalog: providerConversionCatalogInputSchema.optional(),
@@ -402,6 +608,13 @@ export const providerConversionRuleSchema = z.object({
   channelIds: z.array(idSchema),
   triggerPhrases: z.array(messageTriggerPhraseSchema),
   messageAuthorScope: providerConversionMessageAuthorScopeSchema.nullable(),
+  // message_phrase value pipeline; "fixed" for every other trigger type.
+  valueMode: messagePhraseValueModeSchema.default("fixed"),
+  exampleMessage: z.string().max(2_000).nullable().default(null),
+  // Opcional para aceitar respostas de APIs anteriores ao campo.
+  automationSource: providerConversionAutomationSourceSchema
+    .nullable()
+    .optional(),
   endpoint: providerConversionEndpointSchema.nullable(),
   catalog: providerConversionCatalogSchema.nullable(),
   lastExecution: providerConversionExecutionSchema.nullable(),
@@ -475,6 +688,84 @@ export const providerConversionAutomationAuditSchema = z.object({
   items: z.array(providerConversionAutomationAuditItemSchema).max(100),
 });
 
+/**
+ * Auditoria por execucao da regra, independente de PurchaseReview. Regras que
+ * nao materializam compra (InitiateCheckout, QualifiedLead, ...) so existem
+ * como ProviderConversionRuleExecution; este contrato e o que o painel mostra
+ * para elas.
+ */
+export const providerConversionRuleExecutionAuditItemSchema = z.object({
+  executionId: idSchema,
+  sourceDeliveryId: idSchema,
+  occurredAt: z.string().datetime(),
+  status: providerConversionExecutionStatusSchema,
+  reasonCode: z.string().trim().min(1).max(160).nullable(),
+  matchedTriggerPhrase: z.string().trim().min(1).max(240).nullable(),
+  channel: z
+    .object({
+      id: idSchema,
+      name: z.string().trim().min(1).max(160).nullable(),
+      connectedPhone: z.string().trim().min(1).max(32),
+    })
+    .nullable(),
+  leadId: idSchema.nullable(),
+  leadName: z.string().trim().min(1).max(180).nullable(),
+  phoneDisplay: z.string().trim().min(1).max(40).nullable(),
+  valueCents: z.number().int().positive().nullable(),
+  currency: currencySchema.nullable(),
+  conversionEventLogId: idSchema.nullable(),
+  purchaseReviewId: idSchema.nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  processedAt: z.string().datetime().nullable(),
+  /**
+   * Estado tecnico da entrega gravado pela producao. Sem ele o painel so sabia
+   * dizer "Falhou" e nao conseguia distinguir uma falha transitoria (que a fila
+   * ainda vai tentar de novo) de uma permanente (que exige acao do operador).
+   */
+  technicalDelivery: z
+    .object({
+      state: providerConversionTechnicalDeliveryStateSchema,
+      retryable: z.boolean(),
+      reasonCode: z.string().trim().min(1).max(160).nullable(),
+      updatedAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
+  /** Codigo bruto da ultima falha de producao, para diagnostico do operador. */
+  lastProductionFailure: z
+    .object({
+      code: z.string().trim().min(1).max(160),
+      failedAt: z.string().datetime().nullable(),
+    })
+    .nullable(),
+});
+
+export const providerConversionRuleExecutionAuditSchema = z.object({
+  providerRuleId: idSchema,
+  eventName: conversionEventNameSchema,
+  summary: z.object({
+    total: z.number().int().nonnegative(),
+    observed: z.number().int().nonnegative(),
+    eligible: z.number().int().nonnegative(),
+    materialized: z.number().int().nonnegative(),
+    duplicate: z.number().int().nonnegative(),
+    blocked: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  items: z.array(providerConversionRuleExecutionAuditItemSchema).max(50),
+  pagination: z.object({
+    page: z.number().int().positive(),
+    pageSize: z.number().int().positive(),
+    totalItems: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }),
+});
+
+export const providerConversionRuleExecutionAuditQuerySchema = z.object({
+  status: providerConversionExecutionStatusSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(25),
+});
+
 export const providerConversionAutomationPayloadSchema = z.object({
   providerRuleId: idSchema,
   deliveryId: idSchema,
@@ -518,11 +809,7 @@ export const purchaseReviewStatuses = [
 ] as const;
 export const purchaseReviewStatusSchema = z.enum(purchaseReviewStatuses);
 
-export const purchaseReviewViews = [
-  "actionable",
-  "history",
-  "all",
-] as const;
+export const purchaseReviewViews = ["actionable", "history", "all"] as const;
 export const purchaseReviewViewSchema = z.enum(purchaseReviewViews);
 
 export const purchaseReviewSourceTypes = [
@@ -636,9 +923,16 @@ export type ProviderConversionTriggerTypeDto = z.infer<
 export type ProviderConversionRuleModeDto = z.infer<
   typeof providerConversionRuleModeSchema
 >;
+export type ProviderConversionAutomationSourceDto = z.infer<
+  typeof providerConversionAutomationSourceSchema
+>;
 export type ProviderConversionMessageAuthorScopeDto = z.infer<
   typeof providerConversionMessageAuthorScopeSchema
 >;
+export type MessagePhraseValueModeDto = z.infer<
+  typeof messagePhraseValueModeSchema
+>;
+export type MessagePhraseConfigDto = z.infer<typeof messagePhraseConfigSchema>;
 export type ProviderConversionExecutionStatusDto = z.infer<
   typeof providerConversionExecutionStatusSchema
 >;
@@ -704,6 +998,15 @@ export type ProviderConversionAutomationReprocessBatchResultDto = z.infer<
 >;
 export type ProviderConversionExecutionDto = z.infer<
   typeof providerConversionExecutionSchema
+>;
+export type ProviderConversionRuleExecutionAuditItemDto = z.infer<
+  typeof providerConversionRuleExecutionAuditItemSchema
+>;
+export type ProviderConversionRuleExecutionAuditDto = z.infer<
+  typeof providerConversionRuleExecutionAuditSchema
+>;
+export type ProviderConversionRuleExecutionAuditQueryDto = z.infer<
+  typeof providerConversionRuleExecutionAuditQuerySchema
 >;
 export type StructuredCatalogParsedItemDto = z.infer<
   typeof structuredCatalogParsedItemSchema

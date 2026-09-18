@@ -129,7 +129,7 @@ export function LegacyRuleAdaptForm({
         disabled={connections.length === 0}
       >
         <Link2 size={14} aria-hidden="true" />
-        Adaptar para Umbler
+        Adaptar para conexao
       </button>
     );
   }

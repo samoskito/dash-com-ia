@@ -1,26 +1,28 @@
-import type { ConversionEventNameDto } from "@wpptrack/shared";
+import {
+  conversionEventCatalog,
+  conversionEventRequiresValue,
+  type ConversionEventNameDto
+} from "@wpptrack/shared";
 
 export type ConversionEventDefinition = {
   eventName: ConversionEventNameDto;
   requiresValue: boolean;
 };
 
-const conversionEventDefinitionsByName = {
-  LeadSubmitted: { requiresValue: false },
-  QualifiedLead: { requiresValue: false },
-  OrderShipped: { requiresValue: false },
-  OrderDelivered: { requiresValue: false },
-  OrderCanceled: { requiresValue: false },
-  OrderReturned: { requiresValue: false },
-  RatingProvided: { requiresValue: false },
-  ReviewProvided: { requiresValue: false },
-  ViewContent: { requiresValue: true },
-  AddToCart: { requiresValue: true },
-  CartAbandoned: { requiresValue: true },
-  InitiateCheckout: { requiresValue: true },
-  Purchase: { requiresValue: true },
-  OrderCreated: { requiresValue: true }
-} satisfies Record<ConversionEventNameDto, { requiresValue: boolean }>;
+/**
+ * A politica de valor vive no catalogo compartilhado. Este registro era uma
+ * copia manual que divergiu dele: marcava ViewContent, AddToCart, CartAbandoned
+ * e OrderCreated como "requiresValue", entao um evento desses sem valor ficava
+ * preso em `pending_value` mesmo com o catalogo dizendo que o valor e opcional.
+ */
+const conversionEventDefinitionsByName = Object.fromEntries(
+  (Object.keys(conversionEventCatalog) as ConversionEventNameDto[]).map(
+    (eventName) => [
+      eventName,
+      { requiresValue: conversionEventRequiresValue(eventName) }
+    ]
+  )
+) as Record<ConversionEventNameDto, { requiresValue: boolean }>;
 
 export const conversionEventDefinitions: ConversionEventDefinition[] = (
   Object.keys(conversionEventDefinitionsByName) as ConversionEventNameDto[]

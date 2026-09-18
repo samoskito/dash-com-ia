@@ -43,6 +43,10 @@ function createService(enabled = true) {
           provider: "gupshup",
           status: "observation_only",
         },
+        {
+          provider: "datacrazy",
+          status: "observation_only",
+        },
       ]),
     },
     inboundWebhookConnection: {
@@ -123,16 +127,22 @@ describe("inbound webhook connection overview", () => {
           creationEnabled: true,
         },
         {
+          provider: "payt",
+          parserVersion: "v1",
+          parserReleaseStatus: null,
+          creationEnabled: false,
+        },
+        {
           provider: "gupshup",
           parserVersion: "v1",
           parserReleaseStatus: "observation_only",
           creationEnabled: true,
         },
         {
-          provider: "data_crazy",
+          provider: "datacrazy",
           parserVersion: "v1",
-          parserReleaseStatus: null,
-          creationEnabled: false,
+          parserReleaseStatus: "observation_only",
+          creationEnabled: true,
         },
       ],
     });
@@ -152,7 +162,15 @@ describe("inbound webhook connection overview", () => {
           creationEnabled: false,
         }),
         expect.objectContaining({
+          provider: "payt",
+          creationEnabled: false,
+        }),
+        expect.objectContaining({
           provider: "gupshup",
+          creationEnabled: false,
+        }),
+        expect.objectContaining({
+          provider: "datacrazy",
           creationEnabled: false,
         }),
       ],

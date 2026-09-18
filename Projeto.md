@@ -417,6 +417,22 @@ Direcao confirmada: usar Meta Ads real via OAuth desde o inicio, aproveitando o 
 
 Pendente de definicao: validar quais permissoes, produtos e callbacks esse app Meta ja possui, quais podem ser reutilizados diretamente e se sera necessario criar ambiente/app separado para o WppTrack.
 
+### Guimo CRM
+
+Backend-only vertical slice aprovada em 2026-08-28: Guimo envia movimentos de
+estagio a um webhook WppTrack versionado e autenticado; o worker consulta os
+dois endpoints CRM observados e encaminha `QualifiedLead` ou `Purchase` ao
+pipeline interno. Configuracao, token e credenciais sao estritamente por
+workspace; o token de webhook fica somente como hash e headers CRM cifrados.
+
+Ingress duravel cobre retry de fila e limite de tentativas de token ruim por
+workspace/integracao, sem expor a existencia do endpoint. Pendente de
+definicao: identificador nativo de movimento, autenticacao/headers oficiais,
+sandbox, mapeamento conta Guimo-workspace e moeda/unidade de `valor`. Purchase
+fica bloqueado sem moeda e unidade explicitamente configuradas; dedupe atual e
+provisoria por integracao/negociacao/contato/novo estagio e nao distingue uma
+reentrada legitima na mesma etapa.
+
 ### IA
 
 IA de analise de conversa fica preparada, mas nao ativa como foco inicial.
@@ -735,3 +751,22 @@ Proximo passo operacional:
 - Manter relatorios como area central do produto.
 - Manter o design system WppTrack como fonte visual.
 - Atualizar este arquivo sempre que houver decisoes importantes de produto, arquitetura, escopo ou implementacao.
+
+## Entregas 2026-08-18 (PR #5, merge 72b526b)
+
+- Access Recovery: backoffice gera link one-time de ativacao (`POST /backoffice/workspaces/:id/owners/:ownerId/activation-link`, sempre retorna `activationUrl` e ainda tenta email) e define senha manualmente (`POST .../set-password`, apenas quando `passwordHash == null`, 409 `already_activated` caso contrario). Lista de clientes expoe `owners[].hasPassword`. UI em `/backoffice/clients` com badge "Senha pendente"/"Acesso ativo", botao "Gerar link de senha" com copia e "Definir senha agora".
+- Convites de equipe retornam `acceptUrl` em create/resend (token cru nao persistido; lista de convites nao expoe token). Settings mostra "Copiar link" apos criar/reenviar convite.
+- Client Swap endurecido (owner-only, `POST /workspaces/:workspaceId/client-swap`): confirm:true via Zod, Idempotency-Key com `pg_advisory_xact_lock` + replay sem re-execucao (audit guarda so hash da chave), rate limit 24h dentro da mesma transacao (fail-closed), wipe com delegates Prisma camelCase em ordem FK-Restrict topologica, falha de delete aborta a transacao (sem success falso), erro 500 constante sem texto Prisma.
+- Escopo do wipe decidido pelo owner: INCLUI logs operacionais (WebhookLog, IntegrationLog, DiagnosticEvent, JobAttempt = PII do cliente anterior) e ExternalSyncCursor via connectorId. Preserva Workspace, WorkspaceMember, WorkspaceInvite, WorkspaceSubscription, WorkspaceBillingProfile, PaymentCharge, BillingInvoice, AuditLog, Users/Sessions.
+- Swap revoga sessoes de TODOS os members do workspace; novo slug com sufixo deterministico (colisao -> 409 constante). UI em Settings (dominio 04, somente owner, fora de support mode): dialog destrutivo exigindo digitar o nome exato do workspace + checkbox de irreversibilidade; sucesso redireciona `/login?swapped=1`.
+- Scripts ops: `apps/api/scripts/delete-workspace.js` (cascade FK-safe por workspaceId, node puro para o container Dokploy) e `create-user.ts` endurecido (honra `--role`, exige `--force` para sobrescrever senha existente, nunca imprime senha/hash).
+- Seguranca: dois rounds de review fail-closed (Grok 4.6 read-only) + checklist Mano Deyvin no diff (passed) + gitleaks (so falso-positivo de fixture). Sem migrations na PR. Testes: shared 102, api 1346+, web 291, builds verdes.
+- Cenario de uso aprovado: workspace da agencia reaproveitado para novo cliente mantem assinatura/equipe; primeiro swap real deve ser validado em workspace de TESTE, nunca direto em cliente pago.
+- CI do repo: so Vercel (web preview). Nao ha GitHub Actions de testes; gates de testes sao locais. Follow-up sugerido: workflow de CI monorepo + gitleaks.
+
+## Entregas 2026-08-18 (PR #6, merge ba8374b) — Owner Master
+
+- Decisao de produto ("Owner Master"): o `platform_owner` (usuario master/dono da plataforma) tem poderes equivalentes a um owner de workspace em qualquer workspace que acessar via backoffice (support context). Princípio geral para futuras features: tarefas de owner devem ser acessiveis ao master em modo suporte, salvo decisao explicita em contrario.
+- Implementacao no Client Swap: `WorkspaceOwnerGuard` aceita `platform_owner` apenas quando existe support context ATIVO com `workspaceId` exato do alvo (sem swap arbitrario de outros workspaces); sessao comum sem support context continua 403; `platform_operator` continua 403 para swap (destrutiva restrita ao master, por enquanto). Swap em modo suporte e auditado com `actorType: platform_admin`.
+- Frontend: Settings exibe "Trocar de cliente" para platform_owner em support mode; pos-swap em support mode redireciona para `/backoffice/clients` (owner-member segue indo para `/login?swapped=1`).
+- Fluxo de uso: Backoffice -> Clientes -> Acessar workspace -> Settings (fim da pagina) -> Trocar de cliente. Testes: api 1354 (6 novos de guard), web 291, builds verdes. Sem migrations.

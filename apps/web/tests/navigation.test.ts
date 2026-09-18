@@ -53,7 +53,17 @@ describe("navigation", () => {
 
   it("renders the client navigation in the web app shell", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_owner",
+          name: "Workspace do Owner",
+          slug: "workspace-owner",
+          role: "owner",
+          operationalStatus: "active",
+          permissions: ownerPermissions,
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
     );
 
     for (const item of clientNavigation) {
@@ -68,6 +78,64 @@ describe("navigation", () => {
     expect(html).toContain("Panel content");
     expect(html).not.toContain("Clientes");
     expect(html).not.toContain("/backoffice/clients");
+  });
+
+  it("hides management nav for analysts and fails closed without permissions", () => {
+    const analystHtml = renderToStaticMarkup(
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_member",
+          name: "Workspace Analista",
+          slug: "workspace-analista",
+          role: "member",
+          operationalStatus: "active",
+          permissions: analystPermissions,
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
+    );
+
+    expect(analystHtml).toContain('href="/overview"');
+    expect(analystHtml).toContain('href="/leads"');
+    expect(analystHtml).toContain('href="/reports"');
+    expect(analystHtml).toContain('href="/events"');
+    expect(analystHtml).not.toContain('href="/integrations"');
+    expect(analystHtml).not.toContain('href="/settings"');
+    expect(analystHtml).not.toContain('href="/subscription"');
+    expect(analystHtml).not.toContain('aria-label="Gestao"');
+
+    const unknownHtml = renderToStaticMarkup(
+      createElement(AppShell, null, createElement("p", null, "Panel content")),
+    );
+    expect(unknownHtml).toContain('href="/overview"');
+    expect(unknownHtml).not.toContain('href="/integrations"');
+    expect(unknownHtml).not.toContain('aria-label="Gestao"');
+  });
+
+  it("shows integrations and settings but not subscription for admin without billing", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_admin",
+          name: "Workspace Admin",
+          slug: "workspace-admin",
+          role: "admin",
+          operationalStatus: "active",
+          permissions: {
+            ...analystPermissions,
+            canManageIntegrations: true,
+            canManageWorkspaceSettings: true,
+            canManageBilling: false,
+          },
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
+    );
+
+    expect(html).toContain('href="/integrations"');
+    expect(html).toContain('href="/settings"');
+    expect(html).not.toContain('href="/subscription"');
+    expect(html).toContain('aria-label="Gestao"');
   });
 
   it("adds platform administration only for platform users", () => {
@@ -93,7 +161,17 @@ describe("navigation", () => {
 
   it("renders a sidebar collapse control for dense report screens", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_owner",
+          name: "Workspace do Owner",
+          slug: "workspace-owner",
+          role: "owner",
+          operationalStatus: "active",
+          permissions: ownerPermissions,
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
     );
 
     expect(html).toContain('class="sidebar-toggle desktop-sidebar-toggle"');
@@ -103,7 +181,17 @@ describe("navigation", () => {
 
   it("renders an accessible mobile menu without the old product subtitle", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_owner",
+          name: "Workspace do Owner",
+          slug: "workspace-owner",
+          role: "owner",
+          operationalStatus: "active",
+          permissions: ownerPermissions,
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
     );
 
     expect(html).toContain('class="mobile-shell-header"');
@@ -116,7 +204,17 @@ describe("navigation", () => {
 
   it("uses an icon and a full label for the logout action", () => {
     const html = renderToStaticMarkup(
-      createElement(AppShell, null, createElement("p", null, "Panel content")),
+      createElement(AppShell, {
+        workspace: {
+          id: "workspace_owner",
+          name: "Workspace do Owner",
+          slug: "workspace-owner",
+          role: "owner",
+          operationalStatus: "active",
+          permissions: ownerPermissions,
+        },
+        children: createElement("p", null, "Panel content"),
+      }),
     );
 
     expect(html).toContain('aria-label="Sair da conta"');

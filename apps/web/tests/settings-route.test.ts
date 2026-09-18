@@ -72,10 +72,25 @@ function mockSettingsFetch(options: {
   workspacePlatformRole?: "platform_owner" | "platform_operator" | null;
   membersStatus?: number;
   authStatus?: number;
+  opsAlertSettings?: unknown;
+  opsAlertSettingsStatus?: number;
+  opsAlertSettingsEmptyBody?: boolean;
+  guimoIntegrations?: unknown[];
 }) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     const role = options.workspaceRole ?? "owner";
+
+    if (url.endsWith("/ops-alerts/settings")) {
+      if (options.opsAlertSettingsEmptyBody) {
+        return new Response(null, { status: 200 });
+      }
+
+      return new Response(JSON.stringify(options.opsAlertSettings ?? null), {
+        status: options.opsAlertSettingsStatus ?? 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     if (url.endsWith("/integrations/inbound-webhooks")) {
       return new Response(JSON.stringify(options.providerConnections ?? []), {
@@ -99,6 +114,13 @@ function mockSettingsFetch(options: {
           headers: { "Content-Type": "application/json" },
         },
       );
+    }
+
+    if (url.endsWith("/guimo/integrations")) {
+      return new Response(JSON.stringify(options.guimoIntegrations ?? []), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     if (url.endsWith("/conversion-rules/providers")) {
@@ -198,6 +220,13 @@ describe("settings route", () => {
   it("renders workspace, members and invite controls from backend data", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
+
+      if (url.endsWith("/ops-alerts/settings")) {
+        return new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (url.endsWith("/conversion-rules")) {
         return new Response(JSON.stringify([]), {
@@ -330,19 +359,21 @@ describe("settings route", () => {
     expect(html).toContain('href="#configuracao-conta"');
     expect(html).toContain('href="#configuracao-equipe"');
     expect(html).toContain('href="#configuracao-conversoes"');
+    expect(html).toContain('href="#configuracao-operacao"');
     expect(html).toContain('href="#configuracao-trocar-cliente"');
     expect(html).toContain('id="configuracao-conta"');
     expect(html).toContain('id="configuracao-equipe"');
     expect(html).toContain('id="configuracao-conversoes"');
+    expect(html).toContain('id="configuracao-operacao"');
     expect(html).toContain('id="configuracao-trocar-cliente"');
     expect(html).toContain("Trocar de cliente");
-    expect(html.match(/class="settings-domain-section/g)).toHaveLength(4);
+    expect(html.match(/class="settings-domain-section/g)).toHaveLength(5);
     expect(
       html.match(/class="surface-panel settings-automation-details [^"]+"/g),
     ).toHaveLength(2);
     expect(html).toMatch(/<details[^>]*id="whatsapp-triggers"[^>]*open=""/);
     expect(html).toContain("Regras por conexao e canal");
-    expect(html).toContain("WhatsApp direto e regras anteriores");
+    expect(html).toContain("Regras antigas sem conexao");
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
     expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
@@ -436,6 +467,79 @@ describe("settings route", () => {
     expect(html).toContain("Pausar");
   });
 
+  // Guimo e um gatilho opt-in revelado so dentro de "Nova regra" (origem
+  // "Movimentacao no CRM (Guimo)") do ProviderConversionRulePanel — nao existe
+  // mais uma secao Guimo permanente na pagina de configuracoes. O
+  // comportamento client-side (selecionar a origem, ativar a conexao, criar
+  // regras) e coberto por
+  // apps/web/tests/provider-conversion-rule-panel-guimo-origin.test.ts; aqui
+  // so garantimos que os dados do backend chegam ao componente e que nada
+  // Guimo aparece fora do fluxo "Nova regra".
+  it("fetches Guimo integrations without ever rendering them permanently on the page", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      guimoIntegrations: [
+        {
+          id: "guimo_integration_1",
+          status: "active",
+          webhookVersion: "guimo/v1",
+          qualifiedStageId: null,
+          qualifiedStageName: "Lead Qualificado",
+          purchaseStageId: null,
+          purchaseStageName: "Venda Fechada",
+          purchaseCurrency: "BRL",
+          purchaseValueUnit: "cents",
+          hasCrmHeaders: true,
+          rules: [
+            {
+              id: "rule_1",
+              stageName: "Lead Qualificado",
+              eventName: "QualifiedLead",
+              valueMode: "dynamic",
+              fixedValueCents: null,
+              active: true,
+              createdAt: "2026-07-17T18:00:00.000Z",
+              updatedAt: "2026-07-17T18:00:00.000Z",
+            },
+          ],
+          createdAt: "2026-07-17T18:00:00.000Z",
+          updatedAt: "2026-07-17T19:00:00.000Z",
+        },
+      ],
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/workspaces/workspace_1/guimo/integrations",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).not.toContain("guimo-trigger-section");
+    expect(html).not.toContain("Movimentacao no CRM (Guimo)");
+    expect(html).not.toContain("Ativar conexao Guimo");
+    expect(html).not.toContain("Estagio na Guimo:");
+    expect(html).not.toContain("Nenhuma conexao Guimo ativa.");
+  });
+
+  it("does not fetch or render Guimo for roles that cannot manage it", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      workspaceRole: "admin",
+      guimoIntegrations: [],
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/guimo/integrations"),
+      expect.anything(),
+    );
+    expect(html).not.toContain("guimo-trigger-section");
+    expect(html).not.toContain("Movimentacao no CRM (Guimo)");
+  });
+
   it("centralizes Umbler rules by connection and offers assisted legacy adaptation", async () => {
     mockSettingsFetch({
       rulesBody: [
@@ -515,14 +619,21 @@ describe("settings route", () => {
     expect(html).toContain("1 canal(is) descoberto(s)");
     expect(html).toContain("Regras por conexao e canal");
     expect(html).toContain("Compra por aviso");
-    expect(html).toContain("Adaptar para Umbler");
-    expect(html).toContain("WhatsApp direto e regras anteriores");
+    expect(html).toContain("Adaptar para conexao");
+    expect(html).toContain("Regras antigas sem conexao");
     expect(html).toContain('href="/integrations"');
   });
 
   it("renders WhatsApp label suggestions from active Uazapi instances", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
+
+      if (url.endsWith("/ops-alerts/settings")) {
+        return new Response(JSON.stringify(null), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
 
       if (url.endsWith("/conversion-rules")) {
         return new Response(JSON.stringify([]), {
@@ -726,5 +837,110 @@ describe("settings route", () => {
     expect(html).not.toContain("Novo lead");
     expect(html).not.toContain("Compra confirmada");
     expect(html).not.toContain("Venda fechada");
+  });
+
+  it("renders configured ops alert settings for an owner", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      opsAlertSettings: {
+        id: "ops_alert_1",
+        workspaceId: "workspace_1",
+        enabled: true,
+        alertPhonesE164: ["5511999999999", "5511888888888"],
+        alertPhoneE164: "5511999999999",
+        disconnectAlerts: true,
+        webhookSilenceAlerts: false,
+        silenceThresholdHours: 48,
+        debounceHours: 3,
+        createdAt: "2026-08-01T00:00:00.000Z",
+        updatedAt: "2026-08-01T00:00:00.000Z",
+      },
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Alertas WhatsApp");
+    expect(html).toContain("Ativar alertas");
+    expect(html).toContain('name="workspaceId"');
+    expect(html).toContain('value="workspace_1"');
+    expect(html).toContain('value="5511999999999"');
+    expect(html).toContain('value="5511888888888"');
+    expect(html).toContain('name="alertPhones"');
+    expect(html).toMatch(
+      /name="enabled"[^>]*checked|checked[^>]*name="enabled"/,
+    );
+    expect(html).toMatch(
+      /name="disconnectAlerts"[^>]*checked|checked[^>]*name="disconnectAlerts"/,
+    );
+    expect(html).toContain('name="webhookSilenceAlerts"');
+    expect(html).not.toMatch(
+      /name="webhookSilenceAlerts"[^>]*checked|checked[^>]*name="webhookSilenceAlerts"/,
+    );
+    expect(html).toContain('name="silenceThresholdHours"');
+    expect(html).toContain('value="48"');
+    expect(html).toContain('name="debounceHours"');
+    expect(html).toContain('value="3"');
+    expect(html).toContain("Salvar alertas");
+    expect(html).toContain("Ativado");
+  });
+
+  it("shows defaults when ops alert settings were never configured", async () => {
+    mockSettingsFetch({ rulesBody: [], opsAlertSettings: null });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).not.toMatch(
+      /name="enabled"[^>]*checked|checked[^>]*name="enabled"/,
+    );
+    expect(html).toMatch(
+      /name="disconnectAlerts"[^>]*checked|checked[^>]*name="disconnectAlerts"/,
+    );
+    expect(html).toMatch(
+      /name="webhookSilenceAlerts"[^>]*checked|checked[^>]*name="webhookSilenceAlerts"/,
+    );
+    expect(html).toContain('name="silenceThresholdHours"');
+    expect(html).toContain('value="24"');
+    expect(html).toContain('name="debounceHours"');
+    expect(html).toContain('value="6"');
+    expect(html).toContain("Desativado");
+    expect(html).toContain("Nenhum telefone cadastrado");
+    expect(html).not.toContain('name="alertPhones"');
+  });
+
+  it("renders the ops alert form when a legacy API returns an empty body", async () => {
+    mockSettingsFetch({
+      rulesBody: [],
+      opsAlertSettingsEmptyBody: true,
+    });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain('name="workspaceId"');
+    expect(html).toContain('value="workspace_1"');
+    expect(html).toContain("Salvar alertas");
+    expect(html).toContain("Desativado");
+    expect(html).not.toContain(
+      "Nao foi possivel carregar as configuracoes de alerta.",
+    );
+  });
+
+  it("keeps ops alert settings read-only for workspace members without loading the endpoint", async () => {
+    mockSettingsFetch({ rulesBody: [], workspaceRole: "member" });
+
+    const element = await SettingsPage();
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain(
+      "Sem permissao para gerenciar alertas operacionais.",
+    );
+    expect(html).not.toContain("Salvar alertas");
+    expect(html).not.toContain('name="alertPhones"');
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/ops-alerts/settings"),
+      expect.anything(),
+    );
   });
 });

@@ -1,12 +1,13 @@
-import type {
-  CampaignReportRowDto,
-  MetaAssetsDto,
-  ReportDailyComparisonPointDto,
-  ReportFunnelStepDto,
-  ReportOverviewDto,
+import {
+  funnelMetricLabels,
+  type CampaignReportRowDto,
+  type MetaAssetsDto,
+  type ReportDailyComparisonPointDto,
+  type ReportFunnelStepDto,
+  type ReportOverviewDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
-import type { CSSProperties } from "react";
+import { Fragment, type CSSProperties } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { serverApiFetch } from "../../../lib/server-api";
 import { OverviewFilters } from "./overview-filters";
@@ -151,11 +152,6 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
     (total, campaign) => total + campaign.estimatedRevenueCents,
     0,
   );
-  const visibleFunnelKeys = new Set(
-    campaigns.flatMap((campaign) =>
-      campaign.funnelSteps.map((step) => step.key),
-    ),
-  );
 
   return {
     id: "all_campaigns",
@@ -197,55 +193,54 @@ function sumCampaigns(campaigns: CampaignReportRowDto[]): CampaignReportRowDto {
       campaigns,
       (campaign) => campaign.roasWithRepurchase,
     ),
-    funnelSteps: [
-      funnelStep(
-        "real_conversations",
-        "Conversas reais iniciadas",
-        realConversations,
-        costPer(spendCents, realConversations),
-      ),
-      ...(visibleFunnelKeys.has("qualified_lead") || qualifiedLead > 0
-        ? [
-            funnelStep(
-              "qualified_lead",
-              "Lead qualificado",
-              qualifiedLead,
-              costPer(spendCents, qualifiedLead),
-            ),
-          ]
-        : []),
-      ...(visibleFunnelKeys.has("purchase") || purchases > 0
-        ? [
-            funnelStep(
-              "purchase",
-              "Compras",
-              purchases,
-              costPer(spendCents, purchases),
-            ),
-          ]
-        : []),
-      ...(visibleFunnelKeys.has("first_purchase") || firstPurchases > 0
-        ? [
-            funnelStep(
-              "first_purchase",
-              "Primeira compra",
-              firstPurchases,
-              costPer(spendCents, firstPurchases),
-            ),
-          ]
-        : []),
-      ...(visibleFunnelKeys.has("repurchase") || repurchases > 0
-        ? [
-            funnelStep(
-              "repurchase",
-              "Recompra",
-              repurchases,
-              costPer(spendCents, repurchases),
-            ),
-          ]
-        : []),
-    ],
+    // R1: preserve every configured funnel stage from the API (IC, AddToCart,
+    // custom events). Hardcoding QL/Purchase dropped InitiateCheckout when the
+    // overview fell back to client-side aggregation.
+    funnelSteps: aggregateFunnelSteps(campaigns, spendCents),
   };
+}
+
+function aggregateFunnelSteps(
+  campaigns: CampaignReportRowDto[],
+  spendCents: number,
+): ReportFunnelStepDto[] {
+  const steps = new Map<string, ReportFunnelStepDto>();
+  const order: string[] = [];
+
+  for (const campaign of campaigns) {
+    // Merge estavel: a API ja manda as etapas na ordem do funil, mas linhas sem
+    // compra omitem first_purchase/repurchase. Anexar no fim jogaria uma etapa
+    // do meio do funil para o final; inserimos logo apos a etapa anterior desta
+    // mesma linha.
+    let insertAt = 0;
+
+    for (const step of campaign.funnelSteps) {
+      const current = steps.get(step.key);
+      const known = order.indexOf(step.key);
+
+      if (known >= 0) {
+        insertAt = known + 1;
+      } else {
+        order.splice(insertAt, 0, step.key);
+        insertAt += 1;
+      }
+
+      steps.set(step.key, {
+        key: step.key,
+        label: current?.label ?? step.label,
+        value: (current?.value ?? 0) + step.value,
+        costCents: null,
+      });
+    }
+  }
+
+  return order.map((key) => {
+    const step = steps.get(key)!;
+    return {
+      ...step,
+      costCents: costPer(spendCents, step.value),
+    };
+  });
 }
 
 function costPer(spendCents: number, count: number): number | null {
@@ -306,31 +301,129 @@ function purchaseBreakdownLabel(
   return `${firstPurchaseLabel}, ${repurchases} ${repurchases === 1 ? "recompra" : "recompras"}`;
 }
 
-function funnelStep(
-  key: ReportFunnelStepDto["key"],
-  label: ReportFunnelStepDto["label"],
-  value: number,
-  costCents: number | null,
-): ReportFunnelStepDto {
-  return {
-    key,
-    label,
-    value,
-    costCents,
-  };
-}
+/**
+ * Curated cost captions apply only while a stage still carries its catalog
+ * label. Once the workspace renames a stage (QualifiedLead -> "Cliente
+ * potencial", Purchase -> "Vendas"...), the caption follows the configured
+ * label so cards and funnel rows never contradict the stage name.
+ */
+const defaultStageCostCaptions: Record<
+  string,
+  { label: string; caption: string }
+> = {
+  meta_conversations: {
+    label: "Conversas Meta",
+    caption: "Custo por conversa Meta",
+  },
+  real_conversations: {
+    label: funnelMetricLabels.real_conversations,
+    caption: "Custo por lead",
+  },
+  qualified_lead: {
+    label: funnelMetricLabels.qualified_lead,
+    caption: "Custo por lead qualificado",
+  },
+  purchase: {
+    label: funnelMetricLabels.purchase,
+    caption: "Custo por compra",
+  },
+  first_purchase: {
+    label: funnelMetricLabels.first_purchase,
+    caption: "Custo por primeira compra",
+  },
+  repurchase: {
+    label: funnelMetricLabels.repurchase,
+    caption: "Custo por recompra",
+  },
+  event_initiate_checkout: {
+    label: "Checkout iniciado",
+    caption: "Custo por checkout iniciado",
+  },
+  event_add_to_cart: {
+    label: "Adicionou ao carrinho",
+    caption: "Custo por adicao ao carrinho",
+  },
+};
 
 function funnelStageCostLabel(stage: ReportFunnelStepDto): string {
-  const labels: Record<string, string> = {
-    meta_conversations: "Custo por conversa Meta",
-    real_conversations: "Custo por lead",
-    qualified_lead: "Custo por lead qualificado",
-    purchase: "Custo por compra",
-    first_purchase: "Custo por primeira compra",
-    repurchase: "Custo por recompra",
-  };
+  const normalized = stage.label.trim().toLocaleLowerCase("pt-BR");
+  const curated = defaultStageCostCaptions[stage.key];
 
-  return labels[stage.key] ?? "Custo por etapa";
+  if (
+    curated &&
+    (normalized.length === 0 ||
+      normalized === curated.label.toLocaleLowerCase("pt-BR"))
+  ) {
+    return curated.caption;
+  }
+
+  return normalized.length > 0
+    ? `Custo por ${normalized}`
+    : "Custo por etapa";
+}
+
+/**
+ * Funnel steps that are Purchase breakdowns rather than configurable stages.
+ * They stay inside the "Compras" card delta (first purchase / repurchase).
+ */
+const purchaseBreakdownKeys = new Set(["first_purchase", "repurchase"]);
+
+/**
+ * KPI cards derive from the workspace funnel configuration that the API already
+ * applies to `funnelSteps` (visible stages, custom labels, position). Nothing
+ * here is hardcoded per event:
+ * - `real_conversations` (LeadSubmitted) is skipped because the base card
+ *   "Conversas reais" already shows it together with the tracking rate.
+ * - Purchase breakdowns are folded into the "Compras" card.
+ * - Everything else (QualifiedLead, ViewContent, InitiateCheckout, custom
+ *   events...) becomes a count card in funnel order with its configured label.
+ */
+function configuredKpiStages(
+  funnelSteps: ReportFunnelStepDto[],
+): ReportFunnelStepDto[] {
+  return funnelSteps.filter(
+    (step) =>
+      step.key !== "real_conversations" && !purchaseBreakdownKeys.has(step.key),
+  );
+}
+
+/**
+ * "Receita trafego" depends on Purchase: revenue only exists when the workspace
+ * tracks purchases, so the card is rendered right after the "Compras" card and
+ * only when the `purchase` stage is part of the configured funnel. Lead-only
+ * workspaces never see a revenue KPI. Used by the funnel summary sentence.
+ */
+function hasPurchaseStage(funnelSteps: ReportFunnelStepDto[]): boolean {
+  return funnelSteps.some((step) => step.key === "purchase");
+}
+
+function stageCardDelta(
+  stage: ReportFunnelStepDto,
+  rangeLabel: string,
+): string {
+  return stage.costCents != null
+    ? `${funnelStageCostLabel(stage)} ${money(stage.costCents)}`
+    : rangeLabel;
+}
+
+function funnelOutcomeSummary(
+  rangeLabel: string,
+  metaConversationsStarted: number,
+  campaign: CampaignReportRowDto,
+): string {
+  const intro = `${rangeLabel}: ${metaConversationsStarted} conversas registradas pela Meta`;
+
+  if (hasPurchaseStage(campaign.funnelSteps)) {
+    return `${intro} chegaram a ${campaign.firstPurchases} ${campaign.firstPurchases === 1 ? "primeira compra" : "primeiras compras"}.`;
+  }
+
+  const lastStage = configuredKpiStages(campaign.funnelSteps).at(-1);
+
+  if (lastStage) {
+    return `${intro} chegaram a ${lastStage.value} em ${lastStage.label}.`;
+  }
+
+  return `${intro} no periodo.`;
 }
 
 function reportsHref(filters: OverviewFiltersInput): string {
@@ -381,6 +474,7 @@ export default async function OverviewPage({
     },
     ...campaign.funnelSteps,
   ];
+  const kpiStages = configuredKpiStages(campaign.funnelSteps);
   const selectedBusiness = reportingAccounts.find(
     (account) => account.businessId === filters.businessId,
   );
@@ -393,7 +487,11 @@ export default async function OverviewPage({
     "Todas as contas";
   const detailHref = reportsHref(filters);
   const funnelSummary = dataAvailable
-    ? `${report.rangeLabel}: ${campaign.metaConversationsStarted} conversas registradas pela Meta chegaram a ${campaign.firstPurchases} ${campaign.firstPurchases === 1 ? "primeira compra" : "primeiras compras"}.`
+    ? funnelOutcomeSummary(
+        report.rangeLabel,
+        campaign.metaConversationsStarted,
+        campaign,
+      )
     : "A jornada sera exibida quando a API concluir a inicializacao.";
 
   return (
@@ -468,29 +566,49 @@ export default async function OverviewPage({
           }
           unavailable={!dataAvailable}
         />
-        <Metric
-          label="Receita trafego"
-          value={dataAvailable ? money(campaign.trafficRevenueCents) : "-"}
-          delta={
-            dataAvailable
-              ? `ROAS ${ratioLabel(campaign.roasAcquisition)}`
-              : "Aguardando resposta da API"
-          }
-          unavailable={!dataAvailable}
-        />
-        <Metric
-          label="Compras"
-          value={dataAvailable ? String(campaign.purchases) : "-"}
-          delta={
-            dataAvailable
-              ? purchaseBreakdownLabel(
-                  campaign.firstPurchases,
-                  campaign.repurchases,
-                )
-              : "Aguardando resposta da API"
-          }
-          unavailable={!dataAvailable}
-        />
+        {kpiStages.map((stage) =>
+          stage.key === "purchase" ? (
+            <Fragment key={stage.key}>
+              <Metric
+                label={stage.label}
+                value={dataAvailable ? String(stage.value) : "-"}
+                delta={
+                  dataAvailable
+                    ? purchaseBreakdownLabel(
+                        campaign.firstPurchases,
+                        campaign.repurchases,
+                      )
+                    : "Aguardando resposta da API"
+                }
+                unavailable={!dataAvailable}
+              />
+              <Metric
+                label="Receita trafego"
+                value={
+                  dataAvailable ? money(campaign.trafficRevenueCents) : "-"
+                }
+                delta={
+                  dataAvailable
+                    ? `ROAS ${ratioLabel(campaign.roasAcquisition)}`
+                    : "Aguardando resposta da API"
+                }
+                unavailable={!dataAvailable}
+              />
+            </Fragment>
+          ) : (
+            <Metric
+              key={stage.key}
+              label={stage.label}
+              value={dataAvailable ? String(stage.value) : "-"}
+              delta={
+                dataAvailable
+                  ? stageCardDelta(stage, report.rangeLabel)
+                  : "Aguardando resposta da API"
+              }
+              unavailable={!dataAvailable}
+            />
+          ),
+        )}
       </div>
 
       <section

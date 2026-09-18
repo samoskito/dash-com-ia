@@ -37,10 +37,10 @@ export type InboundWebhookEventNormalizedSummary = {
   occurredAt: string;
   adId: string | null;
   hasCtwa: boolean;
+  phoneDivergenceDetected?: boolean;
   messageDirection: ParsedInboundWebhookMessageDirection;
   messageAuthorType: ParsedInboundWebhookMessageAuthorType;
   messageType: string | null;
-  phoneDivergenceDetected?: boolean;
   classification: InboundWebhookEventClassification;
   classificationReason: string;
 };
@@ -121,7 +121,7 @@ export interface InboundWebhookParser {
   readonly parserVersion: string;
   parse(
     payload: unknown,
-    context?: Readonly<InboundWebhookParserContext>,
+    context?: InboundWebhookParserContext,
   ): InboundWebhookParserResult;
 }
 

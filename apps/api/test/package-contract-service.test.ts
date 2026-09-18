@@ -32,12 +32,12 @@ const pendingContract: ContractFixture = {
   currentPeriodStart: null,
   currentPeriodEnd: null,
   accessEndsAt: null,
-  activatedAt: null
+  activatedAt: null,
 };
 
 function createHarness(
   occupiedSeats = 2,
-  contract: ContractFixture = pendingContract
+  contract: ContractFixture = pendingContract,
 ) {
   const activated = {
     ...contract,
@@ -45,44 +45,240 @@ function createHarness(
     isCurrent: true,
     currentPeriodStart: new Date("2026-07-26T12:00:00.000Z"),
     currentPeriodEnd: new Date("2026-08-26T12:00:00.000Z"),
-    activatedAt: new Date("2026-07-26T12:00:00.000Z")
+    activatedAt: new Date("2026-07-26T12:00:00.000Z"),
   };
   const transaction = {
     $executeRaw: vi.fn().mockResolvedValue(1),
     workspaceSubscription: {
       findUnique: vi.fn().mockResolvedValue(contract),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-      update: vi.fn().mockResolvedValue(activated)
+      update: vi.fn().mockResolvedValue(activated),
     },
     whatsappSeat: {
-      count: vi.fn().mockResolvedValue(occupiedSeats)
+      count: vi.fn().mockResolvedValue(occupiedSeats),
     },
     billingContractAudit: {
-      create: vi.fn().mockResolvedValue({ id: "audit_1" })
-    }
+      create: vi.fn().mockResolvedValue({ id: "audit_1" }),
+    },
   };
   const prisma = {
     $transaction: vi
       .fn()
       .mockImplementation(
         (callback: (client: typeof transaction) => Promise<unknown>) =>
-          callback(transaction)
-      )
+          callback(transaction),
+      ),
   };
   const seats = {
-    bindWorkspaceSeatsToContract: vi.fn().mockResolvedValue(2)
+    bindWorkspaceSeatsToContract: vi.fn().mockResolvedValue(2),
   };
   const service = new PackageContractService(
     prisma as never,
     {} as never,
     {} as never,
-    seats as never
+    seats as never,
   );
 
   return { activated, prisma, seats, service, transaction };
 }
 
+function createCancellationHarness(contract: ContractFixture | null) {
+  const transaction = {
+    $executeRaw: vi.fn().mockResolvedValue(1),
+    workspaceSubscription: {
+      findFirst: vi.fn().mockResolvedValue(contract),
+      update: vi.fn().mockImplementation(async ({ data }) => ({
+        ...contract,
+        ...data,
+      })),
+    },
+    billingContractAudit: {
+      create: vi.fn().mockResolvedValue({ id: "audit_1" }),
+    },
+  };
+  const prisma = {
+    $transaction: vi
+      .fn()
+      .mockImplementation(
+        (callback: (client: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
+  };
+  const service = new PackageContractService(
+    prisma as never,
+    {} as never,
+    {} as never,
+    {} as never,
+  );
+
+  return { prisma, service, transaction };
+}
+
 describe("PackageContractService", () => {
+  it.each([1, 3, 5, 20])("starts a %i-seat 30-day exempt trial", async (capacity) => {
+    const created = {
+      ...pendingContract,
+      id: `trial_${capacity}`,
+      planId: null,
+      status: "active",
+      contractStatus: "exempt",
+      isCurrent: true,
+      includedWhatsappNumbersSnapshot: capacity,
+      trialEndsAt: new Date("2026-08-25T12:00:00.000Z"),
+      trialAutoconvertDisabled: false,
+      createdAt: new Date("2026-07-26T12:00:00.000Z"),
+    };
+    const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      workspaceSubscription: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(created),
+      },
+      whatsappSeat: { count: vi.fn().mockResolvedValue(0) },
+      billingContractAudit: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      $transaction: vi.fn().mockImplementation((callback) => callback(transaction)),
+    };
+    const seats = { bindWorkspaceSeatsToContract: vi.fn().mockResolvedValue(0) };
+    const service = new PackageContractService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      seats as never,
+    );
+
+    await service.startTrial(
+      "workspace_1",
+      { capacity: capacity as 1 | 20, reason: "Trial comercial aprovado" },
+      "owner_1",
+    );
+
+    expect(transaction.workspaceSubscription.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        contractStatus: "exempt",
+        isCurrent: true,
+        includedWhatsappNumbersSnapshot: capacity,
+        monthlyPriceCentsSnapshot: 0,
+        trialEndsAt: expect.any(Date),
+        accessEndsAt: expect.any(Date),
+      }),
+    });
+    expect(seats.bindWorkspaceSeatsToContract).toHaveBeenCalledWith(
+      expect.any(Object),
+      "workspace_1",
+      `trial_${capacity}`,
+      "trial_started",
+      expect.any(Date),
+    );
+  });
+
+  it("reports effective capacity from verified paid additions without double-counting active items", async () => {
+    const current = {
+      ...pendingContract,
+      contractStatus: "active",
+      isCurrent: true,
+      billingMethod: "pix",
+      graceEndsAt: null,
+      cancelAtPeriodEnd: false,
+      fiscalStatus: "not_configured",
+      whatsappSeats: [{ status: "active" }],
+      items: [
+        {
+          id: "active_item",
+          key: "individual-whatsapp-number",
+          nameSnapshot: "Numero WhatsApp adicional",
+          quantity: 1,
+          capacityPerUnit: 1,
+          monthlyPriceCentsPerUnit: 3000,
+          status: "active",
+          providerSyncStatus: "synced",
+          paymentCharge: { status: "paid", amountCents: 3000 },
+        },
+        {
+          id: "retry_item_1",
+          key: "individual-whatsapp-number",
+          nameSnapshot: "Numero WhatsApp adicional",
+          quantity: 1,
+          capacityPerUnit: 1,
+          monthlyPriceCentsPerUnit: 3000,
+          status: "pending_payment",
+          providerSyncStatus: "failed",
+          paymentCharge: { status: "paid", amountCents: 3000 },
+        },
+        {
+          id: "retry_item_2",
+          key: "individual-whatsapp-number",
+          nameSnapshot: "Numero WhatsApp adicional",
+          quantity: 1,
+          capacityPerUnit: 1,
+          monthlyPriceCentsPerUnit: 3000,
+          status: "pending_payment",
+          providerSyncStatus: "pending",
+          paymentCharge: { status: "paid", amountCents: 3000 },
+        },
+        {
+          id: "unpaid_item",
+          key: "individual-whatsapp-number",
+          nameSnapshot: "Numero WhatsApp adicional",
+          quantity: 1,
+          capacityPerUnit: 1,
+          monthlyPriceCentsPerUnit: 3000,
+          status: "pending_payment",
+          providerSyncStatus: "not_required",
+          paymentCharge: { status: "pending", amountCents: 3000 },
+        },
+      ],
+    };
+    const prisma = {
+      workspaceBillingProfile: { findUnique: vi.fn().mockResolvedValue(null) },
+      workspaceSubscription: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(current)
+          .mockResolvedValueOnce(null),
+      },
+      billingInvoice: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const service = new PackageContractService(
+      prisma as never,
+      { listPublicPlans: vi.fn().mockResolvedValue([]) } as never,
+      {
+        isEnforcementEnabled: () => false,
+        isPackageBillingEnabled: () => true,
+        isAsaasRecurringEnabled: () => true,
+        isLifecycleEnabled: () => true,
+        isFiscalEnabled: () => false,
+        isUazapiProvisioningEnabled: () => false,
+        isExternalChannelEnforcementEnabled: () => false,
+      } as never,
+      {} as never,
+    );
+
+    const state = await service.getWorkspaceBillingState("workspace_1");
+
+    // The snapshot already includes active_item; only the two paid-but-unsynced
+    // items are temporarily additive.
+    expect(state.seats).toMatchObject({
+      capacity: 5,
+      occupied: 1,
+      available: 4,
+    });
+    expect(state.contract?.includedWhatsappNumbers).toBe(5);
+    expect(state.contract?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "retry_item_1",
+          providerSyncStatus: "failed",
+        }),
+        expect.objectContaining({
+          id: "unpaid_item",
+          providerSyncStatus: "not_required",
+        }),
+      ]),
+    );
+  });
+
   it("activates the paid contract without promoting reserved QR seats", async () => {
     const { seats, service } = createHarness();
     const periodStart = new Date("2026-07-26T12:00:00.000Z");
@@ -94,7 +290,7 @@ describe("PackageContractService", () => {
       billingMethod: "pix",
       periodStart,
       periodEnd,
-      providerPaymentId: "pay_1"
+      providerPaymentId: "pay_1",
     });
 
     expect(result.contractStatus).toBe("active");
@@ -103,7 +299,7 @@ describe("PackageContractService", () => {
       "workspace_1",
       "contract_new",
       "payment_confirmed",
-      periodStart
+      periodStart,
     );
   });
 
@@ -117,8 +313,8 @@ describe("PackageContractService", () => {
         billingMethod: "credit_card",
         periodStart: new Date("2026-07-26T12:00:00.000Z"),
         periodEnd: new Date("2026-08-26T12:00:00.000Z"),
-        providerPaymentId: "pay_1"
-      })
+        providerPaymentId: "pay_1",
+      }),
     ).rejects.toThrow("package_capacity_below_current_usage");
 
     expect(transaction.workspaceSubscription.update).not.toHaveBeenCalled();
@@ -134,7 +330,7 @@ describe("PackageContractService", () => {
       asaasSubscriptionId: "sub_asaas_1",
       currentPeriodStart: new Date("2026-08-26T12:00:00.000Z"),
       currentPeriodEnd: new Date("2026-09-26T12:00:00.000Z"),
-      activatedAt: new Date("2026-07-26T12:00:00.000Z")
+      activatedAt: new Date("2026-07-26T12:00:00.000Z"),
     };
     const { seats, service, transaction } = createHarness(2, currentContract);
 
@@ -144,14 +340,216 @@ describe("PackageContractService", () => {
       billingMethod: "pix",
       periodStart: new Date("2026-07-26T12:00:00.000Z"),
       periodEnd: new Date("2026-08-26T12:00:00.000Z"),
-      providerPaymentId: "pay_late"
+      providerPaymentId: "pay_late",
     });
 
     expect(result.currentPeriodStart).toEqual(
-      new Date("2026-08-26T12:00:00.000Z")
+      new Date("2026-08-26T12:00:00.000Z"),
     );
     expect(transaction.workspaceSubscription.updateMany).not.toHaveBeenCalled();
     expect(transaction.workspaceSubscription.update).not.toHaveBeenCalled();
     expect(seats.bindWorkspaceSeatsToContract).not.toHaveBeenCalled();
+  });
+
+  it("cancels a stale draft package contract and writes an audit row", async () => {
+    const draft = { ...pendingContract, contractStatus: "draft" };
+    const { service, transaction } = createCancellationHarness(draft);
+
+    const canceled = await service.cancelStaleContract(
+      "workspace_1",
+      "contract_new",
+      "owner_1",
+      "Encerrar rascunho duplicado",
+    );
+
+    expect(canceled).toMatchObject({
+      contractStatus: "canceled",
+      status: "cancelled",
+      isCurrent: false,
+    });
+    expect(transaction.workspaceSubscription.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "contract_new" },
+        data: expect.objectContaining({
+          contractStatus: "canceled",
+          status: "cancelled",
+          isCurrent: false,
+          canceledAt: expect.any(Date),
+          endedAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(transaction.billingContractAudit.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "contract.stale_contract_canceled",
+          actorUserId: "owner_1",
+          reason: "Encerrar rascunho duplicado",
+          beforeSnapshot: expect.objectContaining({
+            contractStatus: "draft",
+          }),
+          afterSnapshot: expect.objectContaining({
+            contractStatus: "canceled",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("cancels a non-current exempt package contract", async () => {
+    const { service, transaction } = createCancellationHarness({
+      ...pendingContract,
+      contractStatus: "exempt",
+      status: "active",
+    });
+
+    await expect(
+      service.cancelStaleContract(
+        "workspace_1",
+        "contract_new",
+        "owner_1",
+        "Encerrar isencao antiga",
+      ),
+    ).resolves.toMatchObject({ contractStatus: "canceled" });
+
+    expect(transaction.workspaceSubscription.update).toHaveBeenCalledOnce();
+  });
+
+  it("never cancels the current package contract", async () => {
+    const { service, transaction } = createCancellationHarness({
+      ...pendingContract,
+      isCurrent: true,
+      contractStatus: "exempt",
+    });
+
+    await expect(
+      service.cancelStaleContract(
+        "workspace_1",
+        "contract_new",
+        "owner_1",
+        "Encerrar contrato atual",
+      ),
+    ).rejects.toThrow("Nao e permitido encerrar o contrato atual");
+
+    expect(transaction.workspaceSubscription.update).not.toHaveBeenCalled();
+    expect(transaction.billingContractAudit.create).not.toHaveBeenCalled();
+  });
+
+  it("does not expose contracts from another workspace to cancellation", async () => {
+    const { service, transaction } = createCancellationHarness(null);
+
+    await expect(
+      service.cancelStaleContract(
+        "workspace_2",
+        "contract_new",
+        "owner_1",
+        "Encerrar contrato antigo",
+      ),
+    ).rejects.toThrow("Contrato de pacote nao encontrado");
+
+    expect(transaction.workspaceSubscription.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "contract_new",
+        workspaceId: "workspace_2",
+        planNameSnapshot: { not: null },
+      },
+    });
+  });
+
+  it("keeps exempt assignment behavior intact", async () => {
+    const plan = {
+      id: "plan_exempt",
+      name: "Isento 3 numeros",
+      kind: "exempt",
+      active: true,
+      version: 1,
+      monthlyPriceCents: 0,
+      includedWhatsappNumbers: 3,
+    };
+    const created = {
+      ...pendingContract,
+      id: "contract_exempt",
+      planId: plan.id,
+      planNameSnapshot: plan.name,
+      contractStatus: "exempt",
+      status: "active",
+      isCurrent: true,
+      assignedAt: new Date("2026-08-01T12:00:00.000Z"),
+      createdAt: new Date("2026-08-01T12:00:00.000Z"),
+    };
+    const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      workspaceSubscription: {
+        findFirst: vi.fn().mockResolvedValue(pendingContract),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        create: vi.fn().mockResolvedValue(created),
+      },
+      whatsappSeat: { count: vi.fn().mockResolvedValue(2) },
+      billingContractAudit: {
+        create: vi.fn().mockResolvedValue({ id: "audit_1" }),
+      },
+    };
+    const prisma = {
+      $transaction: vi
+        .fn()
+        .mockImplementation(
+          (callback: (client: typeof transaction) => Promise<unknown>) =>
+            callback(transaction),
+        ),
+    };
+    const seats = {
+      bindWorkspaceSeatsToContract: vi.fn().mockResolvedValue(2),
+    };
+    const service = new PackageContractService(
+      prisma as never,
+      {
+        getPackagePlan: vi.fn().mockResolvedValue(plan),
+        mapPlan: vi.fn().mockReturnValue(plan),
+      } as never,
+      {} as never,
+      seats as never,
+    );
+
+    await expect(
+      service.assignPlan(
+        "workspace_1",
+        "plan_exempt",
+        "owner_1",
+        "Aplicar isencao vigente",
+      ),
+    ).resolves.toMatchObject({
+      status: "exempt",
+      subscriptionId: "contract_exempt",
+    });
+
+    expect(seats.bindWorkspaceSeatsToContract).toHaveBeenCalledWith(
+      expect.any(Object),
+      "workspace_1",
+      "contract_exempt",
+      "special_plan_assigned",
+      expect.any(Date),
+    );
+  });
+
+  it("excludes canceled package contracts from the default backoffice list", async () => {
+    const prisma = {
+      workspaceSubscription: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const service = new PackageContractService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    await service.listBackofficeContracts({});
+
+    expect(prisma.workspaceSubscription.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          contractStatus: { not: "canceled" },
+        }),
+      }),
+    );
   });
 });

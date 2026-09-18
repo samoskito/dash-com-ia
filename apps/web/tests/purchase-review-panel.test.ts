@@ -38,6 +38,8 @@ const averageRule: ProviderConversionRuleDto = {
   channelIds: ["channel_1"],
   triggerPhrases: ["Aviso de compra"],
   messageAuthorScope: "team",
+  valueMode: "fixed",
+  exampleMessage: null,
   endpoint: null,
   catalog: null,
   lastExecution: null,

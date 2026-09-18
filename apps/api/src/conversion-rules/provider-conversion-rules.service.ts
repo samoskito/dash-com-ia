@@ -5,10 +5,20 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import {
+  conversionEventCarriesValue,
+  conversionEventNameSchema,
+  messagePhraseConfigKind,
+  providerConversionTechnicalDeliveryStateSchema,
+  readMessagePhraseConfig,
+} from "@wpptrack/shared";
 import type {
+  MessagePhraseConfigDto,
+  MessagePhraseValueModeDto,
   ProviderConversionCatalogDto,
   ProviderConversionCatalogInputDto,
   ProviderConversionEndpointDto,
@@ -16,15 +26,28 @@ import type {
   ProviderConversionRuleAdaptInputDto,
   ProviderConversionRuleCreateInputDto,
   ProviderConversionRuleCreateResultDto,
+  ProviderConversionRuleExecutionAuditDto,
+  ProviderConversionRuleExecutionAuditItemDto,
+  ProviderConversionRuleExecutionAuditQueryDto,
   ProviderConversionRuleDto,
   ProviderConversionRuleUpdateInputDto,
 } from "@wpptrack/shared";
+import { PackageBillingConfiguration } from "../billing/package-billing.configuration";
+import { WhatsappSeatService } from "../billing/whatsapp-seat.service";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
+import {
+  applyInboundWebhookChannelStatus,
+  applyInboundWebhookConnectionStatus,
+  type ExternalChannelSeatHook,
+  metaRouteRequiredForProvider,
+  requireInboundWebhookChannel,
+  requireInboundWebhookConnection,
+} from "../inbound-webhooks/inbound-webhook-production-activation";
 
 const ruleNotFoundMessage = "Regra de conversao do provedor nao encontrada";
-const connectionNotFoundMessage = "Conexao Umbler nao encontrada";
+const connectionNotFoundMessage = "Conexao nao encontrada";
 const endpointNotFoundMessage = "Endpoint de automacao nao encontrado";
 
 const providerRuleInclude = {
@@ -60,6 +83,12 @@ export class ProviderConversionRulesService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RUNTIME_ENV) private readonly env: RuntimeEnv = process.env,
+    @Optional()
+    @Inject(PackageBillingConfiguration)
+    private readonly billingConfiguration?: PackageBillingConfiguration,
+    @Optional()
+    @Inject(WhatsappSeatService)
+    private readonly whatsappSeats?: WhatsappSeatService,
   ) {}
 
   async listRules(workspaceId: string): Promise<ProviderConversionRuleDto[]> {
@@ -76,6 +105,180 @@ export class ProviderConversionRulesService {
     return rules.map((rule) => this.toDto(rule));
   }
 
+  async listRuleExecutions(
+    workspaceId: string,
+    providerRuleId: string,
+    query: ProviderConversionRuleExecutionAuditQueryDto,
+  ): Promise<ProviderConversionRuleExecutionAuditDto> {
+    this.requireRulesEnabled();
+    const rule = await this.requireRule(
+      this.prisma,
+      workspaceId,
+      providerRuleId,
+    );
+    const where: Prisma.ProviderConversionRuleExecutionWhereInput = {
+      workspaceId,
+      providerRuleId,
+      ...(query.status ? { status: query.status } : {}),
+    };
+
+    const [executions, totalItems, statusCounts] = await Promise.all([
+      this.prisma.providerConversionRuleExecution.findMany({
+        where,
+        orderBy: [{ occurredAt: "desc" }, { id: "desc" }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        include: {
+          channel: true,
+          purchaseReview: { select: { id: true } },
+        },
+      }),
+      this.prisma.providerConversionRuleExecution.count({ where }),
+      this.prisma.providerConversionRuleExecution.groupBy({
+        by: ["status"],
+        where: { workspaceId, providerRuleId },
+        _count: { _all: true },
+      }),
+    ]);
+    const leadIds = [
+      ...new Set(
+        executions
+          .map((execution) => execution.leadId)
+          .filter((leadId): leadId is string => Boolean(leadId)),
+      ),
+    ];
+    const leads = leadIds.length
+      ? await this.prisma.lead.findMany({
+          where: { workspaceId, id: { in: leadIds } },
+          select: { id: true, name: true, phoneDisplay: true },
+        })
+      : [];
+    const leadsById = new Map(leads.map((lead) => [lead.id, lead]));
+    const summary = {
+      total: 0,
+      observed: 0,
+      eligible: 0,
+      materialized: 0,
+      duplicate: 0,
+      blocked: 0,
+      failed: 0,
+    };
+    for (const statusCount of statusCounts) {
+      summary[statusCount.status] = statusCount._count._all;
+      summary.total += statusCount._count._all;
+    }
+
+    return {
+      providerRuleId,
+      eventName: conversionEventNameSchema.parse(rule.conversionRule.eventName),
+      summary,
+      items: executions.map((execution) => {
+        const lead = execution.leadId
+          ? (leadsById.get(execution.leadId) ?? null)
+          : null;
+        const normalized = execution.normalizedResult;
+        const matchedTriggerPhrase =
+          typeof normalized === "object" &&
+          normalized !== null &&
+          "matchedTriggerPhrase" in normalized
+            ? String(normalized.matchedTriggerPhrase || "") || null
+            : null;
+
+        return {
+          executionId: execution.id,
+          sourceDeliveryId: execution.sourceDeliveryId,
+          occurredAt: execution.occurredAt.toISOString(),
+          status: execution.status,
+          reasonCode: execution.reasonCode,
+          matchedTriggerPhrase,
+          channel: execution.channel
+            ? {
+                id: execution.channel.id,
+                name: execution.channel.channelName,
+                connectedPhone: execution.channel.connectedPhone,
+              }
+            : null,
+          leadId: execution.leadId,
+          leadName: lead?.name ?? null,
+          phoneDisplay: lead?.phoneDisplay ?? null,
+          valueCents: execution.valueCents,
+          currency: execution.currency,
+          conversionEventLogId: execution.conversionEventLogId,
+          purchaseReviewId: execution.purchaseReview?.id ?? null,
+          attemptCount: execution.attemptCount,
+          processedAt: execution.processedAt?.toISOString() ?? null,
+          technicalDelivery: this.auditTechnicalDelivery(normalized),
+          lastProductionFailure: this.auditProductionFailure(normalized),
+        };
+      }),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        totalItems,
+        totalPages: Math.max(1, Math.ceil(totalItems / query.pageSize)),
+      },
+    };
+  }
+
+  private auditJsonObject(
+    value: Prisma.JsonValue | null | undefined,
+  ): Record<string, unknown> | null {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  }
+
+  private auditIsoDate(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const parsed = new Date(value);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  private auditReasonCode(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0
+      ? value.trim().slice(0, 160)
+      : null;
+  }
+
+  private auditTechnicalDelivery(
+    normalizedResult: Prisma.JsonValue | null,
+  ): ProviderConversionRuleExecutionAuditItemDto["technicalDelivery"] {
+    const technical = this.auditJsonObject(
+      this.auditJsonObject(normalizedResult)?.technicalDelivery as
+        | Prisma.JsonValue
+        | undefined,
+    );
+    const state = providerConversionTechnicalDeliveryStateSchema.safeParse(
+      technical?.state,
+    );
+    if (!state.success) {
+      return null;
+    }
+
+    return {
+      state: state.data,
+      retryable: technical?.retryable === true,
+      reasonCode: this.auditReasonCode(technical?.reasonCode),
+      updatedAt: this.auditIsoDate(technical?.updatedAt),
+    };
+  }
+
+  private auditProductionFailure(
+    normalizedResult: Prisma.JsonValue | null,
+  ): ProviderConversionRuleExecutionAuditItemDto["lastProductionFailure"] {
+    const failure = this.auditJsonObject(
+      this.auditJsonObject(normalizedResult)?.lastProductionFailure as
+        | Prisma.JsonValue
+        | undefined,
+    );
+    const code = this.auditReasonCode(failure?.code);
+
+    return code
+      ? { code, failedAt: this.auditIsoDate(failure?.failedAt) }
+      : null;
+  }
+
   async createRule(
     workspaceId: string,
     input: ProviderConversionRuleCreateInputDto,
@@ -83,17 +286,13 @@ export class ProviderConversionRulesService {
   ): Promise<ProviderConversionRuleCreateResultDto> {
     const config = this.requireRulesEnabled();
     this.assertUniqueCatalogVariants(input);
-    const secret =
-      input.triggerType === "provider_automation"
-        ? this.generateSecret()
-        : null;
+    let secret: string | null = null;
 
     const created = await this.prisma.$transaction(async (transaction) => {
       const connection = await transaction.inboundWebhookConnection.findFirst({
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: "umbler",
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -103,18 +302,46 @@ export class ProviderConversionRulesService {
         throw new NotFoundException(connectionNotFoundMessage);
       }
 
-      await this.assertChannelsBelongToConnection(
+      const isPaytAutomation =
+        input.triggerType === "provider_automation" &&
+        input.automationSource === "payt";
+      if (isPaytAutomation && input.eventName !== "Purchase") {
+        // The HTTP schema enforces this too. Keep the invariant at the
+        // service boundary for internal callers and future entry points.
+        throw new BadRequestException("A Payt so envia compras aprovadas");
+      }
+
+      if (
+        input.triggerType === "provider_automation" &&
+        (isPaytAutomation || ["umbler", "payt"].includes(connection.provider))
+      ) {
+        secret = this.generateSecret();
+      }
+
+      await this.assertChannelsForProvider(
         transaction,
         workspaceId,
         connection.id,
+        isPaytAutomation ? "payt" : connection.provider,
         input.channelIds,
       );
 
+      if (
+        input.triggerType === "provider_automation" &&
+        !isPaytAutomation &&
+        !["umbler", "payt", "uazapi"].includes(connection.provider)
+      ) {
+        throw new BadRequestException(
+          "Automacao por tag ainda so esta disponivel para este provedor",
+        );
+      }
+
       const parserRelease =
-        input.triggerType === "provider_automation"
+        input.triggerType === "provider_automation" &&
+        (isPaytAutomation || ["umbler", "payt"].includes(connection.provider))
           ? await transaction.inboundWebhookParserRelease.findFirst({
               where: {
-                provider: "umbler",
+                provider: isPaytAutomation ? "payt" : connection.provider,
                 version: "automation-v1",
                 status: { not: "retired" },
               },
@@ -123,7 +350,28 @@ export class ProviderConversionRulesService {
 
       if (!parserRelease) {
         throw new ConflictException(
-          "Parser de automacao Umbler ainda nao esta disponivel",
+          "Parser da conexao ainda nao esta disponivel",
+        );
+      }
+
+      const automationTriggerPhrases =
+        input.triggerType === "provider_automation" &&
+        connection.provider === "uazapi"
+          ? (
+              input.triggerLabels?.map((label) => label.name) ??
+              input.triggerPhrases ??
+              []
+            )
+              .map((phrase) => phrase.trim())
+              .filter(Boolean)
+          : [];
+      if (
+        input.triggerType === "provider_automation" &&
+        connection.provider === "uazapi" &&
+        automationTriggerPhrases.length === 0
+      ) {
+        throw new BadRequestException(
+          "Informe ao menos uma etiqueta para automacao por tag UAZAPI",
         );
       }
 
@@ -131,15 +379,27 @@ export class ProviderConversionRulesService {
       let defaultValueCents: number | null = null;
       let defaultCurrency: string | null = null;
       let defaultContentName: string | null = null;
+      let defaultItems: Prisma.InputJsonValue | typeof Prisma.DbNull =
+        Prisma.DbNull;
 
-      if (
-        input.triggerType === "message_phrase" ||
-        (input.triggerType === "provider_automation" &&
-          input.eventName === "Purchase")
-      ) {
-        defaultValueCents = input.defaultValueCents;
-        defaultCurrency = input.defaultCurrency;
+      // Eventos sem valor chegam do schema sem nenhum campo monetario, entao
+      // ler os tres campos direto e o suficiente para nao gravar valor
+      // fantasma em QualifiedLead, OrderShipped e afins.
+      if (input.triggerType === "message_phrase") {
+        defaultValueCents = input.defaultValueCents ?? null;
+        defaultCurrency = input.defaultCurrency ?? null;
         defaultContentName = input.defaultContentName ?? null;
+        defaultItems = this.messagePhraseConfig({
+          valueMode: input.valueMode,
+          exampleMessage: input.exampleMessage ?? null,
+        });
+      } else if (input.triggerType === "provider_automation") {
+        defaultValueCents = input.defaultValueCents ?? null;
+        defaultCurrency = input.defaultCurrency ?? null;
+        defaultContentName = input.defaultContentName ?? null;
+        if (connection.provider === "uazapi") {
+          defaultItems = this.uazapiLabelsConfig(input.triggerLabels ?? []);
+        }
       } else if (input.triggerType === "structured_catalog") {
         defaultCurrency = input.catalog.currency;
         defaultContentName = input.catalog.productName;
@@ -152,7 +412,7 @@ export class ProviderConversionRulesService {
           triggerType: input.triggerType,
           triggerValue:
             input.triggerType === "provider_automation"
-              ? input.triggerType
+              ? (automationTriggerPhrases[0] ?? input.triggerType)
               : input.triggerPhrases[0],
           matchMode: "exact",
           eventName: input.eventName,
@@ -160,7 +420,7 @@ export class ProviderConversionRulesService {
           defaultValueCents,
           defaultCurrency,
           defaultContentName,
-          defaultItems: Prisma.DbNull,
+          defaultItems,
           active: true,
         },
       });
@@ -175,7 +435,7 @@ export class ProviderConversionRulesService {
             mode: input.mode,
             messageTriggerPhrases:
               input.triggerType === "provider_automation"
-                ? []
+                ? automationTriggerPhrases
                 : input.triggerPhrases,
             messageAuthorScope:
               input.triggerType === "provider_automation"
@@ -195,7 +455,10 @@ export class ProviderConversionRulesService {
         })),
       });
 
-      if (secret) {
+      if (
+        secret &&
+        (isPaytAutomation || ["umbler", "payt"].includes(connection.provider))
+      ) {
         await transaction.providerConversionRuleEndpoint.create({
           data: {
             workspaceId,
@@ -212,6 +475,16 @@ export class ProviderConversionRulesService {
           providerRule.id,
           input.catalog,
         );
+      }
+
+      if (input.mode === "production") {
+        await this.cascadeProductionActivation(transaction, {
+          workspaceId,
+          providerRuleId: providerRule.id,
+          connectionId: connection.id,
+          channelIds: input.channelIds,
+          actorUserId,
+        });
       }
 
       await this.createAudit(transaction, {
@@ -295,7 +568,6 @@ export class ProviderConversionRulesService {
         where: {
           id: input.connectionId,
           workspaceId,
-          provider: "umbler",
           removedAt: null,
         },
         include: { parserRelease: true },
@@ -313,7 +585,9 @@ export class ProviderConversionRulesService {
       );
 
       if (!connection.parserRelease) {
-        throw new ConflictException("Parser Umbler ainda nao esta disponivel");
+        throw new ConflictException(
+          "Parser da conexao ainda nao esta disponivel",
+        );
       }
       this.assertModeAllowed("observation", connection.parserRelease.status);
 
@@ -397,10 +671,13 @@ export class ProviderConversionRulesService {
       this.assertUpdateMatchesRule(current, input);
 
       if (input.channelIds) {
-        await this.assertChannelsBelongToConnection(
+        await this.assertChannelsForProvider(
           transaction,
           workspaceId,
           current.connectionId,
+          this.isPaytAutomationRule(current)
+            ? "payt"
+            : current.connection.provider,
           input.channelIds,
         );
       }
@@ -425,6 +702,24 @@ export class ProviderConversionRulesService {
       if (input.triggerPhrases !== undefined) {
         conversionRuleData.triggerValue = input.triggerPhrases[0];
       }
+      if (input.triggerLabels !== undefined) {
+        conversionRuleData.triggerValue = input.triggerLabels[0]?.name;
+        conversionRuleData.defaultItems = this.uazapiLabelsConfig(
+          input.triggerLabels,
+        );
+      }
+      if (input.valueMode !== undefined || input.exampleMessage !== undefined) {
+        const messagePhrase = readMessagePhraseConfig(
+          current.conversionRule.defaultItems,
+        );
+        conversionRuleData.defaultItems = this.messagePhraseConfig({
+          valueMode: input.valueMode ?? messagePhrase.valueMode,
+          exampleMessage:
+            input.exampleMessage !== undefined
+              ? input.exampleMessage
+              : messagePhrase.exampleMessage,
+        });
+      }
 
       if (Object.keys(conversionRuleData).length > 0) {
         await transaction.conversionRule.update({
@@ -437,6 +732,7 @@ export class ProviderConversionRulesService {
         input.mode !== undefined ||
         input.active === false ||
         input.triggerPhrases !== undefined ||
+        input.triggerLabels !== undefined ||
         input.messageAuthorScope !== undefined
       ) {
         const mode = nextMode ?? current.mode;
@@ -446,6 +742,13 @@ export class ProviderConversionRulesService {
             mode,
             ...(input.triggerPhrases !== undefined
               ? { messageTriggerPhrases: input.triggerPhrases }
+              : {}),
+            ...(input.triggerLabels !== undefined
+              ? {
+                  messageTriggerPhrases: input.triggerLabels.map(
+                    (label) => label.name,
+                  ),
+                }
               : {}),
             ...(input.messageAuthorScope !== undefined
               ? { messageAuthorScope: input.messageAuthorScope }
@@ -513,6 +816,29 @@ export class ProviderConversionRulesService {
             input.catalog,
           );
         }
+      }
+
+      // A rename must not touch the inbound connection, but every edit that
+      // turns "Envio ativo" on, re-enables the rule, or re-scopes its channels
+      // has to promote the connection and those channels with it.
+      const effectiveMode = nextMode ?? current.mode;
+      const staysActive = input.active ?? current.conversionRule.active;
+      if (
+        effectiveMode === "production" &&
+        staysActive &&
+        (input.mode !== undefined ||
+          input.active === true ||
+          input.channelIds !== undefined)
+      ) {
+        await this.cascadeProductionActivation(transaction, {
+          workspaceId,
+          providerRuleId,
+          connectionId: current.connectionId,
+          channelIds:
+            input.channelIds ??
+            current.channels.map((channel) => channel.channelId),
+          actorUserId,
+        });
       }
 
       const result = await this.requireRule(
@@ -675,6 +1001,302 @@ export class ProviderConversionRulesService {
     }
   }
 
+  /**
+   * The operator only sees one switch: "Envio ativo" on the conversion rule.
+   * Before this cascade existed, flipping it stamped the rule alone, so the
+   * inbound connection stayed in `observation` and its channels in
+   * `discovered`, and every decision was later blocked with
+   * `connection_not_production` / `channel_not_active`. Turning the rule on now
+   * runs exactly the same activation the Integrations panel buttons run, so the
+   * three switches can never drift apart again.
+   *
+   * Fail-closed on purpose: when the connection cannot be promoted (parser not
+   * certified, replay in flight, missing Meta route) the whole rule update
+   * rolls back with that reason instead of leaving a green "Envio ativo" that
+   * sends nothing.
+   */
+  private async cascadeProductionActivation(
+    transaction: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      providerRuleId: string;
+      connectionId: string;
+      channelIds: string[];
+      actorUserId: string;
+    },
+  ): Promise<void> {
+    this.requireProductionEnabledConfig();
+
+    const { workspaceId, connectionId, actorUserId } = input;
+    const connection = await requireInboundWebhookConnection(
+      transaction,
+      workspaceId,
+      connectionId,
+    );
+    const requireValidMetaRoute = metaRouteRequiredForProvider(
+      connection.provider,
+    );
+    const seats = this.seatHook();
+    const channelIds = await this.pruneOrphanChannelScopes(transaction, {
+      workspaceId,
+      providerRuleId: input.providerRuleId,
+      connectionId,
+      channelIds: input.channelIds,
+      actorUserId,
+    });
+
+    // Channels first: promoting the connection refuses to run without at least
+    // one active channel, and it stamps productionActivatedAt on every channel
+    // that is already active by then.
+    for (const channelId of channelIds) {
+      const channel = await requireInboundWebhookChannel(
+        transaction,
+        workspaceId,
+        channelId,
+      );
+
+      if (channel.connectionId !== connectionId) {
+        throw new BadRequestException(
+          "Um ou mais canais nao pertencem a esta conexao e workspace",
+        );
+      }
+
+      // A channel that is already active is already part of the connection's
+      // live input surface. Do not replay its activation just because a legacy
+      // row lacks productionActivatedAt: doing so re-runs the Meta-route guard
+      // while enabling an independent sibling rule. When a connection is
+      // promoted below it stamps all active channels; an already-production
+      // connection does not need this idempotent rewrite at all.
+      if (channel.status === "active") {
+        continue;
+      }
+
+      await applyInboundWebhookChannelStatus(transaction, {
+        workspaceId,
+        channelId,
+        status: "active",
+        actorUserId,
+        requireValidMetaRoute,
+        seats,
+      });
+    }
+
+    if (connection.status === "production") {
+      return;
+    }
+
+    await applyInboundWebhookConnectionStatus(transaction, {
+      workspaceId,
+      connectionId,
+      status: "production",
+      actorUserId,
+      requireValidMetaRoute,
+      seats,
+    });
+  }
+
+  /**
+   * A rule keeps its `ProviderConversionRuleChannel` rows when the channel they
+   * point at goes away with its connection — a superseded UAZAPI bridge being
+   * soft-removed, a channel re-scoped to another connection. The orphan is
+   * invisible in the builder but fatal on activation: the cascade used to walk
+   * it and fail with `Recurso de webhook nao encontrado` (404) or "Um ou mais
+   * canais nao pertencem a esta conexao e workspace", leaving Foz's rule stuck
+   * in Observando with no way out from the UI.
+   *
+   * So drop the orphans here and keep going with the channels that are really
+   * on this rule's live connection. Only a rule left with no valid channel at
+   * all is a genuine dead end, and it says so instead of blaming the webhook.
+   */
+  private async pruneOrphanChannelScopes(
+    transaction: Prisma.TransactionClient,
+    input: {
+      workspaceId: string;
+      providerRuleId: string;
+      connectionId: string;
+      channelIds: string[];
+      actorUserId: string;
+    },
+  ): Promise<string[]> {
+    const { workspaceId, providerRuleId, connectionId } = input;
+    const requested = [...new Set(input.channelIds)];
+    const live = await transaction.inboundWebhookChannel.findMany({
+      where: {
+        workspaceId,
+        connectionId,
+        id: { in: requested },
+        connection: { is: { workspaceId, removedAt: null } },
+      },
+      select: { id: true, connectedPhone: true, status: true },
+    });
+
+    const liveIds = new Set(live.map((channel) => channel.id));
+    const orphanIds = requested.filter((channelId) => !liveIds.has(channelId));
+
+    // Discovery is keyed by provider channel + organization, not by phone. A
+    // provider can consequently rediscover a number under a new identity while
+    // its original channel is already the live input surface. Never promote
+    // that stale discovered row (and demand a second Meta route) for a rule
+    // whose number already has an active sibling on this same connection.
+    const discoveredPhones = [
+      ...new Set(
+        live
+          .filter(
+            (channel) =>
+              channel.status === "discovered" && channel.connectedPhone,
+          )
+          .map((channel) => channel.connectedPhone),
+      ),
+    ];
+    const activeSiblings =
+      discoveredPhones.length === 0
+        ? []
+        : await transaction.inboundWebhookChannel.findMany({
+            where: {
+              workspaceId,
+              connectionId,
+              status: "active",
+              connectedPhone: { in: discoveredPhones },
+              connection: { is: { workspaceId, removedAt: null } },
+            },
+            select: { id: true, connectedPhone: true },
+            orderBy: { id: "asc" },
+          });
+    const activeSiblingByPhone = new Map<string, string>();
+    for (const sibling of activeSiblings) {
+      if (!activeSiblingByPhone.has(sibling.connectedPhone)) {
+        activeSiblingByPhone.set(sibling.connectedPhone, sibling.id);
+      }
+    }
+    const replacements = new Map<string, string>();
+    for (const channel of live) {
+      const activeSibling =
+        channel.status === "discovered"
+          ? activeSiblingByPhone.get(channel.connectedPhone)
+          : undefined;
+      if (activeSibling && activeSibling !== channel.id) {
+        replacements.set(channel.id, activeSibling);
+      }
+    }
+    const resolvedIds = [
+      ...new Set(
+        requested
+          .filter((channelId) => liveIds.has(channelId))
+          .map((channelId) => replacements.get(channelId) ?? channelId),
+      ),
+    ];
+
+    if (orphanIds.length > 0) {
+      await transaction.providerConversionRuleChannel.deleteMany({
+        where: {
+          workspaceId,
+          providerRuleId,
+          channelId: { in: orphanIds },
+        },
+      });
+      await this.createAudit(transaction, {
+        workspaceId,
+        actorUserId: input.actorUserId,
+        action: "provider_conversion_rule.channel_scope_pruned",
+        targetId: providerRuleId,
+        resultStatus: "pruned",
+        afterSummary: {
+          connectionId,
+          prunedChannelIds: orphanIds,
+          remainingChannelIds: [...liveIds],
+        },
+      });
+    }
+
+    if (replacements.size > 0) {
+      const staleIds = [...replacements.keys()];
+      await transaction.providerConversionRuleChannel.deleteMany({
+        where: {
+          workspaceId,
+          providerRuleId,
+          channelId: { in: staleIds },
+        },
+      });
+      const requestedSet = new Set(requested);
+      const replacementIds = [...new Set(replacements.values())].filter(
+        (channelId) => !requestedSet.has(channelId),
+      );
+      if (replacementIds.length > 0) {
+        await transaction.providerConversionRuleChannel.createMany({
+          data: replacementIds.map((channelId) => ({
+            workspaceId,
+            providerRuleId,
+            channelId,
+          })),
+        });
+      }
+      await this.createAudit(transaction, {
+        workspaceId,
+        actorUserId: input.actorUserId,
+        action: "provider_conversion_rule.channel_scope_remapped",
+        targetId: providerRuleId,
+        resultStatus: "remapped",
+        afterSummary: {
+          connectionId,
+          remappedChannels: [...replacements].map(
+            ([fromChannelId, toChannelId]) => ({
+              fromChannelId,
+              toChannelId,
+            }),
+          ),
+          remainingChannelIds: resolvedIds,
+        },
+      });
+    }
+
+    if (resolvedIds.length === 0) {
+      throw new ConflictException(
+        "Nenhum canal valido na conexao da regra; reconecte o WhatsApp ou selecione o canal live",
+      );
+    }
+
+    return resolvedIds;
+  }
+
+  private requireProductionEnabledConfig() {
+    const config = this.requireRulesEnabled();
+
+    if (!config.productionEnabled) {
+      throw new ServiceUnavailableException(
+        "Envio automatico de webhooks ainda nao esta habilitado",
+      );
+    }
+
+    return config;
+  }
+
+  /**
+   * Mirrors InboundWebhookConnectionsService: enforcement is resolved lazily
+   * because it throws when billing is on without a seat service wired, and the
+   * cascade must only reach that point when it actually bills a seat.
+   */
+  private seatHook(): ExternalChannelSeatHook {
+    return {
+      enforcementEnabled: () => this.externalChannelEnforcementEnabled(),
+      activateSeat: (transaction, seatInput) =>
+        this.whatsappSeats!.activateExternalChannelSeat(transaction, seatInput),
+    };
+  }
+
+  private externalChannelEnforcementEnabled(): boolean {
+    const enabled =
+      this.billingConfiguration?.isPackageBillingEnabled() === true &&
+      this.billingConfiguration.isExternalChannelEnforcementEnabled();
+
+    if (enabled && !this.whatsappSeats) {
+      throw new ServiceUnavailableException(
+        "Controle de vagas dos canais externos indisponivel",
+      );
+    }
+
+    return enabled;
+  }
+
   private async assertChannelsBelongToConnection(
     transaction: Prisma.TransactionClient,
     workspaceId: string,
@@ -697,27 +1319,117 @@ export class ProviderConversionRulesService {
     }
   }
 
+  /**
+   * A Payt callback is not itself a WhatsApp channel. Its automation rule may
+   * bind any existing workspace channel; the selected channel still scopes
+   * lookup and observation. Other providers retain the stricter connection
+   * ownership check.
+   */
+  private async assertChannelsForProvider(
+    transaction: Prisma.TransactionClient,
+    workspaceId: string,
+    connectionId: string,
+    provider: string,
+    channelIds: string[],
+  ): Promise<void> {
+    if (provider !== "payt") {
+      return this.assertChannelsBelongToConnection(
+        transaction,
+        workspaceId,
+        connectionId,
+        channelIds,
+      );
+    }
+
+    const uniqueIds = [...new Set(channelIds)];
+    const count = await transaction.inboundWebhookChannel.count({
+      where: { workspaceId, id: { in: uniqueIds } },
+    });
+    if (count !== uniqueIds.length || uniqueIds.length !== channelIds.length) {
+      throw new BadRequestException("Um ou mais canais nao pertencem a este workspace");
+    }
+  }
+
+  private isPaytAutomationRule(rule: PersistedProviderRule): boolean {
+    return (
+      rule.conversionRule.triggerType === "provider_automation" &&
+      rule.parserRelease.provider === "payt"
+    );
+  }
+
+  private messagePhraseConfig(input: {
+    valueMode: MessagePhraseValueModeDto;
+    exampleMessage: string | null;
+  }): Prisma.InputJsonValue {
+    return {
+      kind: messagePhraseConfigKind,
+      valueMode: input.valueMode,
+      exampleMessage: input.exampleMessage,
+    } satisfies MessagePhraseConfigDto;
+  }
+
   private assertUpdateMatchesRule(
     current: PersistedProviderRule,
     input: ProviderConversionRuleUpdateInputDto,
   ): void {
-    const isFixedPurchase =
+    // The event catalog decides whether this rule may carry a value at all:
+    // QualifiedLead, OrderShipped and friends never do.
+    const eventName = conversionEventNameSchema.safeParse(
+      current.conversionRule.eventName,
+    );
+    const isValuedRule =
       ["provider_automation", "message_phrase"].includes(
         current.conversionRule.triggerType,
-      ) && current.conversionRule.eventName === "Purchase";
+      ) &&
+      eventName.success &&
+      conversionEventCarriesValue(eventName.data);
+    const isMessagePhraseRule =
+      current.conversionRule.triggerType === "message_phrase";
+    // The message template is meaningful for every message rule, but the value
+    // mode only exists where the event can carry a value.
+    const isValuedMessageRule = isMessagePhraseRule && isValuedRule;
     const hasValueUpdate =
       input.defaultValueCents !== undefined ||
       input.defaultCurrency !== undefined ||
       input.defaultContentName !== undefined;
 
-    if (hasValueUpdate && !isFixedPurchase) {
+    if (hasValueUpdate && !isValuedRule) {
       throw new BadRequestException(
-        "Valores padrao pertencem apenas a regras de compra com valor fixo",
+        "Valores padrao pertencem apenas a regras de compra/checkout com valor",
       );
     }
-    if (isFixedPurchase && input.defaultValueCents === null) {
+    if (input.exampleMessage !== undefined && !isMessagePhraseRule) {
       throw new BadRequestException(
-        "Regras de compra com valor fixo precisam manter um valor positivo",
+        "O exemplo de mensagem pertence apenas a regras por mensagem",
+      );
+    }
+    if (input.valueMode !== undefined && !isValuedMessageRule) {
+      throw new BadRequestException(
+        "O modo de valor pertence apenas a regras por mensagem com valor",
+      );
+    }
+    // Only extracted-value message rules may drop the average value: the value
+    // then comes from the message itself.
+    const nextValueMode = isValuedMessageRule
+      ? (input.valueMode ??
+        readMessagePhraseConfig(current.conversionRule.defaultItems).valueMode)
+      : "fixed";
+    if (
+      isValuedRule &&
+      input.defaultValueCents === null &&
+      nextValueMode !== "message_extracted"
+    ) {
+      throw new BadRequestException(
+        "Regras com valor fixo precisam manter um valor positivo",
+      );
+    }
+    if (
+      isValuedMessageRule &&
+      input.valueMode === "fixed" &&
+      !(input.defaultValueCents ?? current.conversionRule.defaultValueCents)
+    ) {
+      throw new BadRequestException(
+        "Informe o valor medio antes de voltar para o modo de valor fixo",
       );
     }
     if (
@@ -968,6 +1680,11 @@ export class ProviderConversionRulesService {
   }
 
   private toDto(rule: PersistedProviderRule): ProviderConversionRuleDto {
+    const messagePhrase =
+      rule.conversionRule.triggerType === "message_phrase"
+        ? readMessagePhraseConfig(rule.conversionRule.defaultItems)
+        : { valueMode: "fixed" as const, exampleMessage: null };
+
     return {
       id: rule.id,
       workspaceId: rule.workspaceId,
@@ -999,6 +1716,11 @@ export class ProviderConversionRulesService {
       channelIds: rule.channels.map((channel) => channel.channelId),
       triggerPhrases: rule.messageTriggerPhrases,
       messageAuthorScope: rule.messageAuthorScope,
+      valueMode: messagePhrase.valueMode,
+      exampleMessage: messagePhrase.exampleMessage,
+      // The parser release is stored with the rule, so this remains available
+      // after a connection changes and does not require a new database column.
+      automationSource: this.isPaytAutomationRule(rule) ? "payt" : null,
       endpoint: rule.endpoint ? this.endpointToDto(rule.endpoint) : null,
       catalog: rule.catalog ? this.catalogToDto(rule.catalog) : null,
       lastExecution: rule.executions[0]
@@ -1025,6 +1747,23 @@ export class ProviderConversionRulesService {
       createdAt: rule.createdAt.toISOString(),
       updatedAt: rule.updatedAt.toISOString(),
     };
+  }
+
+  private uazapiLabelsConfig(
+    labels: Array<{ id: string; name: string }>,
+  ): Prisma.InputJsonValue {
+    return {
+      uazapiLabels: labels.map((label) => {
+        const id = label.id.trim();
+        const localId = id.includes(":") ? id.split(":").pop()! : id;
+        return {
+          id,
+          labelId: localId,
+          matchKeys: [...new Set([id, localId])],
+          name: label.name.trim(),
+        };
+      }),
+    } as Prisma.InputJsonValue;
   }
 
   private endpointToDto(

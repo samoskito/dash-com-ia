@@ -34,7 +34,7 @@ const connectionStatusOperationalErrors = new Set([
   "Envio automatico de webhooks ainda nao esta habilitado",
   "Finalize o replay em andamento antes de ativar a producao",
   "Todas as vagas do pacote estao ocupadas",
-  "Todo canal ativo precisa de uma rota Meta valida",
+  "Todo canal ativo precisa de uma rota Meta válida",
   "Workspace sem contrato com acesso ativo",
 ]);
 

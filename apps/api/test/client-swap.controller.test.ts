@@ -37,8 +37,93 @@ const memberSession = {
   ],
 };
 
+const adminSession = {
+  user: {
+    id: "user_3",
+    email: "admin@wpptrack.com",
+  },
+  workspaces: [
+    {
+      id: "workspace_1",
+      name: "Comunidade NOD",
+      slug: "comunidade-nod",
+      role: "admin",
+    },
+  ],
+};
+
+const supportContext = {
+  workspaceId: "workspace_1",
+  workspaceName: "Comunidade NOD",
+  workspaceSlug: "comunidade-nod",
+  operationalStatus: "active" as const,
+  startedAt: "2026-07-11T18:00:00.000Z",
+};
+
+const platformOwnerSupportSession = {
+  user: {
+    id: "user_platform_owner",
+    email: "owner@wpptrack.com",
+    platformRole: "platform_owner" as const,
+  },
+  workspaces: [] as Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+  }>,
+  supportContext,
+};
+
+const platformOwnerOtherWorkspaceSupportSession = {
+  ...platformOwnerSupportSession,
+  supportContext: {
+    ...supportContext,
+    workspaceId: "workspace_other",
+  },
+};
+
+const platformOperatorSupportSession = {
+  user: {
+    id: "user_platform_operator",
+    email: "operator@wpptrack.com",
+    platformRole: "platform_operator" as const,
+  },
+  workspaces: [] as Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+  }>,
+  supportContext,
+};
+
+const platformOwnerPlainSession = {
+  user: {
+    id: "user_platform_owner",
+    email: "owner@wpptrack.com",
+    platformRole: "platform_owner" as const,
+  },
+  workspaces: [] as Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+  }>,
+  supportContext: null,
+};
+
+type ClientSwapTestSession =
+  | typeof ownerSession
+  | typeof memberSession
+  | typeof adminSession
+  | typeof platformOwnerSupportSession
+  | typeof platformOwnerOtherWorkspaceSupportSession
+  | typeof platformOperatorSupportSession
+  | typeof platformOwnerPlainSession;
+
 async function createApp(options: {
-  session?: typeof ownerSession | typeof memberSession;
+  session?: ClientSwapTestSession;
   unauthorized?: boolean;
 } = {}) {
   const authService = {
@@ -182,5 +267,104 @@ describe("client swap controller", () => {
       .expect(401);
 
     expect(harness.clientSwapService.swap).not.toHaveBeenCalled();
+  });
+
+  it("allows platform_owner with active support context for the same workspace", async () => {
+    const harness = await createApp({ session: platformOwnerSupportSession });
+    apps.push(harness.app);
+
+    await request(harness.app.getHttpServer())
+      .post("/workspaces/workspace_1/client-swap")
+      .set("Authorization", "Bearer refresh-token")
+      .set("Idempotency-Key", "swap-key-1")
+      .send({ confirm: true })
+      .expect(200);
+
+    expect(harness.clientSwapService.swap).toHaveBeenCalledWith(
+      "workspace_1",
+      "user_platform_owner",
+      { confirm: true },
+      "swap-key-1",
+      "platform_admin",
+    );
+  });
+
+  it("returns 403 when platform_owner support context is for a different workspace", async () => {
+    const harness = await createApp({
+      session: platformOwnerOtherWorkspaceSupportSession,
+    });
+    apps.push(harness.app);
+
+    await request(harness.app.getHttpServer())
+      .post("/workspaces/workspace_1/client-swap")
+      .set("Authorization", "Bearer refresh-token")
+      .set("Idempotency-Key", "swap-key-1")
+      .send({ confirm: true })
+      .expect(403);
+
+    expect(harness.clientSwapService.swap).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 for platform_operator even with matching support context", async () => {
+    const harness = await createApp({ session: platformOperatorSupportSession });
+    apps.push(harness.app);
+
+    await request(harness.app.getHttpServer())
+      .post("/workspaces/workspace_1/client-swap")
+      .set("Authorization", "Bearer refresh-token")
+      .set("Idempotency-Key", "swap-key-1")
+      .send({ confirm: true })
+      .expect(403);
+
+    expect(harness.clientSwapService.swap).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 for platform_owner without support context", async () => {
+    const harness = await createApp({ session: platformOwnerPlainSession });
+    apps.push(harness.app);
+
+    await request(harness.app.getHttpServer())
+      .post("/workspaces/workspace_1/client-swap")
+      .set("Authorization", "Bearer refresh-token")
+      .set("Idempotency-Key", "swap-key-1")
+      .send({ confirm: true })
+      .expect(403);
+
+    expect(harness.clientSwapService.swap).not.toHaveBeenCalled();
+  });
+
+  it("still allows a regular workspace owner member", async () => {
+    const harness = await createApp({ session: ownerSession });
+    apps.push(harness.app);
+
+    await request(harness.app.getHttpServer())
+      .post("/workspaces/workspace_1/client-swap")
+      .set("Authorization", "Bearer refresh-token")
+      .set("Idempotency-Key", "swap-key-1")
+      .send({ confirm: true })
+      .expect(200);
+
+    expect(harness.clientSwapService.swap).toHaveBeenCalledWith(
+      "workspace_1",
+      "user_1",
+      { confirm: true },
+      "swap-key-1",
+    );
+  });
+
+  it("returns 403 for member and admin roles", async () => {
+    for (const session of [memberSession, adminSession]) {
+      const harness = await createApp({ session });
+      apps.push(harness.app);
+
+      await request(harness.app.getHttpServer())
+        .post("/workspaces/workspace_1/client-swap")
+        .set("Authorization", "Bearer refresh-token")
+        .set("Idempotency-Key", "swap-key-1")
+        .send({ confirm: true })
+        .expect(403);
+
+      expect(harness.clientSwapService.swap).not.toHaveBeenCalled();
+    }
   });
 });

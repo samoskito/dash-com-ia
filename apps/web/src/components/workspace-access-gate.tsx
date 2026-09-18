@@ -1,6 +1,11 @@
 import type { CurrentWorkspaceDto, WorkspaceListDto } from "@wpptrack/shared";
+import {
+  clientNavVisibleForPermissions,
+  type ClientNavId,
+} from "@wpptrack/shared";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import {
   getAvailableWorkspaces,
@@ -48,6 +53,11 @@ export async function WorkspaceAccessGate({
     workspaceAccess.state === "billing_blocked" &&
     !pathname.startsWith("/subscription")
   ) {
+    const canOpenSubscription = clientNavVisibleForPermissions(
+      "subscription",
+      workspaceAccess.workspace.permissions,
+    );
+
     return (
       <AppShell workspace={workspaceAccess.workspace} workspaces={workspaces}>
         <section className="page-stack">
@@ -56,15 +66,18 @@ export async function WorkspaceAccessGate({
               <span className="eyebrow">Assinatura</span>
               <h1>Acesso suspenso</h1>
               <p>
-                Regularize a assinatura para voltar a acessar os dados e as
-                operacoes deste workspace.
+                {canOpenSubscription
+                  ? "Regularize a assinatura para voltar a acessar os dados e as operacoes deste workspace."
+                  : "A assinatura deste workspace precisa ser regularizada pelo responsavel da conta."}
               </p>
             </div>
             <div className="header-actions">
               <span className="status-chip warn">pagamento pendente</span>
-              <Link className="button primary" href="/subscription">
-                Gerenciar assinatura
-              </Link>
+              {canOpenSubscription ? (
+                <Link className="button primary" href="/subscription">
+                  Gerenciar assinatura
+                </Link>
+              ) : null}
             </div>
           </header>
         </section>
@@ -98,6 +111,19 @@ export async function WorkspaceAccessGate({
     );
   }
 
+  // Fail-closed management routes: analyst (member) and others without the
+  // matching permission cannot open integrations/settings/subscription by URL.
+  const gatedNavId = managementNavIdForPath(pathname);
+  if (
+    gatedNavId &&
+    !clientNavVisibleForPermissions(
+      gatedNavId,
+      workspaceAccess.workspace.permissions,
+    )
+  ) {
+    redirect("/overview");
+  }
+
   const dataSource = await getWhatsappDataSource();
 
   return (
@@ -109,6 +135,19 @@ export async function WorkspaceAccessGate({
       {children}
     </AppShell>
   );
+}
+
+function managementNavIdForPath(pathname: string): ClientNavId | null {
+  if (pathname === "/integrations" || pathname.startsWith("/integrations/")) {
+    return "integrations";
+  }
+  if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    return "settings";
+  }
+  if (pathname === "/subscription" || pathname.startsWith("/subscription/")) {
+    return "subscription";
+  }
+  return null;
 }
 
 async function getWorkspaceListState(): Promise<WorkspaceListDto> {

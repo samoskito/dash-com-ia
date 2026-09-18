@@ -350,6 +350,24 @@ describe("integrations route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ enabled: false, providers: [] }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
       );
 
     const element = await IntegrationsPage({
@@ -366,6 +384,9 @@ describe("integrations route", () => {
     expect(html).toContain('id="integracao-meta"');
     expect(html).toContain('id="integracao-whatsapp"');
     expect(html).toContain('id="integracao-fluxo"');
+    expect(html).not.toContain("Guimo CRM");
+    expect(html).not.toContain('id="integracao-guimo"');
+    expect(html).not.toContain("x-wpptrack-webhook-token");
     expect(
       html.match(/class="integration-domain-section [^"]+"/g),
     ).toHaveLength(3);
@@ -1445,7 +1466,7 @@ describe("integrations route", () => {
         "/integrations/inbound-webhooks/connection_wave7/channels",
       );
       expect(html).toContain("Webhooks de plataformas WhatsApp");
-      expect(html).toContain("Gatilhos do WhatsApp");
+      expect(html).toContain("Gatilhos de conversao");
       expect(html).toContain("Central disponivel");
       expect(html).toContain('href="/settings#whatsapp-triggers"');
       expect(html).toContain("Gerenciar gatilhos");

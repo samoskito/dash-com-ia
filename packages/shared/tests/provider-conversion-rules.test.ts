@@ -8,7 +8,10 @@ import {
   providerConversionAutomationReprocessBatchResultSchema,
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
+  providerConversionRuleExecutionAuditSchema,
+  providerConversionRuleUpdateInputSchema,
   purchaseReviewListQuerySchema,
+  readMessagePhraseConfig,
   structuredCatalogTestMessageInputSchema,
   structuredCatalogTestMessageResultSchema,
 } from "../src";
@@ -44,15 +47,64 @@ const trampolineCatalog = {
 };
 
 describe("provider conversion rule contracts", () => {
+  it("validates technical Meta delivery evidence in execution audits", () => {
+    const audit = providerConversionRuleExecutionAuditSchema.parse({
+      providerRuleId: "provider_rule_1",
+      eventName: "InitiateCheckout",
+      summary: {
+        total: 1,
+        observed: 0,
+        eligible: 0,
+        materialized: 1,
+        duplicate: 0,
+        blocked: 0,
+        failed: 0,
+      },
+      items: [
+        {
+          executionId: "execution_1",
+          sourceDeliveryId: "delivery_1",
+          occurredAt: "2026-07-22T15:00:00.000Z",
+          status: "materialized",
+          reasonCode: null,
+          matchedTriggerPhrase: null,
+          channel: null,
+          leadId: "lead_1",
+          leadName: "Cliente IC",
+          phoneDisplay: "+5511999990000",
+          valueCents: 19900,
+          currency: "BRL",
+          conversionEventLogId: "conversion_1",
+          purchaseReviewId: null,
+          attemptCount: 1,
+          processedAt: "2026-07-22T15:00:01.000Z",
+          technicalDelivery: {
+            state: "failed_permanent",
+            retryable: false,
+            reasonCode: "MetaCapiSendError",
+            updatedAt: "2026-07-22T15:00:02.000Z",
+          },
+          lastProductionFailure: {
+            code: "provider_conversion_delivery_failed",
+            failedAt: "2026-07-22T15:00:02.000Z",
+          },
+        },
+      ],
+      pagination: { page: 1, pageSize: 25, totalItems: 1, totalPages: 1 },
+    });
+
+    expect(audit.items[0]?.technicalDelivery?.state).toBe("failed_permanent");
+  });
+
   it("defaults purchase review lists to the actionable queue", () => {
     expect(purchaseReviewListQuerySchema.parse({})).toMatchObject({
       view: "actionable",
       page: 1,
       pageSize: 25,
     });
-    expect(
-      purchaseReviewListQuerySchema.parse({ view: "history" }).view,
-    ).toBe("history");
+    expect(purchaseReviewListQuerySchema.parse({ view: "history" }).view).toBe(
+      "history",
+    );
   });
 
   it("accepts only an observation-safe channel scope when adapting a legacy rule", () => {
@@ -103,6 +155,73 @@ describe("provider conversion rule contracts", () => {
     expect("defaultValueCents" in parsed).toBe(false);
   });
 
+  it("accepts independent automation and manual-message entries for one event", () => {
+    const automation = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "QualifiedLead",
+      triggerPhrases: ["Lead qualificado"],
+    });
+    const message = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      triggerPhrases: ["quero avançar"],
+    });
+
+    expect(automation.eventName).toBe(message.eventName);
+    expect(automation.triggerType).toBe("provider_automation");
+    expect(message.triggerType).toBe("message_phrase");
+    expect(message).not.toHaveProperty("triggerLabels");
+  });
+
+  it("accepts a Payt purchase automation without average value or labels", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      channelIds: ["channel_1", "channel_2"],
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+      channelIds: ["channel_1", "channel_2"],
+      mode: "observation",
+    });
+    expect("defaultValueCents" in parsed).toBe(false);
+  });
+
+  it("keeps a Payt automation on Purchase, without labels and with channels", () => {
+    const payt = {
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "Purchase",
+      automationSource: "payt",
+    };
+
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...payt,
+        eventName: "QualifiedLead",
+      }).success,
+    ).toBe(false);
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...payt,
+        triggerPhrases: ["Venda fechada"],
+      }).success,
+    ).toBe(false);
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...payt,
+        channelIds: [],
+      }).success,
+    ).toBe(false);
+  });
+
   it("requires a positive average value for Purchase automation", () => {
     expect(
       providerConversionRuleCreateInputSchema.safeParse({
@@ -123,6 +242,130 @@ describe("provider conversion rule contracts", () => {
     expect(parsed).toMatchObject({
       defaultValueCents: 250000,
       defaultCurrency: "BRL",
+    });
+  });
+
+  it("accepts InitiateCheckout message_phrase with fixed value (U1)", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      triggerPhrases: ["iniciou checkout"],
+      defaultValueCents: 25000,
+      defaultCurrency: "BRL",
+      defaultContentName: "Checkout medio",
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      defaultValueCents: 25000,
+      defaultCurrency: "BRL",
+      mode: "observation",
+    });
+
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "InitiateCheckout",
+        // missing defaultValueCents
+      }).success,
+    ).toBe(false);
+  });
+
+  it("defaults message_phrase rules to a fixed average value", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "Purchase",
+      triggerPhrases: ["Aviso de compra"],
+      defaultValueCents: 99900,
+    });
+
+    expect(parsed).toMatchObject({
+      valueMode: "fixed",
+      defaultValueCents: 99900,
+      defaultCurrency: "BRL",
+    });
+  });
+
+  it("accepts message_extracted checkout rules with an example and no fixed value", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "InitiateCheckout",
+      triggerPhrases: ["link de pagamento"],
+      valueMode: "message_extracted",
+      exampleMessage: "Segue o link de pagamento de R$ 250,00",
+    });
+
+    expect(parsed).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Segue o link de pagamento de R$ 250,00",
+      defaultCurrency: "BRL",
+    });
+    expect(parsed).not.toHaveProperty("defaultValueCents", 0);
+  });
+
+  it("keeps a fallback average value available for message_extracted rules", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "Purchase",
+      triggerPhrases: ["Aviso de compra"],
+      valueMode: "message_extracted",
+      defaultValueCents: 25000,
+    });
+
+    expect(parsed).toMatchObject({
+      valueMode: "message_extracted",
+      defaultValueCents: 25000,
+    });
+  });
+
+  it("rejects fixed message_phrase rules without an average value", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "InitiateCheckout",
+        triggerPhrases: ["iniciou checkout"],
+        valueMode: "fixed",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reads the persisted message_phrase config and falls back to fixed", () => {
+    expect(
+      readMessagePhraseConfig({
+        kind: "message_phrase_config_v1",
+        valueMode: "message_extracted",
+        exampleMessage: "Total: R$ 250,00",
+      }),
+    ).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Total: R$ 250,00",
+    });
+
+    for (const legacy of [null, undefined, [{ id: "sku_1", quantity: 1 }]]) {
+      expect(readMessagePhraseConfig(legacy)).toEqual({
+        kind: "message_phrase_config_v1",
+        valueMode: "fixed",
+        exampleMessage: null,
+      });
+    }
+  });
+
+  it("allows updates to switch the message_phrase value pipeline", () => {
+    expect(
+      providerConversionRuleUpdateInputSchema.parse({
+        valueMode: "message_extracted",
+        exampleMessage: "Pagamento de R$ 250,00 confirmado",
+      }),
+    ).toMatchObject({
+      valueMode: "message_extracted",
+      exampleMessage: "Pagamento de R$ 250,00 confirmado",
     });
   });
 
@@ -350,6 +593,114 @@ describe("provider conversion rule contracts", () => {
         currency: "BRL",
       }),
     ).toMatchObject({ matched: true, parsedValueCents: 359700 });
+  });
+
+  it("aceita lead qualificado por mensagem sem valor", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      exampleMessage: "Vou te passar os valores do procedimento",
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      mode: "observation",
+      valueMode: "fixed",
+    });
+    expect("defaultValueCents" in parsed).toBe(false);
+    expect("defaultCurrency" in parsed).toBe(false);
+  });
+
+  it("recusa valor em evento que nao carrega valor", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        defaultValueCents: 19900,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...channelScope,
+        triggerType: "provider_automation",
+        eventName: "OrderShipped",
+        defaultValueCents: 19900,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("recusa extrair valor da mensagem em evento sem valor", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "message_phrase",
+        eventName: "QualifiedLead",
+        valueMode: "message_extracted",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("aceita valor opcional em AddToCart por mensagem", () => {
+    const semValor = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "AddToCart",
+    });
+    expect(semValor).toMatchObject({
+      eventName: "AddToCart",
+      defaultCurrency: "BRL",
+    });
+
+    const comValor = providerConversionRuleCreateInputSchema.parse({
+      ...messageScope,
+      triggerType: "message_phrase",
+      eventName: "AddToCart",
+      defaultValueCents: 12900,
+    });
+    expect(comValor).toMatchObject({ defaultValueCents: 12900 });
+  });
+
+  it("aceita AddToCart por tag com valor medio", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "AddToCart",
+      defaultValueCents: 12900,
+    });
+
+    expect(parsed).toMatchObject({
+      triggerType: "provider_automation",
+      eventName: "AddToCart",
+      defaultValueCents: 12900,
+      defaultCurrency: "BRL",
+    });
+  });
+
+  it("aceita pedido enviado por tag sem nenhum campo de valor", () => {
+    const parsed = providerConversionRuleCreateInputSchema.parse({
+      ...channelScope,
+      triggerType: "provider_automation",
+      eventName: "OrderShipped",
+    });
+
+    expect(parsed).toMatchObject({ eventName: "OrderShipped" });
+    expect("defaultValueCents" in parsed).toBe(false);
+    expect("defaultCurrency" in parsed).toBe(false);
+  });
+
+  it("mantem o catalogo estruturado restrito a compra", () => {
+    expect(
+      providerConversionRuleCreateInputSchema.safeParse({
+        ...messageScope,
+        triggerType: "structured_catalog",
+        eventName: "AddToCart",
+        catalog: trampolineCatalog,
+      }).success,
+    ).toBe(false);
   });
 });
 

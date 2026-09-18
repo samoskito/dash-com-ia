@@ -9,7 +9,9 @@ import type {
 import {
   BadgeDollarSign,
   FileCheck2,
+  MessagesSquare,
   PackageCheck,
+  Plus,
   ShieldCheck,
   Smartphone,
   type LucideIcon,
@@ -21,12 +23,37 @@ import { serverApiFetch } from "../../../../lib/server-api";
 import {
   applyLegacyBillingBackfillAction,
   assignPackagePlanAction,
+  cancelPackageContractAction,
   createPackagePlanAction,
+  disableTrialAutoconvertAction,
   reconcileWorkspaceBillingAction,
   retryFiscalInvoiceAction,
   saveFiscalSettingsAction,
+  saveTrialReminderTemplatesAction,
+  startWorkspaceTrialAction,
   updatePackagePlanAction,
 } from "./actions";
+import { EndContractButton } from "./end-contract-button";
+import {
+  contractConsumesCapacity,
+  selectEndableContractIds,
+} from "./end-contract-eligibility";
+import {
+  TRIAL_REMINDER_MOMENTS,
+  TRIAL_REMINDER_PLACEHOLDERS,
+  type TrialReminderMoment,
+  type TrialReminderTemplate,
+  reminderFieldName,
+} from "./reminder-templates";
+import { TrialAutoconvertButton } from "./trial-autoconvert-button";
+import {
+  TRIAL_DEFAULT_CAPACITY,
+  TRIAL_MAX_CAPACITY,
+  TRIAL_MIN_CAPACITY,
+  canDisableTrialAutoconvert,
+  selectTrialEligibleWorkspaces,
+  trialBadge,
+} from "./trial-eligibility";
 
 type ResourceResult<T> = {
   data: T;
@@ -99,6 +126,7 @@ export default async function BackofficeBillingPage() {
     fiscalResult,
     legacyBackfillResult,
     actionableInvoicesResult,
+    reminderTemplatesResult,
   ] = await Promise.all([
     resource<WhatsappPackagePlanDto[]>("/backoffice/billing/package-plans", []),
     resource<BackofficePackageContract[]>(
@@ -123,6 +151,12 @@ export default async function BackofficeBillingPage() {
       "/backoffice/billing/invoices/actionable",
       [],
     ),
+    isPlatformOwner
+      ? resource<TrialReminderTemplate[]>(
+          "/backoffice/billing/trial-reminder-templates",
+          [],
+        )
+      : Promise.resolve({ data: [], state: "empty" as const }),
   ]);
 
   const plans = plansResult.data;
@@ -131,6 +165,7 @@ export default async function BackofficeBillingPage() {
   const fiscal = fiscalResult.data;
   const legacyBackfill = legacyBackfillResult.data;
   const actionableInvoices = actionableInvoicesResult.data;
+  const reminderTemplates = reminderTemplatesResult.data;
   const occupiedSeats = contracts.reduce(
     (total, entry) => total + entry.contract.occupiedWhatsappNumbers,
     0,
@@ -142,6 +177,11 @@ export default async function BackofficeBillingPage() {
       0,
     );
   const specialPlans = plans.filter((plan) => plan.kind !== "standard").length;
+  const endableContractIds = selectEndableContractIds(contracts);
+  const trialEligibleWorkspaces = selectTrialEligibleWorkspaces(
+    workspaces,
+    contracts,
+  );
 
   return (
     <section className="page-stack standalone-page billing-admin-page">
@@ -372,6 +412,9 @@ export default async function BackofficeBillingPage() {
         {isPlatformOwner ? (
           <details className="client-management-disclosure">
             <summary>
+              <span className="client-management-disclosure-icon" aria-hidden="true">
+                <Plus size={17} strokeWidth={2} />
+              </span>
               <span>
                 <strong>Criar pacote</strong>
                 <small>
@@ -578,7 +621,7 @@ export default async function BackofficeBillingPage() {
                   ))}
               </select>
             </label>
-            <label>
+            <label className="billing-field-wide">
               Motivo da negociacao
               <input name="reason" minLength={3} required />
             </label>
@@ -587,6 +630,70 @@ export default async function BackofficeBillingPage() {
               pendingLabel="Atribuindo..."
             />
           </BackofficeActionForm>
+        ) : null}
+
+        {isPlatformOwner ? (
+          <details className="client-management-disclosure">
+            <summary>
+              <span className="client-management-disclosure-icon" aria-hidden="true">
+                <Plus size={17} strokeWidth={2} />
+              </span>
+              <span>
+                <strong>Iniciar trial 30d</strong>
+                <small>
+                  Libera de {TRIAL_MIN_CAPACITY} a {TRIAL_MAX_CAPACITY} numeros
+                  por 30 dias, sem cobranca no periodo.
+                </small>
+              </span>
+            </summary>
+            {trialEligibleWorkspaces.length ? (
+              <BackofficeActionForm
+                action={startWorkspaceTrialAction}
+                className="billing-assignment-form"
+                resetOnSuccess
+              >
+                <label>
+                  Workspace
+                  <select name="workspaceId" required defaultValue="">
+                    <option value="" disabled>
+                      Escolher cliente
+                    </option>
+                    {trialEligibleWorkspaces.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>
+                        {workspace.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Numeros no trial ({TRIAL_MIN_CAPACITY} a {TRIAL_MAX_CAPACITY})
+                  <input
+                    name="capacity"
+                    type="number"
+                    inputMode="numeric"
+                    min={TRIAL_MIN_CAPACITY}
+                    max={TRIAL_MAX_CAPACITY}
+                    step={1}
+                    defaultValue={TRIAL_DEFAULT_CAPACITY}
+                    required
+                  />
+                </label>
+                <label className="billing-field-wide">
+                  Motivo da liberacao
+                  <input name="reason" minLength={3} required />
+                </label>
+                <PendingSubmitButton
+                  label="Iniciar trial 30d"
+                  pendingLabel="Iniciando..."
+                />
+              </BackofficeActionForm>
+            ) : (
+              <p className="muted">
+                Todos os clientes ja possuem contrato atual. Encerre o contrato
+                antes de liberar um trial.
+              </p>
+            )}
+          </details>
         ) : null}
 
         <div className="table-wrap billing-contract-table">
@@ -624,24 +731,41 @@ export default async function BackofficeBillingPage() {
                       >
                         {contractStatusLabel(contract.status)}
                       </span>
+                      <TrialContractBadge contract={contract} />
                     </td>
                     <td>{fiscalStatusLabel(contract.fiscalStatus)}</td>
                     {isPlatformOwner ? (
                       <td>
-                        <BackofficeActionForm
-                          action={reconcileWorkspaceBillingAction}
-                          className="billing-inline-action"
-                        >
-                          <input
-                            type="hidden"
-                            name="workspaceId"
-                            value={workspace.id}
-                          />
-                          <PendingSubmitButton
-                            label="Conciliar"
-                            pendingLabel="Conferindo..."
-                          />
-                        </BackofficeActionForm>
+                        <div className="billing-inline-action">
+                          <BackofficeActionForm
+                            action={reconcileWorkspaceBillingAction}
+                          >
+                            <input
+                              type="hidden"
+                              name="workspaceId"
+                              value={workspace.id}
+                            />
+                            <PendingSubmitButton
+                              label="Conciliar"
+                              pendingLabel="Conferindo..."
+                            />
+                          </BackofficeActionForm>
+                          {canDisableTrialAutoconvert(contract) ? (
+                            <TrialAutoconvertButton
+                              workspaceId={workspace.id}
+                              workspaceName={workspace.name}
+                              action={disableTrialAutoconvertAction}
+                            />
+                          ) : null}
+                          {endableContractIds.has(contract.id) ? (
+                            <EndContractButton
+                              workspaceId={workspace.id}
+                              subscriptionId={contract.id}
+                              planName={contract.planName}
+                              action={cancelPackageContractAction}
+                            />
+                          ) : null}
+                        </div>
                       </td>
                     ) : null}
                   </tr>
@@ -754,6 +878,93 @@ export default async function BackofficeBillingPage() {
         </div>
       </section>
 
+      {isPlatformOwner ? (
+        <section className="surface-panel billing-admin-section">
+          <div className="section-heading-row">
+            <div>
+              <span className="eyebrow">Avisos ao cliente</span>
+              <h2>Mensagens de trial e cobranca</h2>
+              <p className="muted">
+                Estes sao os textos que o cliente recebe por e-mail e no
+                WhatsApp perto do fim do periodo de teste. Escreva como voce
+                falaria com ele.
+              </p>
+            </div>
+            <MessagesSquare aria-hidden="true" size={26} />
+          </div>
+
+          {reminderTemplatesResult.state === "error" ? (
+            <div className="feedback-banner warn" role="alert">
+              <strong>Nao foi possivel carregar as mensagens</strong>
+              <span>
+                Atualize a pagina antes de editar para nao sobrescrever o texto
+                atual.
+              </span>
+            </div>
+          ) : (
+            <BackofficeActionForm
+              action={saveTrialReminderTemplatesAction}
+              className="billing-reminder-form"
+            >
+              <div className="billing-reminder-grid">
+                {TRIAL_REMINDER_MOMENTS.map(({ moment, title, hint }) => {
+                  const saved = findReminderTemplate(reminderTemplates, moment);
+
+                  return (
+                    <div className="billing-reminder-card" key={moment}>
+                      <div className="billing-reminder-card-heading">
+                        <strong>{title}</strong>
+                        <small>{hint}</small>
+                      </div>
+                      <label>
+                        Assunto do e-mail
+                        <input
+                          name={reminderFieldName(moment, "subject")}
+                          defaultValue={saved?.emailSubject ?? ""}
+                          maxLength={300}
+                          required
+                        />
+                      </label>
+                      <label>
+                        Mensagem
+                        <textarea
+                          name={reminderFieldName(moment, "body")}
+                          defaultValue={saved?.body ?? ""}
+                          maxLength={10_000}
+                          rows={9}
+                          required
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="billing-reminder-hint">
+                <strong>Atalhos que voce pode usar no texto</strong>
+                <p>
+                  Escreva o atalho e o sistema troca pelo dado real do cliente
+                  na hora do envio.
+                </p>
+                <ul>
+                  {TRIAL_REMINDER_PLACEHOLDERS.map(({ token, description }) => (
+                    <li key={token}>
+                      <code>{token}</code>
+                      <span>{description}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <PendingSubmitButton
+                label="Salvar mensagens"
+                pendingLabel="Salvando..."
+              />
+            </BackofficeActionForm>
+          )}
+        </section>
+      ) : null}
+
       <section className="surface-panel billing-admin-section">
         <div className="section-heading-row">
           <div>
@@ -851,6 +1062,40 @@ function SummaryFact({
   );
 }
 
+/**
+ * Trial rows are exempt contracts with a deadline, so the plain "Isento" chip
+ * is not enough: the badge says how long the free period still runs.
+ */
+function TrialContractBadge({
+  contract,
+}: {
+  contract: WorkspacePackageSubscriptionDto;
+}) {
+  const badge = trialBadge(contract);
+
+  if (!badge) {
+    return null;
+  }
+
+  return (
+    <>
+      <span className="status-chip">{badge.label}</span>
+      <small>{badge.detail}</small>
+    </>
+  );
+}
+
+/**
+ * The API returns the three moments in its own order and an older response may
+ * miss one, so the editor looks the moment up instead of relying on the index.
+ */
+function findReminderTemplate(
+  templates: TrialReminderTemplate[],
+  moment: TrialReminderMoment,
+): TrialReminderTemplate | undefined {
+  return templates.find((template) => template.moment === moment);
+}
+
 function money(value: number): string {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -865,12 +1110,6 @@ function planKindLabel(kind: WhatsappPackagePlanDto["kind"]): string {
     exempt: "Isento",
     legacy_protected: "Legado protegido",
   }[kind];
-}
-
-function contractConsumesCapacity(
-  status: WorkspaceSubscriptionContractStatus,
-): boolean {
-  return !["draft", "awaiting_payment", "canceled"].includes(status);
 }
 
 function contractStatusLabel(

@@ -10,7 +10,7 @@ import { InboundWebhookConnectionsService } from "../src/inbound-webhooks/inboun
 
 type TestParserRelease = {
   id: string;
-  provider: "umbler" | "gupshup";
+  provider: "umbler" | "gupshup" | "datacrazy";
   version: string;
   status: "observation_only" | "certified";
   certifiedByUserId: null;
@@ -22,7 +22,7 @@ type TestParserRelease = {
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler" | "gupshup" | "data_crazy";
+  provider: "umbler" | "gupshup" | "datacrazy";
   displayName: string;
   parserReleaseId: string;
   secretHash: string | null;
@@ -63,6 +63,16 @@ function createHarness() {
     {
       id: "inbound_parser_gupshup_v1",
       provider: "gupshup",
+      version: "v1",
+      status: "observation_only",
+      certifiedByUserId: null,
+      certifiedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "inbound_parser_datacrazy_v1",
+      provider: "datacrazy",
       version: "v1",
       status: "observation_only",
       certifiedByUserId: null,
@@ -283,7 +293,7 @@ describe("inbound webhook connections service", () => {
     });
   });
 
-  it("advertises and creates Gupshup only as an observation connection", async () => {
+  it("advertises and creates Gupshup and Data Crazy as observation connections", async () => {
     const harness = createHarness();
     const capabilities = await harness.service.getCapabilities();
 
@@ -295,16 +305,22 @@ describe("inbound webhook connections service", () => {
         creationEnabled: true,
       },
       {
+        provider: "payt",
+        parserVersion: "v1",
+        parserReleaseStatus: null,
+        creationEnabled: false,
+      },
+      {
         provider: "gupshup",
         parserVersion: "v1",
         parserReleaseStatus: "observation_only",
         creationEnabled: true,
       },
       {
-        provider: "data_crazy",
+        provider: "datacrazy",
         parserVersion: "v1",
-        parserReleaseStatus: null,
-        creationEnabled: false,
+        parserReleaseStatus: "observation_only",
+        creationEnabled: true,
       },
     ]);
 
@@ -326,6 +342,22 @@ describe("inbound webhook connections service", () => {
     expect(new URL(created.webhookUrl).searchParams.get("token")).toBe(
       created.secret,
     );
+
+    const dataCrazy = await harness.service.createConnection(
+      "workspace_2",
+      {
+        provider: "datacrazy",
+        displayName: "Data Crazy Cliente",
+      },
+      "user_2",
+    );
+    expect(dataCrazy.connection).toMatchObject({
+      workspaceId: "workspace_2",
+      provider: "datacrazy",
+      parserVersion: "v1",
+      parserReleaseStatus: "observation_only",
+      status: "observation",
+    });
   });
 
   it("rotates the hash and returns a single new URL without exposing it later", async () => {
@@ -521,7 +553,15 @@ describe("inbound webhook connections service", () => {
     harness.prisma.inboundWebhookChannel.findMany.mockResolvedValueOnce([
       {
         id: "channel_validated",
-        routes: [{ id: "route_validated" }],
+        routes: [
+          {
+            id: "route_validated",
+            validationStatus: "valid",
+            metaBusinessConnectionId: "meta_business_1",
+            metaReportingAccountId: "act_1",
+            metaConversionDestinationId: "dataset_1",
+          },
+        ],
       },
     ]);
 
@@ -577,7 +617,15 @@ describe("inbound webhook connections service", () => {
       .mockResolvedValueOnce([
         {
           id: "channel_billed",
-          routes: [{ id: "route_validated" }],
+          routes: [
+            {
+              id: "route_validated",
+              validationStatus: "valid",
+              metaBusinessConnectionId: "meta_business_1",
+              metaReportingAccountId: "act_1",
+              metaConversionDestinationId: "dataset_1",
+            },
+          ],
         },
       ])
       .mockResolvedValueOnce([
@@ -647,7 +695,7 @@ describe("inbound webhook connections service", () => {
       "user_1",
     );
     const connection = harness.connections.get(created.connection.id)!;
-    connection.provider = "data_crazy";
+    connection.provider = "datacrazy";
     connection.parserRelease.status = "certified";
     harness.billingConfiguration.isPackageBillingEnabled.mockReturnValue(true);
     harness.billingConfiguration.isExternalChannelEnforcementEnabled.mockReturnValue(
@@ -655,8 +703,16 @@ describe("inbound webhook connections service", () => {
     );
     harness.prisma.inboundWebhookChannel.findMany.mockResolvedValueOnce([
       {
-        id: "channel_data_crazy",
-        routes: [{ id: "route_validated" }],
+        id: "channel_datacrazy",
+        routes: [
+          {
+            id: "route_validated",
+            validationStatus: "valid",
+            metaBusinessConnectionId: "meta_business_1",
+            metaReportingAccountId: "act_1",
+            metaConversionDestinationId: "dataset_1",
+          },
+        ],
       },
     ]);
 
@@ -724,5 +780,74 @@ describe("inbound webhook connections service", () => {
 
     expect(harness.connections.size).toBe(0);
     expect(harness.audits).toEqual([]);
+  });
+});
+
+function createUazapiSyncHarness() {
+  const uazapiBridge = {
+    ensureBridge: vi.fn(async () => ({
+      connectionId: "connection_bridged",
+      channelId: "channel_bridged",
+    })),
+    reconcileWorkspaceBridges: vi.fn(async () => []),
+  };
+  const prisma = {
+    whatsappInstance: {
+      findMany: vi.fn(async () => [
+        {
+          id: "instance_a",
+          workspaceId: "workspace_1",
+          name: "Whats Foz do Iguacu",
+          providerInstanceId: "prov_a",
+        },
+        {
+          id: "instance_b",
+          workspaceId: "workspace_1",
+          name: "Whats Foz",
+          providerInstanceId: "prov_b",
+        },
+      ]),
+    },
+    inboundWebhookConnection: {
+      findMany: vi.fn(async () => []),
+    },
+  };
+  const service = new InboundWebhookConnectionsService(
+    prisma as unknown as PrismaService,
+    enabledEnvironment(),
+    undefined,
+    undefined,
+    uazapiBridge as never,
+  );
+
+  return { prisma, service, uazapiBridge };
+}
+
+describe("inbound webhook connections service uazapi sync", () => {
+  it("collapses duplicate NOD origins before listing the workspace connections", async () => {
+    const harness = createUazapiSyncHarness();
+
+    await harness.service.listConnections("workspace_1");
+
+    expect(harness.uazapiBridge.ensureBridge).toHaveBeenCalledTimes(2);
+    expect(
+      harness.uazapiBridge.reconcileWorkspaceBridges,
+    ).toHaveBeenCalledWith("workspace_1");
+    expect(harness.prisma.inboundWebhookConnection.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: "workspace_1", removedAt: null },
+      }),
+    );
+  });
+
+  it("still lists connections when the reconcile pass fails", async () => {
+    const harness = createUazapiSyncHarness();
+    harness.uazapiBridge.reconcileWorkspaceBridges.mockRejectedValueOnce(
+      new Error("reconcile unavailable"),
+    );
+
+    await expect(
+      harness.service.listConnections("workspace_1"),
+    ).resolves.toEqual([]);
   });
 });

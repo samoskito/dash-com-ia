@@ -1,5 +1,5 @@
 import type { InboundWebhookParser } from "./inbound-webhook-parser";
-import { DataCrazyV1Parser } from "./data-crazy/data-crazy-v1.parser";
+import { DataCrazyV1Parser } from "./datacrazy/datacrazy-v1.parser";
 import { GupshupV1Parser } from "./gupshup/gupshup-v1.parser";
 import { UmblerV1Parser } from "./umbler/umbler-v1.parser";
 

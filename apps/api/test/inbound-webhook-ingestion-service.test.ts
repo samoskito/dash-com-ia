@@ -24,6 +24,7 @@ function runtimeEnvironment(enabled = true) {
 
 function createHarness(options?: {
   connectionId?: string;
+  provider?: "umbler" | "datacrazy";
   status?: "observation" | "production" | "paused";
   removed?: boolean;
   secretHash?: string | null;
@@ -33,7 +34,7 @@ function createHarness(options?: {
   const connection = {
     id: options?.connectionId ?? "connection_1",
     workspaceId: "workspace_safe",
-    provider: "umbler" as const,
+    provider: options?.provider ?? ("umbler" as const),
     displayName: "Umbler Teste",
     parserReleaseId: "inbound_parser_umbler_v1",
     secretHash:
@@ -47,7 +48,7 @@ function createHarness(options?: {
     updatedAt: now,
     parserRelease: {
       id: "inbound_parser_umbler_v1",
-      provider: "umbler" as const,
+      provider: options?.provider ?? ("umbler" as const),
       version: "v1",
       status: "observation_only" as const,
       certifiedByUserId: null,
@@ -296,19 +297,22 @@ describe("inbound webhook ingestion service", () => {
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
   });
 
-  it("rejects non-JSON media, invalid JSON and oversized bytes before persistence", async () => {
+  it("rejects unsupported media, invalid JSON and oversized bytes before persistence", async () => {
     const harness = createHarness();
 
     await expect(
       harness.service.ingest(
         requestInput(Buffer.from("{}"), {
-          contentType: "text/plain",
+          contentType: "image/jpeg",
         }),
       ),
     ).rejects.toMatchObject({ status: 415 });
     await expect(
       harness.service.ingest(requestInput(Buffer.from("{invalid"))),
-    ).rejects.toMatchObject({ status: 400 });
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Payload JSON invalido",
+    });
     await expect(
       harness.service.ingest(
         requestInput(Buffer.alloc(MAX_INBOUND_WEBHOOK_PAYLOAD_BYTES + 1, 32)),
@@ -317,6 +321,155 @@ describe("inbound webhook ingestion service", () => {
 
     expect(harness.deliveries.size).toBe(0);
     expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
+  });
+
+  it("accepts JSON object bytes from text/plain and missing Content-Type", async () => {
+    for (const contentType of ["text/plain", undefined]) {
+      const harness = createHarness({ provider: "datacrazy" });
+      const result = await harness.service.ingest(
+        requestInput(Buffer.from('{"leadId":"lead_content_type"}'), {
+          contentType,
+        }),
+      );
+
+      expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    }
+  });
+
+  it("unwraps a double-encoded Data Crazy JSON body before persistence", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+    const payload = { leadId: "lead_001", telefone: "5511999991234" };
+    const rawBody = Buffer.from(
+      JSON.stringify(JSON.stringify(payload)),
+      "utf8",
+    );
+    const normalizedBody = Buffer.from(JSON.stringify(payload), "utf8");
+
+    const result = await harness.service.ingest(requestInput(rawBody));
+
+    expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    expect([...harness.deliveries.values()][0]).toMatchObject({
+      workspaceId: "workspace_safe",
+      provider: "datacrazy",
+      ingressKey: `raw:${createHash("sha256").update(normalizedBody).digest("hex")}`,
+    });
+    await vi.waitFor(() => {
+      expect(harness.queue.enqueueDelivery).toHaveBeenCalled();
+    });
+    const delivery = [...harness.deliveries.values()][0]!;
+    expect(
+      harness.encryption
+        .decrypt(
+          {
+            encryptedPayload: delivery.encryptedPayload,
+            payloadIv: delivery.payloadIv,
+            payloadTag: delivery.payloadTag,
+            encryptionKeyVersion: delivery.encryptionKeyVersion,
+          },
+          {
+            workspaceId: "workspace_safe",
+            connectionId: "connection_1",
+            deliveryId: result.deliveryId,
+          },
+        )
+        .equals(normalizedBody),
+    ).toBe(true);
+    await vi.waitFor(() => {
+      expect(harness.queue.enqueueDelivery).toHaveBeenCalledWith(
+        expect.objectContaining({ workspaceId: "workspace_safe" }),
+      );
+    });
+  });
+
+  it("accepts a live-shaped Data Crazy lead with accents and a JSON mensagem string", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+    const payload = {
+      leadId: "lead-sanitized-001",
+      nome: "Luiz Sérgio Exemplo",
+      telefone: "5511999000000",
+      sourceID: "",
+      sourceURL: "https://facebook.example/lookaside/sanitized",
+      ctwaClid: "",
+      mensagem: JSON.stringify({
+        id: "message-wrapper-sanitized-001",
+        from: "5511999000001",
+        type: "audio",
+        timestamp: "2026-09-14T19:17:00.000Z",
+        messageData: {
+          id: "message-sanitized-001",
+          date: "2026-09-14T19:17:00.000Z",
+          contact: {
+            phoneNumber: "5511999000001",
+            name: "Luiz Sérgio Exemplo",
+          },
+          attachments: [{ type: "audio", url: "https://cdn.example/audio" }],
+        },
+        instanceData: {
+          id: "instance-sanitized-001",
+          name: "Ageu Produtor",
+        },
+      }),
+    };
+    const normalizedBody = Buffer.from(JSON.stringify(payload), "utf8");
+
+    const result = await harness.service.ingest(requestInput(normalizedBody));
+
+    expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    const delivery = [...harness.deliveries.values()][0]!;
+    expect(
+      harness.encryption
+        .decrypt(
+          {
+            encryptedPayload: delivery.encryptedPayload,
+            payloadIv: delivery.payloadIv,
+            payloadTag: delivery.payloadTag,
+            encryptionKeyVersion: delivery.encryptionKeyVersion,
+          },
+          {
+            workspaceId: "workspace_safe",
+            connectionId: "connection_1",
+            deliveryId: result.deliveryId,
+          },
+        )
+        .equals(normalizedBody),
+    ).toBe(true);
+  });
+
+  it("accepts a BOM-prefixed JSON object and persists its canonical form", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+    const payload = { leadId: "lead-bom-001", nome: "José Exemplo" };
+    const normalizedBody = Buffer.from(JSON.stringify(payload), "utf8");
+    const rawBody = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      normalizedBody,
+    ]);
+
+    const result = await harness.service.ingest(requestInput(rawBody));
+
+    expect(result).toMatchObject({ status: "accepted", duplicate: false });
+    const delivery = [...harness.deliveries.values()][0]!;
+    expect(delivery.ingressKey).toBe(
+      `raw:${createHash("sha256").update(normalizedBody).digest("hex")}`,
+    );
+  });
+
+  it("fails closed for invalid and scalar JSON bodies", async () => {
+    const harness = createHarness({ provider: "datacrazy" });
+
+    for (const body of [
+      Buffer.from("{invalid"),
+      Buffer.from('"not-json"'),
+      Buffer.from("[object Object]"),
+    ]) {
+      await expect(
+        harness.service.ingest(requestInput(body)),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: "Payload JSON invalido",
+      });
+    }
+
+    expect(harness.deliveries.size).toBe(0);
   });
 
   it("accepts a valid Umbler payload larger than the old 96 KiB limit", async () => {

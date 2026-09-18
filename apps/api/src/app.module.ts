@@ -17,9 +17,14 @@ import { InboundWebhookProductionModule } from "./inbound-webhook-production/inb
 import { InboundWebhookReplayModule } from "./inbound-webhook-replay/inbound-webhook-replay.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { LeadsModule } from "./leads/leads.module";
+import { LicensingModule } from "./licensing/licensing.module";
+import { NodApiModule } from "./integrations/nod-api/nod-api.module";
 import { ReportingModule } from "./reporting/reporting.module";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { WorkspacesModule } from "./workspaces/workspaces.module";
+import { XmaxModule } from "./xmax/xmax.module";
+import { OpsAlertsModule } from "./ops-alerts/ops-alerts.module";
+import { GuimoModule } from "./guimo/guimo.module";
 
 @Module({
   imports: [
@@ -38,8 +43,13 @@ import { WorkspacesModule } from "./workspaces/workspaces.module";
     BillingModule,
     ConversionRulesModule,
     LeadsModule,
+    LicensingModule,
+    NodApiModule,
     ReportingModule,
     WebhooksModule,
+    XmaxModule,
+    OpsAlertsModule,
+    GuimoModule,
   ],
   controllers: [HealthController],
   providers: [

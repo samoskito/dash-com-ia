@@ -164,6 +164,34 @@ describe("Meta CAPI payload builder", () => {
     });
   });
 
+  it("fills catalog item and order metadata for InitiateCheckout", () => {
+    const payload = buildMetaCapiPayload({
+      eventName: "InitiateCheckout",
+      eventTime: new Date("2026-07-09T12:00:00.000Z"),
+      eventId: "provider-conversion:execution_1",
+      phoneHash: "phone_hash_1",
+      ctwaClid: "clid_1",
+      pageId: "page_1",
+      adId: "ad_1",
+      valueCents: 19900,
+      currency: "BRL",
+      contentName: "Plano mensal",
+    });
+
+    expect(payload.data[0].custom_data).toMatchObject({
+      order_id: "provider-conversion:execution_1",
+      content_type: "product",
+      contents: [
+        {
+          id: "provider-conversion:execution_1",
+          quantity: 1,
+          item_price: 199,
+        },
+      ],
+      num_items: 1,
+    });
+  });
+
   it("adds test_event_code at the top level when provided", () => {
     const payload = buildMetaCapiPayload({
       eventName: "LeadSubmitted",

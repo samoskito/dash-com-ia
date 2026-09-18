@@ -1,6 +1,6 @@
 "use client";
 
-import { clientNavigation } from "@wpptrack/shared";
+import { clientNavigation, clientNavVisibleForPermissions } from "@wpptrack/shared";
 import type {
   CurrentWorkspaceDto,
   WhatsappDataSourceDto,
@@ -52,20 +52,31 @@ const navigationIconById: Record<ClientNavigationId, LucideIcon> = {
   subscription: CreditCard,
 };
 
-const navigationGroups = [
+const navigationGroupDefinitions = [
   {
     label: "Operacao",
-    items: clientNavigation.filter((item) =>
-      ["overview", "leads", "reports", "events"].includes(item.id),
-    ),
+    ids: ["overview", "leads", "reports", "events"],
   },
   {
     label: "Gestao",
-    items: clientNavigation.filter((item) =>
-      ["integrations", "settings", "subscription"].includes(item.id),
-    ),
+    ids: ["integrations", "settings", "subscription"],
   },
 ] as const;
+
+function visibleNavigationGroups(
+  permissions: CurrentWorkspaceDto["permissions"] | null | undefined,
+) {
+  return navigationGroupDefinitions
+    .map((group) => ({
+      label: group.label,
+      items: clientNavigation.filter(
+        (item) =>
+          (group.ids as readonly ClientNavigationId[]).includes(item.id) &&
+          clientNavVisibleForPermissions(item.id, permissions),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 function workspaceAccessLabel(workspace: CurrentWorkspaceDto): string {
   if (workspace.accessMode === "platform_support") {
@@ -188,6 +199,7 @@ export function AppShell({
   }, [workspaceMenuOpen]);
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+  const navigationGroups = visibleNavigationGroups(workspace?.permissions);
   const canSelectWorkspace =
     workspace?.accessMode !== "platform_support" &&
     workspaces.length > 0 &&

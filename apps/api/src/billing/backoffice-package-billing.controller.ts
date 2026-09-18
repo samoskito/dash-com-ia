@@ -6,15 +6,20 @@ import {
   Inject,
   Param,
   Patch,
+  Put,
   Post,
   Query,
 } from "@nestjs/common";
 import {
   legacyBillingBackfillApplyInputSchema,
+  backofficePackageContractCancellationInputSchema,
   whatsappPackagePlanCreateInputSchema,
   whatsappPackagePlanUpdateInputSchema,
   platformFiscalSettingsInputSchema,
   workspacePackageAssignmentInputSchema,
+  workspaceTrialAutoconvertDisableInputSchema,
+  workspaceTrialStartInputSchema,
+  billingTrialReminderTemplatesInputSchema,
   workspaceSubscriptionContractStatuses,
 } from "@wpptrack/shared";
 import type { WorkspaceSubscriptionContractStatus } from "@prisma/client";
@@ -25,6 +30,7 @@ import { PackageBillingReconciliationService } from "./package-billing-reconcili
 import { PackageFiscalService } from "./package-fiscal.service";
 import { PackagePlanService } from "./package-plan.service";
 import { LegacyBillingBackfillService } from "./legacy-billing-backfill.service";
+import { BillingTrialReminderTemplateService } from "./billing-trial-reminder-template.service";
 
 @Controller("backoffice/billing")
 export class BackofficePackageBillingController {
@@ -41,12 +47,33 @@ export class BackofficePackageBillingController {
     private readonly reconciliation: PackageBillingReconciliationService,
     @Inject(LegacyBillingBackfillService)
     private readonly legacyBackfill: LegacyBillingBackfillService,
+    @Inject(BillingTrialReminderTemplateService)
+    private readonly trialReminderTemplates: BillingTrialReminderTemplateService,
   ) {}
 
   @Get("package-plans")
   async listPlans(@AuthToken() refreshToken: string) {
     await this.platformAdminService.assertPlatformAdmin(refreshToken);
     return this.packagePlans.listBackofficePlans();
+  }
+
+  @Get("trial-reminder-templates")
+  async listTrialReminderTemplates(@AuthToken() refreshToken: string) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    return this.trialReminderTemplates.list();
+  }
+
+  @Put("trial-reminder-templates")
+  async replaceTrialReminderTemplates(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown,
+  ) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = billingTrialReminderTemplatesInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Templates de lembrete inválidos");
+    }
+    return this.trialReminderTemplates.replace(parsed.data);
   }
 
   @Post("package-plans")
@@ -127,6 +154,64 @@ export class BackofficePackageBillingController {
     );
   }
 
+  @Post("package-contracts/:workspaceId/start-trial")
+  async startTrial(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = workspaceTrialStartInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Dados do trial invalidos");
+    }
+    return this.contracts.startTrial(workspaceId, parsed.data, operator.id);
+  }
+
+  @Post("package-contracts/:workspaceId/trial-autoconvert/disable")
+  async disableTrialAutoconvert(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = workspaceTrialAutoconvertDisableInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Dados de opt-out invalidos");
+    }
+    return this.contracts.disableTrialAutoconvert(
+      workspaceId,
+      parsed.data.reason,
+      operator.id,
+    );
+  }
+
+  @Post("package-contracts/:workspaceId/subscriptions/:subscriptionId/cancel")
+  async cancelStaleContract(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Param("subscriptionId") subscriptionId: string,
+    @Body() body: unknown,
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed =
+      backofficePackageContractCancellationInputSchema.safeParse(body);
+
+    if (!parsed.success) {
+      throw new BadRequestException("Encerramento de contrato invalido");
+    }
+
+    return this.contracts.cancelStaleContract(
+      workspaceId,
+      subscriptionId,
+      operator.id,
+      parsed.data.reason,
+    );
+  }
+
   @Post("package-contracts/:workspaceId/reconcile")
   async reconcileWorkspace(
     @AuthToken() refreshToken: string,
@@ -134,10 +219,7 @@ export class BackofficePackageBillingController {
   ) {
     const operator =
       await this.platformAdminService.assertPlatformOwner(refreshToken);
-    return this.reconciliation.reconcileWorkspace(
-      workspaceId,
-      operator.id,
-    );
+    return this.reconciliation.reconcileWorkspace(workspaceId, operator.id);
   }
 
   @Get("legacy-backfill")

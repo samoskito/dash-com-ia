@@ -7,6 +7,9 @@ const prisma = new PrismaClient();
 const WS = process.argv[2];
 
 const order = [
+  "guimoConversionRule",
+  "guimoWebhookEvent",
+  "guimoWebhookRateLimit",
   "purchaseValueAdjustment",
   "purchaseReviewItem",
   "purchaseReview",
@@ -31,6 +34,7 @@ const order = [
   "externalSyncCursor",
   "externalCapiCutover",
   "externalDataConnector",
+  "guimoIntegration",
   "metaAdDailyInsight",
   "metaAd",
   "metaAdSetDailyInsight",

@@ -25,6 +25,21 @@ export class WorkspaceOwnerGuard implements CanActivate {
     }
 
     const authenticated = await this.authService.getSession(refreshToken);
+    const supportContext = authenticated.supportContext;
+    const isPlatformOwnerSupport =
+      authenticated.user.platformRole === 'platform_owner' &&
+      Boolean(supportContext) &&
+      supportContext?.workspaceId === workspaceId;
+
+    if (isPlatformOwnerSupport) {
+      request.user = {
+        id: authenticated.user.id,
+        email: authenticated.user.email,
+        workspaceRole: 'owner',
+        actorType: 'platform_admin',
+      };
+      return true;
+    }
 
     // Verificar se o usuário é member do workspace
     const membership = authenticated.workspaces.find((w: { id: string }) => w.id === workspaceId);
@@ -42,6 +57,7 @@ export class WorkspaceOwnerGuard implements CanActivate {
       id: authenticated.user.id,
       email: authenticated.user.email,
       workspaceRole: membership.role,
+      actorType: 'user',
     };
 
     return true;

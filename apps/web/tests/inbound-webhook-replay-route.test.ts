@@ -113,6 +113,7 @@ describe("inbound webhook controlled replay route", () => {
       skippedCount: 0,
       failedCount: 1,
       retryableFailedCount: 1,
+      latestFailureErrorCode: "inbound_webhook_replay_route_invalid",
       retryCount: 0,
       lastRetriedAt: null,
       startedAt: "2026-07-18T15:01:00.000Z",
@@ -168,6 +169,10 @@ describe("inbound webhook controlled replay route", () => {
     expect(html).toContain("Canario de 5");
     expect(html).toContain("Materializados");
     expect(html).toContain("Recuperar falhas");
+    expect(html).toContain("1 falha(s) com payload disponivel");
+    expect(html).toContain(
+      "Codigo da falha mais recente: inbound_webhook_replay_route_invalid",
+    );
     expect(html).toContain("Autorizar lote");
     expect(html).toContain('name="selection"');
     expect(html).toContain('value="canary_1"');
@@ -182,6 +187,59 @@ describe("inbound webhook controlled replay route", () => {
     expect(html).toContain('name="channelId"');
     expect(html).toContain('value="channel_1"');
     expect(html).not.toContain("Certificar parser");
+  });
+
+  it("explains when a failed batch no longer has a recoverable payload", async () => {
+    const exhaustedBatch = {
+      id: "batch_expired",
+      workspaceId: "workspace_1",
+      connectionId: "connection_1",
+      channelId: "channel_1",
+      requestedByUserId: "owner_1",
+      status: "completed_with_failures",
+      selection: "canary_1",
+      requestedLimit: 1,
+      totalItems: 1,
+      materializedCount: 0,
+      duplicateCount: 0,
+      skippedCount: 0,
+      failedCount: 1,
+      retryableFailedCount: 0,
+      latestFailureErrorCode: "inbound_webhook_replay_payload_unavailable",
+      retryCount: 0,
+      lastRetriedAt: null,
+      startedAt: "2026-07-18T15:01:00.000Z",
+      completedAt: "2026-07-18T15:01:02.000Z",
+      createdAt: "2026-07-18T15:00:59.000Z",
+      updatedAt: "2026-07-18T15:01:02.000Z",
+    } as const;
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      jsonResponse({
+        ...preview,
+        connection: {
+          ...preview.connection,
+          parserReleaseStatus: "certified",
+        },
+        parserRelease: {
+          ...preview.parserRelease,
+          status: "certified",
+          certifiedAt: "2026-07-18T15:00:00.000Z",
+        },
+        replayEnabled: true,
+        latestBatch: exhaustedBatch,
+        recentBatches: [exhaustedBatch],
+      }),
+    );
+
+    const element = await InboundWebhookReplayPage({
+      params: Promise.resolve({ connectionId: "connection_1" }),
+    });
+    const html = render(element);
+
+    expect(html).not.toContain("Recuperar falhas");
+    expect(html).toContain(
+      "Falha permanente sem payload disponivel; recovery automatico indisponivel.",
+    );
   });
 
   it("allows the historical gap replay while live production remains active", async () => {

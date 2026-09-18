@@ -4,8 +4,10 @@ import { providerConversionDecisionCodeSchema } from "./provider-conversion-deci
 
 export const inboundWebhookProviders = [
   "umbler",
+  "payt",
   "gupshup",
-  "data_crazy",
+  "uazapi",
+  "datacrazy",
 ] as const;
 export const inboundWebhookParserReleaseStatuses = [
   "observation_only",
@@ -702,6 +704,9 @@ export const inboundWebhookChannelSchema = z.object({
   providerChannelId: idSchema,
   connectedPhone: z.string().trim().min(1).max(32),
   channelName: z.string().trim().min(1).max(160).nullable(),
+  // Set only for UAZAPI channels bridged to a WhatsApp instance; drives the
+  // live label picker in the tag conversion rule builder.
+  whatsappInstanceId: idSchema.nullable(),
   status: inboundWebhookChannelStatusSchema,
   productionActivatedAt: dateTimeSchema.nullable(),
   firstSeenAt: dateTimeSchema,
@@ -732,7 +737,6 @@ export const inboundWebhookNormalizedObservationSchema = z.object({
   contactIdentityHash: z.string().min(16).max(128).nullable(),
   adId: idSchema.nullable(),
   hasCtwa: z.boolean(),
-  phoneDivergenceDetected: z.boolean().optional(),
   classification: inboundWebhookEventClassificationSchema,
   classificationReason: normalizedCodeSchema.nullable(),
   resolvedBusinessConnectionId: idSchema.nullable(),
@@ -776,6 +780,7 @@ export const backofficeInboundWebhookReplayBatchSchema = z.object({
   skippedCount: z.number().int().nonnegative(),
   failedCount: z.number().int().nonnegative(),
   retryableFailedCount: z.number().int().nonnegative(),
+  latestFailureErrorCode: z.string().min(1).nullable().optional(),
   retryCount: z.number().int().nonnegative(),
   startedAt: dateTimeSchema.nullable(),
   completedAt: dateTimeSchema.nullable(),

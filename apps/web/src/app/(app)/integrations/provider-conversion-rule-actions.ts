@@ -10,6 +10,7 @@ import {
   providerConversionRuleAdaptInputSchema,
   providerConversionRuleCreateInputSchema,
   providerConversionRuleCreateResultSchema,
+  providerConversionRuleExecutionAuditSchema,
   providerConversionRuleSchema,
   providerConversionRuleUpdateInputSchema,
   purchaseReviewListSchema,
@@ -18,6 +19,7 @@ import {
   type ProviderConversionAutomationAuditDto,
   type ProviderConversionAutomationPayloadDto,
   type ProviderConversionAutomationReprocessBatchResultDto,
+  type ProviderConversionRuleExecutionAuditDto,
   type PurchaseReviewListDto,
   type StructuredCatalogTestMessageResultDto,
 } from "@wpptrack/shared";
@@ -38,6 +40,7 @@ export type ProviderConversionRuleActionResult = {
   automationPayload?: ProviderConversionAutomationPayloadDto;
   automationReprocess?: ProviderConversionAutomationReprocessBatchResultDto;
   purchaseAudit?: PurchaseReviewListDto;
+  executionAudit?: ProviderConversionRuleExecutionAuditDto;
 };
 
 const integrationsPath = "/integrations";
@@ -80,7 +83,9 @@ export async function createProviderConversionRuleAction(
       ok: true,
       message: result.data.webhookUrl
         ? "Regra criada. Copie a URL da automacao agora; ela nao sera exibida novamente."
-        : "Catalogo criado em modo de observacao.",
+        : result.data.rule.conversionRule.triggerType === "message_phrase"
+          ? "Regra criada em modo de observacao."
+          : "Catalogo criado em modo de observacao.",
       ...(result.data.webhookUrl
         ? {
             oneTimeSecret: {
@@ -90,7 +95,10 @@ export async function createProviderConversionRuleAction(
           }
         : {}),
     };
-  } catch {
+  } catch (error) {
+    if (isApiRequestError(error) && error.message.trim()) {
+      return failure(error.message);
+    }
     return failure("Nao foi possivel criar a regra de conversao.");
   }
 }
@@ -280,6 +288,36 @@ export async function loadProviderConversionPurchaseAuditAction(
       isApiRequestError(error)
         ? error.message
         : "Nao foi possivel carregar as compras desta regra.",
+    );
+  }
+}
+
+export async function loadProviderConversionExecutionAuditAction(
+  formData: FormData,
+): Promise<ProviderConversionRuleActionResult> {
+  const ruleId = formId(formData, "ruleId");
+  if (!ruleId) return failure(invalidFormMessage);
+
+  try {
+    const query = new URLSearchParams({ page: "1", pageSize: "50" });
+    const response = await serverApiFetch<unknown>(
+      `/conversion-rules/providers/${encodeURIComponent(ruleId)}/executions?${query.toString()}`,
+    );
+    const result = providerConversionRuleExecutionAuditSchema.safeParse(response);
+    if (!result.success || result.data.providerRuleId !== ruleId) {
+      return failure("Nao foi possivel carregar as execucoes desta regra.");
+    }
+
+    return {
+      ok: true,
+      message: "Auditoria de execucoes atualizada.",
+      executionAudit: result.data,
+    };
+  } catch (error) {
+    return failure(
+      isApiRequestError(error)
+        ? error.message
+        : "Nao foi possivel carregar as execucoes desta regra.",
     );
   }
 }

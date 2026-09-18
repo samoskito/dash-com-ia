@@ -46,11 +46,13 @@ enum WhatsappInstanceStatus {
 }
 
 enum DiagnosticSource {
+  guimo
   meta
   uazapi
   umbler
   gupshup
-  data_crazy
+  datacrazy
+  payt
   asaas
   external_mysql
   internal
@@ -274,8 +276,10 @@ enum AuthActionTokenType {
 
 enum InboundWebhookProvider {
   umbler
+  payt
   gupshup
-  data_crazy
+  uazapi
+  datacrazy
 }
 
 enum InboundWebhookParserReleaseStatus {
@@ -386,6 +390,7 @@ model User {
   purchaseValueAdjustments         PurchaseValueAdjustment[]         @relation("PurchaseValueAdjustmentActor")
   assignedWorkspaceSubscriptions   WorkspaceSubscription[]           @relation("WorkspaceSubscriptionAssigner")
   billingContractAudits            BillingContractAudit[]            @relation("BillingContractAuditActor")
+  addedSubscriptionItems           WorkspaceSubscriptionItem[]       @relation("WorkspaceSubscriptionItemAdder")
   validatedPlatformFiscalSettings  PlatformFiscalSettings[]          @relation("PlatformFiscalSettingsValidator")
 
   @@index([lastWorkspaceId])
@@ -403,6 +408,7 @@ model Workspace {
   members                          WorkspaceMember[]
   invites                          WorkspaceInvite[]
   whatsappInstances                WhatsappInstance[]
+  uazapiChatLabelStates            UazapiChatLabelState[]
   diagnosticEvents                 DiagnosticEvent[]
   webhookLogs                      WebhookLog[]
   integrationLogs                  IntegrationLog[]
@@ -414,8 +420,10 @@ model Workspace {
   whatsappSeats                    WhatsappSeat[]
   billingProviderEvents            BillingProviderEvent[]
   billingContractAudits            BillingContractAudit[]
+  subscriptionItems                WorkspaceSubscriptionItem[]
   billingInvoices                  BillingInvoice[]
   paymentCharges                   PaymentCharge[]
+  trialReminderDeliveries           BillingTrialReminderDelivery[]
   whatsappInstanceActivations      WhatsappInstanceActivation[]
   conversionRules                  ConversionRule[]
   funnelStageConfigurations        FunnelStageConfiguration[]
@@ -461,9 +469,48 @@ model Workspace {
   purchaseReviews                  PurchaseReview[]
   purchaseReviewItems              PurchaseReviewItem[]
   purchaseValueAdjustments         PurchaseValueAdjustment[]
+  xmaxAccounts                     XmaxAccount[]
+  xmaxShadowEvents                 XmaxShadowEvent[]
+  guimoIntegrations                GuimoIntegration[]
+  guimoConversionRules             GuimoConversionRule[]
+  guimoWebhookEvents               GuimoWebhookEvent[]
+  guimoWebhookRateLimits           GuimoWebhookRateLimit[]
+  opsAlertSettings                 WorkspaceOpsAlertSettings?
+  opsAlertDeliveries               WorkspaceOpsAlertDelivery[]
 
   @@index([asaasCustomerId])
   @@index([operationalStatus])
+}
+
+model WorkspaceOpsAlertSettings {
+  id                    String   @id @default(cuid())
+  workspaceId           String   @unique
+  enabled               Boolean  @default(false)
+  alertPhonesE164       String[] @default([])
+  alertPhoneE164        String?
+  disconnectAlerts      Boolean  @default(true)
+  webhookSilenceAlerts  Boolean  @default(true)
+  silenceThresholdHours Int      @default(24)
+  debounceHours         Int      @default(6)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model WorkspaceOpsAlertDelivery {
+  id          String   @id @default(cuid())
+  workspaceId String
+  alertKey    String
+  channel     String
+  status      String
+  detail      String?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, alertKey, createdAt])
+  @@index([workspaceId, createdAt])
 }
 
 model WorkspaceMember {
@@ -495,14 +542,31 @@ model WhatsappInstance {
   createdAt              DateTime               @default(now())
   updatedAt              DateTime               @updatedAt
 
-  workspace     Workspace                    @relation(fields: [workspaceId], references: [id])
-  activations   WhatsappInstanceActivation[]
-  leads         Lead[]
-  whatsappSeats WhatsappSeat[]
+  workspace             Workspace                    @relation(fields: [workspaceId], references: [id])
+  activations           WhatsappInstanceActivation[]
+  leads                 Lead[]
+  whatsappSeats         WhatsappSeat[]
+  inboundWebhookChannel InboundWebhookChannel?
+  uazapiChatLabelStates UazapiChatLabelState[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId])
   @@index([providerInstanceId])
+}
+
+model UazapiChatLabelState {
+  id                 String   @id @default(cuid())
+  workspaceId        String
+  whatsappInstanceId String
+  contactKey         String
+  labelIds           String[] @default([])
+  updatedAt          DateTime @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  whatsappInstance WhatsappInstance @relation(fields: [whatsappInstanceId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, whatsappInstanceId, contactKey])
+  @@index([workspaceId, whatsappInstanceId])
 }
 
 model AuthSession {
@@ -933,6 +997,10 @@ model WorkspaceSubscription {
   cancellationReason              String?
   cancelAtPeriodEnd               Boolean                             @default(false)
   accessEndsAt                    DateTime?
+  /// A trial is represented by an exempt contract with this immutable end.
+  trialEndsAt                     DateTime?
+  /// Platform support may exclude this specific trial from automatic conversion.
+  trialAutoconvertDisabled        Boolean                             @default(false)
   fiscalStatus                    BillingInvoiceStatus                @default(not_configured)
   fiscalLastErrorCode             String?
   fiscalLastErrorAt               DateTime?
@@ -945,14 +1013,16 @@ model WorkspaceSubscription {
   createdAt                       DateTime                            @default(now())
   updatedAt                       DateTime                            @updatedAt
 
-  workspace       Workspace              @relation(fields: [workspaceId], references: [id])
-  plan            SubscriptionPlan?      @relation(fields: [planId], references: [id])
-  assignedBy      User?                  @relation("WorkspaceSubscriptionAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  workspace       Workspace                   @relation(fields: [workspaceId], references: [id])
+  plan            SubscriptionPlan?           @relation(fields: [planId], references: [id])
+  assignedBy      User?                       @relation("WorkspaceSubscriptionAssigner", fields: [assignedByUserId], references: [id], onDelete: SetNull)
   whatsappSeats   WhatsappSeat[]
   providerEvents  BillingProviderEvent[]
   contractAudits  BillingContractAudit[]
   paymentCharges  PaymentCharge[]
   billingInvoices BillingInvoice[]
+  items           WorkspaceSubscriptionItem[]
+  trialReminderDeliveries BillingTrialReminderDelivery[]
 
   @@unique([workspaceId, id])
   @@index([workspaceId, status])
@@ -962,8 +1032,66 @@ model WorkspaceSubscription {
   @@index([asaasCheckoutExpiresAt])
   @@index([graceEndsAt])
   @@index([accessEndsAt])
+  @@index([trialEndsAt, isCurrent, contractStatus])
   @@index([fiscalStatus, fiscalLastErrorAt])
   @@index([assignedByUserId])
+}
+
+model BillingTrialReminderTemplate {
+  id           String   @id @default(cuid())
+  moment       String   @unique
+  body         String
+  emailSubject String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model BillingTrialReminderDelivery {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  subscriptionId  String
+  moment          String
+  emailStatus     String?
+  whatsappStatus  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace    Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription WorkspaceSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, moment])
+  @@index([workspaceId, createdAt])
+}
+
+/// Additive F1 capacity is recorded independently from the base contract. A
+/// paid item is only reflected in the denormalized contract snapshots after
+/// the existing Asaas subscription has accepted the new recurring total.
+model WorkspaceSubscriptionItem {
+  id                       String   @id @default(cuid())
+  workspaceId              String
+  subscriptionId           String
+  key                      String
+  nameSnapshot             String
+  quantity                 Int      @default(1)
+  capacityPerUnit          Int
+  monthlyPriceCentsPerUnit Int
+  status                   String   @default("pending_payment")
+  idempotencyKey           String?
+  paymentChargeId          String?  @unique
+  providerSyncStatus       String   @default("not_required")
+  providerSyncAttempts     Int      @default(0)
+  providerSyncLastError    String?
+  addedByUserId            String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  workspace     Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription  WorkspaceSubscription @relation(fields: [workspaceId, subscriptionId], references: [workspaceId, id], onDelete: Restrict, map: "WorkspaceSubscriptionItem_subscriptionId_fkey")
+  addedBy       User?                 @relation("WorkspaceSubscriptionItemAdder", fields: [addedByUserId], references: [id], onDelete: SetNull)
+  paymentCharge PaymentCharge?        @relation("AdditiveSubscriptionItemPayment", fields: [paymentChargeId], references: [id], onDelete: SetNull)
+
+  @@unique([subscriptionId, idempotencyKey])
+  @@index([workspaceId, subscriptionId, status])
 }
 
 model WorkspaceBillingProfile {
@@ -1151,6 +1279,7 @@ model PaymentCharge {
   subscription    WorkspaceSubscription?      @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   activation      WhatsappInstanceActivation?
   billingInvoices BillingInvoice[]
+  additiveItem    WorkspaceSubscriptionItem?  @relation("AdditiveSubscriptionItemPayment")
 
   @@index([workspaceId, status])
   @@index([subscriptionId, status])
@@ -1556,6 +1685,99 @@ model Lead {
   @@index([workspaceId, ctwaClid])
 }
 
+/// Per-workspace Guimo CRM webhook configuration. CRM headers are encrypted
+/// server-side; the provider webhook token is stored only as a hash.
+model GuimoIntegration {
+  id                     String   @id @default(cuid())
+  workspaceId            String
+  status                 String   @default("blocked")
+  webhookSecretHash      String   @unique
+  webhookVersion         String   @default("v1")
+  crmHeadersEncrypted    String?
+  crmHeadersIv           String?
+  crmHeadersTag          String?
+  qualifiedStageId       String?
+  qualifiedStageName     String?
+  purchaseStageId        String?
+  purchaseStageName      String?
+  purchaseCurrency       String?
+  purchaseValueUnit      String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  workspace Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  events    GuimoWebhookEvent[]
+  rateLimit GuimoWebhookRateLimit?
+  rules     GuimoConversionRule[]
+
+  @@index([workspaceId, status])
+}
+
+/// Free-form conversion mapping for Guimo stage movements. Stage matching is
+/// deliberately by name so CRM stage IDs may change without reconfiguration.
+model GuimoConversionRule {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  integrationId   String
+  stageName       String
+  eventName       String
+  valueMode       String   @default("dynamic")
+  fixedValueCents Int?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  integration GuimoIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@unique([integrationId, stageName, eventName])
+  @@index([integrationId])
+  @@index([workspaceId])
+}
+
+/// Provisional idempotency ledger: scoped to one integration. Without a native
+/// Guimo movement id, a legitimate later re-entry into the same stage on that
+/// integration is indistinguishable.
+model GuimoWebhookEvent {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  integrationId String
+  dedupeKey     String   @unique
+  status        String   @default("accepted")
+  eventType     String?
+  negotiationId String
+  contactId     String
+  stageId       String
+  stageName     String
+  previousStageId String?
+  previousStageName String?
+  jobId         String?
+  errorCode     String?
+  createdAt     DateTime @default(now())
+  processedAt   DateTime?
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  integration GuimoIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, status, createdAt])
+  @@index([integrationId, createdAt])
+}
+
+/// Durable bad-token limiter for the public Guimo webhook endpoint.
+model GuimoWebhookRateLimit {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  integrationId   String   @unique
+  windowStartedAt DateTime
+  attempts        Int      @default(0)
+  updatedAt       DateTime @updatedAt
+
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  integration GuimoIntegration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, windowStartedAt])
+}
+
 model MetaIntegration {
   id                             String    @id @default(cuid())
   workspaceId                    String    @unique
@@ -1857,6 +2079,7 @@ model InboundWebhookChannel {
   status                InboundWebhookChannelStatus  @default(discovered)
   conversionEngineMode  ProviderConversionEngineMode @default(canonical)
   productionActivatedAt DateTime?
+  whatsappInstanceId    String?                      @unique
   firstSeenAt           DateTime                     @default(now())
   lastSeenAt            DateTime                     @default(now())
   createdAt             DateTime                     @default(now())
@@ -1864,6 +2087,7 @@ model InboundWebhookChannel {
 
   workspace                     Workspace                            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   connection                    InboundWebhookConnection             @relation(fields: [workspaceId, connectionId], references: [workspaceId, id], onDelete: Restrict, map: "InboundWebhookChannel_connectionId_fkey")
+  whatsappInstance              WhatsappInstance?                    @relation(fields: [whatsappInstanceId], references: [id], onDelete: SetNull)
   routes                        InboundWebhookChannelRoute[]
   events                        InboundWebhookEvent[]
   replayBatches                 InboundWebhookReplayBatch[]
@@ -2381,4 +2605,228 @@ model MetaAdDailyInsight {
   @@index([workspaceId, adSetId, localDate])
   @@index([workspaceId, adId, localDate])
   @@index([workspaceId, localDate, impressions])
+}
+
+enum XmaxAccountStatus {
+  active
+  paused
+  disabled
+}
+
+enum XmaxShadowEventStatus {
+  observed
+  discarded
+  duplicate
+  failed
+}
+
+/// One row per XMAX tenant webhook (today: 1 for Dr. Hernia). Global ingress
+/// auth boundary — routing to XmaxAccount happens only after this passes.
+model XmaxIngress {
+  id                String            @id @default(cuid())
+  label             String
+  /// SHA-256 of webhook secret; compared with timing-safe equality
+  webhookSecretHash String
+  status            XmaxAccountStatus @default(active)
+  lastWebhookAt     DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  accounts XmaxAccount[]
+
+  @@index([status])
+}
+
+/// XMAX multi-account integration (shadow ingest first; no CAPI in X1).
+model XmaxAccount {
+  id                       String            @id @default(cuid())
+  workspaceId              String
+  displayName              String
+  baseUrl                  String
+  queueId                  String
+  /// Label only from Queue_name (payload) / ops seed. Never decides routing.
+  queueName                String?
+  /// AES-256-GCM ciphertext of API key (base64)
+  apiKeyEncrypted          String
+  apiKeyIv                 String
+  apiKeyTag                String
+  /// SHA-256 of webhook secret; compared with timing-safe equality
+  webhookSecretHash        String
+  /// Default ISO country calling code digits, e.g. "55" (BR) or "595" (PY)
+  defaultCountryCode       String            @default("55")
+  /// Configurable tag ids that map to QualifiedLead (defaults for one client: ["55"])
+  qualifiedLeadTagIds      String[]          @default([])
+  /// Configurable tag ids that map to Purchase (defaults for one client: ["56"])
+  purchaseTagIds           String[]          @default([])
+  /// Fixed Purchase value in cents when emitting CAPI from XMAX tags (X2+)
+  purchaseValueCents       Int?
+  purchaseCurrency         String            @default("BRL")
+  status                   XmaxAccountStatus @default(active)
+  shadowMode               Boolean           @default(true)
+  /// X2+: when true AND shadowMode=false, create conversion + enqueue CAPI
+  capiSendEnabled          Boolean           @default(false)
+  /// Nullable — accounts not yet wired to the global ingress keep working via
+  /// the per-account webhook. Set once linked to a global XmaxIngress.
+  ingressId                String?
+  lastWebhookAt            DateTime?
+  lastSuccessfulGetContact DateTime?
+  lastErrorCode            String?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  workspace    Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  ingress      XmaxIngress?            @relation(fields: [ingressId], references: [id], onDelete: Restrict)
+  eventDedups  XmaxContactEventDedup[]
+  shadowEvents XmaxShadowEvent[]
+
+  @@unique([ingressId, queueId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+  @@index([ingressId, status])
+}
+
+/// Semantic dedup: 1 event per contact+eventName forever (tag re-add must not re-fire).
+model XmaxContactEventDedup {
+  id          String   @id @default(cuid())
+  accountId   String
+  contactId   String
+  eventName   String
+  firstSeenAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  account XmaxAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, contactId, eventName])
+  @@index([accountId, firstSeenAt])
+}
+
+/// Shadow observation log for XMAX webhook processing (no Meta send in X1).
+model XmaxShadowEvent {
+  id              String                @id @default(cuid())
+  workspaceId     String
+  accountId       String
+  contactId       String?
+  eventName       String?
+  phoneNormalized String?
+  phoneHash       String?
+  status          XmaxShadowEventStatus
+  reasonCode      String?
+  ingressKey      String
+  providerAttempt Int?
+  tagIds          String[]              @default([])
+  rawSummary      Json?
+  createdAt       DateTime              @default(now())
+
+  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  account   XmaxAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, ingressKey])
+  @@index([workspaceId, createdAt])
+  @@index([accountId, status, createdAt])
+  @@index([accountId, contactId, eventName])
+}
+
+enum LicenseInterval {
+  annual
+  monthly
+  semiannual
+}
+
+enum LicenseStatus {
+  active
+  refunded
+  chargeback
+  revoked
+}
+
+enum LicenseHeartbeatStatus {
+  ok
+  stale
+}
+
+/// RastrackDash license server (PalmUP). Raw key is never persisted after issue.
+/// Expiry is derived from expiresAt at validation time; it is not a stored status.
+model License {
+  id                String          @id @default(cuid())
+  /// SHA-256 hex of the raw key (PALMUP-XXXX-...). Never store the raw key.
+  keyHash           String          @unique
+  /// First segment for support UI, e.g. PALMUP-XXXX. Not secret alone.
+  keyPrefix         String
+  buyerEmail        String?
+  buyerName         String?
+  guruTransactionId String?         @unique
+  productSku        String          @default("rastrackdash_annual")
+  interval          LicenseInterval @default(annual)
+  expiresAt         DateTime
+  status            LicenseStatus   @default(active)
+  issuedAt          DateTime        @default(now())
+  revokedAt         DateTime?
+  revokedReason     String?
+  boundAccountEmail String?
+  boundAccountId    String?
+  boundAt           DateTime?
+  nodApiEnabled     Boolean         @default(false)
+  nodApiExpiresAt   DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  activations      LicenseActivation[]
+  deliveryArtifact LicenseDeliveryArtifact?
+
+  @@index([status, issuedAt])
+  @@index([buyerEmail])
+  @@index([boundAccountEmail])
+  @@index([expiresAt, status])
+}
+
+/// Short-lived encrypted copy of the raw key (7d TTL) so admin resend can redeliver
+/// without ever storing the raw key in the License row itself.
+model LicenseDeliveryArtifact {
+  id         String   @id @default(cuid())
+  licenseId  String   @unique
+  ciphertext String
+  iv         String
+  authTag    String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+/// Telemetry of student instances. Unlimited fingerprints for the same bound account.
+model LicenseActivation {
+  id                  String                 @id @default(cuid())
+  licenseId           String
+  fingerprint         String
+  appVersion          String?
+  deployLabel         String?
+  firstActivatedAt    DateTime               @default(now())
+  lastHeartbeatAt     DateTime               @default(now())
+  lastHeartbeatStatus LicenseHeartbeatStatus @default(ok)
+  ipAddress           String?
+
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, fingerprint])
+  @@index([licenseId])
+  @@index([lastHeartbeatAt])
+}
+
+/// Idempotent Guru (and future provider) webhook audit. Invalid signatures must not mutate License.
+model LicenseWebhookEvent {
+  id                    String    @id @default(cuid())
+  provider              String    @default("guru")
+  eventType             String
+  externalTransactionId String
+  signatureValid        Boolean
+  receivedAt            DateTime  @default(now())
+  processedAt           DateTime?
+  resultStatus          String
+  rawPayloadSanitized   Json?
+
+  @@unique([provider, eventType, externalTransactionId])
+  @@index([provider, receivedAt])
+  @@index([resultStatus, receivedAt])
 }

@@ -49,7 +49,7 @@ function createHarness(
     organizationId: "org_fixture_001",
     providerChannelId: "channel_fixture_001",
     status: "active",
-    productionActivatedAt: activatedAt,
+    productionActivatedAt: activatedAt as Date | null,
     conversionEngineMode,
   };
   const rule = {
@@ -404,6 +404,7 @@ function createHarness(
   );
 
   return {
+    channel,
     decisions,
     appendReevaluation,
     executions,
@@ -520,6 +521,53 @@ describe("provider conversion observation service", () => {
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
   });
 
+  it("observes a qualified lead recognized by message without a value", async () => {
+    const harness = createHarness("production");
+    harness.rule.messageTriggerPhrases = ["vou te passar os valores"];
+    harness.rule.messageAuthorScope = "both";
+    Object.assign(harness.rule.conversionRule, {
+      triggerType: "message_phrase",
+      eventName: "QualifiedLead",
+      defaultValueCents: null,
+      defaultCurrency: null,
+      defaultContentName: null,
+    });
+    const event = outboundCatalogEvent();
+    event.message.text = "Vou te passar os valores do procedimento";
+
+    const result = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_ql",
+      externalDeliveryId: "external_delivery_ql",
+      deliveryReceivedAt: new Date("2026-07-18T12:00:00.000Z"),
+      events: [event],
+    });
+
+    expect(result.eligibleExecutionIds).toEqual(["execution_1"]);
+    // The rule query must not filter events, otherwise a QualifiedLead rule by
+    // message is never even loaded.
+    expect(
+      harness.prisma.providerConversionRuleConfig.findMany.mock.calls[0][0]
+        .where.conversionRule,
+    ).not.toHaveProperty("eventName");
+    expect(harness.recordInitial).toHaveBeenCalledWith(
+      expect.objectContaining({
+        decision: expect.objectContaining({
+          decisionCode: "eligible",
+          occurrence: expect.objectContaining({
+            eventName: "QualifiedLead",
+            businessDedupePolicy: expect.objectContaining({ mode: "lifetime" }),
+          }),
+          conversion: expect.objectContaining({
+            valueCents: null,
+            currency: null,
+          }),
+        }),
+      }),
+    );
+  });
+
   it("uses one authoritative decision and one execution while the channel is in shadow mode", async () => {
     const harness = createHarness("production", "team", true, "shadow");
     const event = outboundCatalogEvent();
@@ -551,7 +599,7 @@ describe("provider conversion observation service", () => {
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
   });
 
-  it("persists an eligible observation without execution or review", async () => {
+  it("persists an eligible observation as an audit execution without review", async () => {
     const harness = createHarness("observation");
 
     const result = await harness.service.observeDelivery({
@@ -562,13 +610,20 @@ describe("provider conversion observation service", () => {
       events: [outboundCatalogEvent()],
     });
 
-    expect(result).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+    expect(result).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
     expect(
       harness.recordInitial.mock.calls[0]?.[0].decision.decisionCode,
     ).toBe("eligible");
     expect(
       harness.providerConversionRuleExecution.upsert,
-    ).not.toHaveBeenCalled();
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ status: "observed" }),
+      }),
+    );
     expect(harness.purchaseReview.upsert).not.toHaveBeenCalled();
   });
 
@@ -744,10 +799,11 @@ describe("provider conversion observation service", () => {
     },
   );
 
-  it("reuses the frozen decision during manual recovery", async () => {
+  it("recovers an observed callback when the active channel has no production activation timestamp", async () => {
     const harness = createHarness("production");
     const event = outboundCatalogEvent();
     const historicalReceivedAt = new Date("2026-07-17T12:00:00.000Z");
+    harness.channel.productionActivatedAt = null;
 
     const observed = await harness.service.observeDelivery({
       workspaceId,
@@ -765,13 +821,75 @@ describe("provider conversion observation service", () => {
       manualRecovery: true,
     });
 
-    expect(observed).toEqual({ executionIds: [], eligibleExecutionIds: [] });
+    expect(observed).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
     expect(recovered).toEqual({
       executionIds: ["execution_1"],
       eligibleExecutionIds: ["execution_1"],
     });
     expect(harness.recordInitial).toHaveBeenCalledTimes(1);
     expect(harness.paidLeads.resolve).toHaveBeenCalledTimes(1);
+    expect(harness.persistedDecisions.size).toBe(1);
+  });
+
+  it("recovers a frozen observation-mode decision after the live rule is activated", async () => {
+    // Walace / Umbler tag case: callback arrived while rule was Observando,
+    // freezing decision.rule.mode = observation. Operator later flips Envio
+    // ativo and reprocesses; recovery must use the LIVE rule mode.
+    const harness = createHarness("observation");
+    const event = outboundCatalogEvent();
+    const receivedAt = new Date("2026-08-20T21:12:38.000Z");
+
+    const observed = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_walace",
+      deliveryReceivedAt: receivedAt,
+      events: [event],
+    });
+
+    expect(observed).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
+    expect(harness.recordInitial).toHaveBeenCalledTimes(1);
+    expect(
+      harness.recordInitial.mock.calls[0]?.[0].decision.rule.mode,
+    ).toBe("observation");
+
+    const activatedAt = new Date("2026-08-20T22:00:00.000Z");
+    harness.rule.mode = "production";
+    harness.rule.productionActivatedAt = activatedAt;
+    harness.channel.productionActivatedAt = null;
+
+    const stillObservedWithoutRecovery = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_walace",
+      deliveryReceivedAt: receivedAt,
+      events: [event],
+    });
+    expect(stillObservedWithoutRecovery).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: [],
+    });
+
+    const recovered = await harness.service.observeDelivery({
+      workspaceId,
+      connectionId,
+      deliveryId: "delivery_walace",
+      deliveryReceivedAt: receivedAt,
+      events: [event],
+      manualRecovery: true,
+    });
+
+    expect(recovered).toEqual({
+      executionIds: ["execution_1"],
+      eligibleExecutionIds: ["execution_1"],
+    });
+    expect(harness.recordInitial).toHaveBeenCalledTimes(1);
     expect(harness.persistedDecisions.size).toBe(1);
   });
 

@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { Test } from "@nestjs/testing";
 import { describe, expect, it, vi } from "vitest";
@@ -11,8 +11,11 @@ import {
   InboundConversionAutomationIngestionService,
   type InboundConversionAutomationIngestionInput,
 } from "../src/inbound-webhooks/inbound-conversion-automation-ingestion.service";
-import { INBOUND_WEBHOOK_BODY_LIMIT } from "../src/inbound-webhooks/inbound-webhook-limits";
-import { InboundWebhookPublicController } from "../src/inbound-webhooks/inbound-webhook-public.controller";
+import { configureInboundWebhookBodyParser } from "../src/inbound-webhooks/inbound-webhook-body-parser";
+import {
+  InboundWebhookPublicController,
+  resolveInboundRawBody,
+} from "../src/inbound-webhooks/inbound-webhook-public.controller";
 
 async function createApp() {
   const ingestion = {
@@ -48,8 +51,9 @@ async function createApp() {
   }).compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>({
     rawBody: true,
+    bodyParser: false,
   });
-  app.useBodyParser("json", { limit: INBOUND_WEBHOOK_BODY_LIMIT });
+  configureInboundWebhookBodyParser(app);
   await app.init();
 
   return { app, ingestion, conversionAutomationIngestion };
@@ -130,6 +134,60 @@ describe("inbound webhook public controller", () => {
     await app.close();
   });
 
+  it("uses a JSON-parser object when Nest does not provide a raw body", async () => {
+    const { app, ingestion, conversionAutomationIngestion } = await createApp();
+    const controller = new InboundWebhookPublicController(
+      ingestion as never,
+      conversionAutomationIngestion as never,
+    );
+    const body = { leadId: "lead_1", nome: "Luiz Sérgio" };
+
+    await controller.receive(
+      "connection_1",
+      "one-time-token",
+      "application/json",
+      undefined,
+      undefined,
+      { body },
+    );
+
+    expect(ingestion.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({ rawBody: Buffer.from(JSON.stringify(body)) }),
+    );
+    await app.close();
+  });
+
+  it("captures JSON bytes on text/plain and missing Content-Type posts", async () => {
+    for (const contentType of ["text/plain", undefined]) {
+      const { app, ingestion } = await createApp();
+      const payload = JSON.stringify({ leadId: `lead_${contentType ?? "none"}` });
+      let requestBuilder = request(app.getHttpServer())
+        .post("/webhooks/inbound/connection_1?token=one-time-token")
+        .send(payload);
+
+      if (contentType) {
+        requestBuilder = requestBuilder.set("Content-Type", contentType);
+      }
+
+      await requestBuilder.expect(202);
+      expect(ingestion.ingest).toHaveBeenCalledWith(
+        expect.objectContaining({ rawBody: Buffer.from(payload) }),
+      );
+      await app.close();
+    }
+  });
+
+  it("keeps the raw body resolver's precedence and string fallback", () => {
+    expect(
+      resolveInboundRawBody(Buffer.from("raw"), {
+        rawBody: Buffer.from("request-raw"),
+        body: { ignored: true },
+      })?.toString(),
+    ).toBe("raw");
+    expect(resolveInboundRawBody(undefined, { body: '{"leadId":"lead_1"}' }))
+      .toEqual(Buffer.from('{"leadId":"lead_1"}'));
+  });
+
   it("accepts Umbler JSON payloads above the default 100 KiB parser limit", async () => {
     const { app, ingestion } = await createApp();
     const payload = JSON.stringify({
@@ -158,16 +216,47 @@ describe("inbound webhook public controller", () => {
     await app.close();
   });
 
-  it("rejects invalid JSON before the ingestion service", async () => {
+  it("passes a double-encoded JSON body through to ingestion", async () => {
     const { app, ingestion } = await createApp();
+    const payload = JSON.stringify(JSON.stringify({ leadId: "lead_1" }));
 
     await request(app.getHttpServer())
       .post("/webhooks/inbound/connection_1?token=one-time-token")
       .set("Content-Type", "application/json")
-      .send("{invalid")
-      .expect(400);
+      .send(payload)
+      .expect(202);
 
-    expect(ingestion.ingest).not.toHaveBeenCalled();
+    expect(ingestion.ingest).toHaveBeenCalledTimes(1);
+    expect(
+      (ingestion.ingest.mock.calls[0][0].rawBody as Buffer).equals(
+        Buffer.from(payload),
+      ),
+    ).toBe(true);
+
+    await app.close();
+  });
+
+  it("passes invalid JSON through to ingestion for the stable public validation response", async () => {
+    const { app, ingestion } = await createApp();
+    const payload = "{invalid";
+    ingestion.ingest.mockRejectedValueOnce(
+      new BadRequestException("Payload JSON invalido"),
+    );
+
+    await request(app.getHttpServer())
+      .post("/webhooks/inbound/connection_1?token=one-time-token")
+      .set("Content-Type", "application/json")
+      .send(payload)
+      .expect(400)
+      .expect({
+        message: "Payload JSON invalido",
+        error: "Bad Request",
+        statusCode: 400,
+      });
+
+    expect(ingestion.ingest).toHaveBeenCalledWith(
+      expect.objectContaining({ rawBody: Buffer.from(payload) }),
+    );
 
     await app.close();
   });

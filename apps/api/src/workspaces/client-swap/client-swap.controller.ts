@@ -28,11 +28,24 @@ export class ClientSwapController {
   async swap(
     @Param("workspaceId") workspaceId: string,
     @Body() body: unknown,
-    @Req() req: { user: { id: string }; idempotencyKey: string },
+    @Req() req: {
+      user: { id: string; actorType?: "user" | "platform_admin" };
+      idempotencyKey: string;
+    },
   ): Promise<ClientSwapResult> {
     const parsed = clientSwapDto.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException("Payload invalido");
+    }
+
+    if (req.user.actorType === "platform_admin") {
+      return this.clientSwapService.swap(
+        workspaceId,
+        req.user.id,
+        parsed.data,
+        req.idempotencyKey,
+        "platform_admin",
+      );
     }
 
     return this.clientSwapService.swap(

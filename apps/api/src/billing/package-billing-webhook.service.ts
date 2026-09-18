@@ -3,18 +3,19 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
   Prisma,
   type BillingInvoiceStatus,
-  type WorkspaceSubscription
+  type WorkspaceSubscription,
 } from "@prisma/client";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
   PackageAsaasAdapter,
   PackageAsaasError,
-  type AsaasPaymentResult
+  type AsaasPaymentResult,
 } from "./package-asaas.adapter";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
 import { PackageContractService } from "./package-contract.service";
 import { PackageFiscalService } from "./package-fiscal.service";
 import { PackageSubscriptionLifecycleService } from "./package-subscription-lifecycle.service";
+import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -48,7 +49,9 @@ export class PackageBillingWebhookService {
     @Inject(PackageSubscriptionLifecycleService)
     private readonly lifecycle: PackageSubscriptionLifecycleService,
     @Inject(PackageFiscalService)
-    private readonly fiscal: PackageFiscalService
+    private readonly fiscal: PackageFiscalService,
+    @Inject(AdditiveWhatsappBillingService)
+    private readonly additiveBilling: AdditiveWhatsappBillingService,
   ) {}
 
   async tryProcess(body: JsonRecord): Promise<PackageBillingWebhookResult> {
@@ -66,7 +69,7 @@ export class PackageBillingWebhookService {
       return {
         handled: true,
         status: "duplicate",
-        workspaceId: context.contract.workspaceId
+        workspaceId: context.contract.workspaceId,
       };
     }
 
@@ -79,14 +82,14 @@ export class PackageBillingWebhookService {
           processedAt: new Date(),
           processingAttempts: { increment: 1 },
           lastErrorCode: null,
-          lastErrorMessage: null
-        }
+          lastErrorMessage: null,
+        },
       });
 
       return {
         handled: true,
         status: processed ? "processed" : "ignored",
-        workspaceId: context.contract.workspaceId
+        workspaceId: context.contract.workspaceId,
       };
     } catch (error) {
       const code = this.errorCode(error);
@@ -96,21 +99,21 @@ export class PackageBillingWebhookService {
           status: "failed",
           processingAttempts: { increment: 1 },
           lastErrorCode: code,
-          lastErrorMessage: code
-        }
+          lastErrorMessage: code,
+        },
       });
 
       return {
         handled: true,
         status: "failed",
         code,
-        workspaceId: context.contract.workspaceId
+        workspaceId: context.contract.workspaceId,
       };
     }
   }
 
   private async resolveContext(
-    body: JsonRecord
+    body: JsonRecord,
   ): Promise<ResolvedContext | null> {
     const eventType =
       this.optionalString(body, "event")?.toUpperCase() ?? "UNKNOWN";
@@ -136,8 +139,8 @@ export class PackageBillingWebhookService {
           where: {
             id: parsedReference.subscriptionId,
             workspaceId: parsedReference.workspaceId,
-            planNameSnapshot: { not: null }
-          }
+            planNameSnapshot: { not: null },
+          },
         })
       : null;
 
@@ -145,8 +148,8 @@ export class PackageBillingWebhookService {
       contract = await this.prisma.workspaceSubscription.findFirst({
         where: {
           asaasSubscriptionId,
-          planNameSnapshot: { not: null }
-        }
+          planNameSnapshot: { not: null },
+        },
       });
     }
 
@@ -154,9 +157,27 @@ export class PackageBillingWebhookService {
       contract = await this.prisma.workspaceSubscription.findFirst({
         where: {
           asaasCheckoutId,
-          planNameSnapshot: { not: null }
-        }
+          planNameSnapshot: { not: null },
+        },
       });
+    }
+
+    // F1 additions are identified only by the provider payment id persisted
+    // during checkout creation, never by a caller-supplied workspace header.
+    if (!contract && resourceType === "payment" && resourceId) {
+      const charge = await this.prisma.paymentCharge.findFirst({
+        where: { provider: "asaas", externalChargeId: resourceId },
+        include: { subscription: true, additiveItem: true },
+      });
+      if (
+        charge?.additiveItem &&
+        charge.subscription &&
+        charge.workspaceId === charge.subscription.workspaceId &&
+        charge.additiveItem.workspaceId === charge.workspaceId &&
+        charge.additiveItem.subscriptionId === charge.subscriptionId
+      ) {
+        contract = charge.subscription;
+      }
     }
 
     if (!contract && resourceType === "invoice") {
@@ -167,9 +188,9 @@ export class PackageBillingWebhookService {
         const invoice = await this.prisma.billingInvoice.findFirst({
           where: {
             provider: "asaas",
-            providerPaymentId: paymentId
+            providerPaymentId: paymentId,
           },
-          include: { subscription: true }
+          include: { subscription: true },
         });
         contract = invoice?.subscription ?? null;
       }
@@ -186,14 +207,11 @@ export class PackageBillingWebhookService {
       providerEventId,
       resource,
       resourceId,
-      resourceType
+      resourceType,
     };
   }
 
-  private async registerEvent(
-    context: ResolvedContext,
-    body: JsonRecord
-  ) {
+  private async registerEvent(context: ResolvedContext, body: JsonRecord) {
     try {
       return await this.prisma.billingProviderEvent.create({
         data: {
@@ -206,8 +224,8 @@ export class PackageBillingWebhookService {
           resourceId: context.resourceId,
           externalReference: context.externalReference,
           status: "processing",
-          payloadRedacted: this.redactedPayload(body, context)
-        }
+          payloadRedacted: this.redactedPayload(body, context),
+        },
       });
     } catch (error) {
       if (
@@ -218,9 +236,9 @@ export class PackageBillingWebhookService {
           where: {
             provider_providerEventId: {
               provider: "asaas",
-              providerEventId: context.providerEventId
-            }
-          }
+              providerEventId: context.providerEventId,
+            },
+          },
         });
         if (!existing) {
           return null;
@@ -242,17 +260,17 @@ export class PackageBillingWebhookService {
               { status: "failed" },
               {
                 status: "processing",
-                updatedAt: { lte: staleProcessingBefore }
-              }
-            ]
+                updatedAt: { lte: staleProcessingBefore },
+              },
+            ],
           },
           data: {
             status: "processing",
             processedAt: null,
             lastErrorCode: null,
             lastErrorMessage: null,
-            payloadRedacted: this.redactedPayload(body, context)
-          }
+            payloadRedacted: this.redactedPayload(body, context),
+          },
         });
 
         if (claimed.count === 0) {
@@ -260,7 +278,7 @@ export class PackageBillingWebhookService {
         }
 
         return this.prisma.billingProviderEvent.findUnique({
-          where: { id: existing.id }
+          where: { id: existing.id },
         });
       }
       throw error;
@@ -280,6 +298,44 @@ export class PackageBillingWebhookService {
       return false;
     }
 
+    const additiveCharge = await this.prisma.paymentCharge.findFirst({
+      where: {
+        provider: "asaas",
+        externalChargeId: context.resourceId,
+        workspaceId: context.contract.workspaceId,
+        subscriptionId: context.contract.id,
+      },
+      include: { additiveItem: true },
+    });
+    if (additiveCharge?.additiveItem) {
+      if (
+        context.eventType === "PAYMENT_CONFIRMED" ||
+        context.eventType === "PAYMENT_RECEIVED"
+      ) {
+        const payment = await this.paymentDetails(context);
+        return this.additiveBilling.recordPaidCheckout(
+          payment.id,
+          Math.round(payment.value * 100),
+        );
+      }
+      if (
+        [
+          "PAYMENT_OVERDUE",
+          "PAYMENT_DELETED",
+          "PAYMENT_REFUNDED",
+          "PAYMENT_CHARGEBACK_REQUESTED",
+          "PAYMENT_CHARGEBACK_DISPUTE",
+        ].includes(context.eventType)
+      ) {
+        await this.prisma.paymentCharge.update({
+          where: { id: additiveCharge.id },
+          data: { status: "canceled" },
+        });
+        return true;
+      }
+      return false;
+    }
+
     if (
       context.eventType === "PAYMENT_CONFIRMED" ||
       context.eventType === "PAYMENT_RECEIVED"
@@ -291,7 +347,7 @@ export class PackageBillingWebhookService {
       await this.upsertCharge(context, "pending");
       await this.lifecycle.markPaymentOverdue(
         context.contract.id,
-        context.resourceId
+        context.resourceId,
       );
       return true;
     }
@@ -299,7 +355,7 @@ export class PackageBillingWebhookService {
       await this.upsertCharge(context, "canceled");
       await this.lifecycle.markPaymentDeleted(
         context.contract.id,
-        context.resourceId
+        context.resourceId,
       );
       return true;
     }
@@ -311,7 +367,7 @@ export class PackageBillingWebhookService {
       await this.upsertCharge(context, "canceled");
       await this.lifecycle.markPaymentOverdue(
         context.contract.id,
-        context.resourceId
+        context.resourceId,
       );
       return true;
     }
@@ -328,8 +384,8 @@ export class PackageBillingWebhookService {
         await this.asaas.findSubscriptionByExternalReference(
           this.asaas.contractExternalReference(
             context.contract.workspaceId,
-            context.contract.id
-          )
+            context.contract.id,
+          ),
         )
       )?.id ??
       null;
@@ -338,7 +394,7 @@ export class PackageBillingWebhookService {
       throw new PackageAsaasError(
         "asaas_subscription_not_resolved",
         null,
-        false
+        false,
       );
     }
 
@@ -351,19 +407,19 @@ export class PackageBillingWebhookService {
       billingMethod: this.billingMethod(payment.billingType),
       periodStart,
       periodEnd,
-      providerPaymentId: payment.id
+      providerPaymentId: payment.id,
     });
 
     await this.fiscal.configureAfterPayment({
       contract,
       paymentChargeId: charge.id,
       providerPaymentId: payment.id,
-      amountCents: charge.amountCents
+      amountCents: charge.amountCents,
     });
   }
 
   private async processSubscription(
-    context: ResolvedContext
+    context: ResolvedContext,
   ): Promise<boolean> {
     if (!context.resourceId) {
       return false;
@@ -377,7 +433,7 @@ export class PackageBillingWebhookService {
 
     await this.prisma.workspaceSubscription.update({
       where: { id: context.contract.id },
-      data: { asaasSubscriptionId: context.resourceId }
+      data: { asaasSubscriptionId: context.resourceId },
     });
     return true;
   }
@@ -401,12 +457,12 @@ export class PackageBillingWebhookService {
       issuedAt:
         status === "issued" || status === "authorized" ? new Date() : null,
       authorizedAt: status === "authorized" ? new Date() : null,
-      canceledAt: status === "canceled" ? new Date() : null
+      canceledAt: status === "canceled" ? new Date() : null,
     });
   }
 
   private async paymentDetails(
-    context: ResolvedContext
+    context: ResolvedContext,
   ): Promise<AsaasPaymentResult> {
     const inline = this.mapInlinePayment(context.resource);
     if (
@@ -422,48 +478,43 @@ export class PackageBillingWebhookService {
   private async upsertCharge(
     context: ResolvedContext,
     status: "paid" | "pending" | "canceled",
-    payment?: AsaasPaymentResult
+    payment?: AsaasPaymentResult,
   ) {
     const paymentId = payment?.id ?? context.resourceId;
     if (!paymentId) {
-      throw new PackageAsaasError(
-        "asaas_payment_id_missing",
-        null,
-        false
-      );
+      throw new PackageAsaasError("asaas_payment_id_missing", null, false);
     }
     const existing = await this.prisma.paymentCharge.findFirst({
       where: {
         provider: "asaas",
         externalChargeId: paymentId,
-        subscriptionId: context.contract.id
-      }
+        subscriptionId: context.contract.id,
+      },
     });
     const amountCents = Math.max(
       0,
       Math.round(
         (payment?.value ??
           this.optionalNumber(context.resource, "value") ??
-          (context.contract.monthlyPriceCentsSnapshot ?? 0) / 100) * 100
-      )
+          (context.contract.monthlyPriceCentsSnapshot ?? 0) / 100) * 100,
+      ),
     );
     const data = {
       status,
       amountCents,
       paidAt:
         status === "paid"
-          ? this.optionalDate(payment?.paymentDate) ?? new Date()
+          ? (this.optionalDate(payment?.paymentDate) ?? new Date())
           : null,
       dueAt: this.optionalDate(
-        payment?.dueDate ??
-          this.optionalString(context.resource, "dueDate")
-      )
+        payment?.dueDate ?? this.optionalString(context.resource, "dueDate"),
+      ),
     } as const;
 
     if (existing) {
       return this.prisma.paymentCharge.update({
         where: { id: existing.id },
-        data
+        data,
       });
     }
 
@@ -474,8 +525,8 @@ export class PackageBillingWebhookService {
         provider: "asaas",
         externalChargeId: paymentId,
         description: `Assinatura ${context.contract.planNameSnapshot ?? "WppTrack"}`,
-        ...data
-      }
+        ...data,
+      },
     });
   }
 
@@ -490,7 +541,10 @@ export class PackageBillingWebhookService {
         this.optionalString(resource, "paymentDate") ??
         this.optionalString(resource, "clientPaymentDate"),
       subscriptionId: this.relationId(resource.subscription),
-      externalReference: this.optionalString(resource, "externalReference")
+      externalReference: this.optionalString(resource, "externalReference"),
+      invoiceUrl:
+        this.optionalString(resource, "invoiceUrl") ??
+        this.optionalString(resource, "bankSlipUrl"),
     };
   }
 
@@ -505,7 +559,7 @@ export class PackageBillingWebhookService {
   }
 
   private resourceType(
-    body: JsonRecord
+    body: JsonRecord,
   ): "invoice" | "payment" | "subscription" | "unknown" {
     if (this.isRecord(body.invoice)) return "invoice";
     if (this.isRecord(body.payment)) return "payment";
@@ -515,7 +569,7 @@ export class PackageBillingWebhookService {
 
   private redactedPayload(
     body: JsonRecord,
-    context: ResolvedContext
+    context: ResolvedContext,
   ): Prisma.InputJsonObject {
     return {
       eventId: context.providerEventId,
@@ -525,7 +579,7 @@ export class PackageBillingWebhookService {
       resourceId: context.resourceId,
       externalReference: context.externalReference,
       status: this.optionalString(context.resource, "status"),
-      value: this.optionalNumber(context.resource, "value")
+      value: this.optionalNumber(context.resource, "value"),
     };
   }
 
@@ -544,9 +598,7 @@ export class PackageBillingWebhookService {
     return null;
   }
 
-  private billingMethod(
-    value: string | null
-  ): "credit_card" | "pix" {
+  private billingMethod(value: string | null): "credit_card" | "pix" {
     return value?.toUpperCase() === "PIX" ? "pix" : "credit_card";
   }
 
@@ -580,11 +632,7 @@ export class PackageBillingWebhookService {
   private requiredString(record: JsonRecord, key: string): string {
     const value = this.optionalString(record, key);
     if (!value) {
-      throw new PackageAsaasError(
-        `asaas_invalid_response_${key}`,
-        null,
-        false
-      );
+      throw new PackageAsaasError(`asaas_invalid_response_${key}`, null, false);
     }
     return value;
   }
@@ -603,7 +651,7 @@ export class PackageBillingWebhookService {
     eventType: string,
     resourceType: string,
     resourceId: string | null,
-    body: JsonRecord
+    body: JsonRecord,
   ): string {
     return createHash("sha256")
       .update(
@@ -611,17 +659,15 @@ export class PackageBillingWebhookService {
           eventType,
           resourceType,
           resourceId,
-          dateCreated: this.optionalString(body, "dateCreated")
-        })
+          dateCreated: this.optionalString(body, "dateCreated"),
+        }),
       )
       .digest("hex");
   }
 
   private errorCode(error: unknown): string {
     if (error instanceof PackageAsaasError) return error.code;
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError
-    ) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
       return `prisma_${error.code}`;
     }
     return error instanceof Error ? error.name : "unknown_error";

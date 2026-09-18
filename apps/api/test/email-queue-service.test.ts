@@ -99,6 +99,40 @@ describe("EmailQueueService", () => {
     expect(audit.record).not.toHaveBeenCalled();
   });
 
+  it("audits a failed row and rethrows when the envelope fails Zod validation before it ever reaches the queue", async () => {
+    const queue = { add: vi.fn() };
+    const audit = { record: vi.fn(async () => undefined) };
+    const configuration = new EmailConfigurationService(environment());
+    const service = new EmailQueueService(
+      queue as never,
+      configuration,
+      new EmailEnvelopeCryptoService(configuration),
+      audit as never,
+    );
+    const invalidInput: EmailQueueInput = {
+      workspaceId: input.workspaceId,
+      action: input.action,
+      envelope: {
+        to: input.envelope.to,
+        template: "workspace_invitation",
+        data: {
+          workspaceName: "",
+          inviterName: "Gestora",
+          roleLabel: "Analista",
+          token: rawToken,
+          expiresAt: "2026-07-21T12:00:00.000Z",
+        },
+      },
+    };
+
+    await expect(service.enqueue(invalidInput)).rejects.toThrow();
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledTimes(1);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed", errorCode: "zod_envelope" }),
+    );
+  });
+
   it("keeps the queued result when delivery auditing is unavailable", async () => {
     const queue = {
       add: vi.fn(async (_name, _payload, options) => ({ id: options.jobId })),

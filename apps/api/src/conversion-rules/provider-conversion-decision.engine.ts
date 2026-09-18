@@ -6,6 +6,11 @@ import type {
 } from "@wpptrack/shared";
 import { Injectable } from "@nestjs/common";
 import {
+  conversionEventDedupeMode,
+  conversionEventValuePolicy,
+} from "@wpptrack/shared";
+import {
+  extractSingleMoneyValueCents,
   matchProviderMessageTrigger,
   matchStructuredCatalogMessage,
   providerMessageAuthorAllowed,
@@ -180,12 +185,33 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "trigger_missing" };
     }
 
+    // Only events whose catalog policy is "required" (Purchase,
+    // InitiateCheckout) are held back for review without a value. Events that
+    // never carry value (QualifiedLead, OrderShipped, …) go straight through,
+    // and "optional" events travel without value when none was configured.
+    const valuePolicy = conversionEventValuePolicy(input.rule.eventName);
+    if (valuePolicy === "none") {
+      return {
+        outcome: "eligible",
+        reasonCode: "average_value_message_matched",
+        match: this.valuelessMatch(matchedTriggerPhrase),
+      };
+    }
+
     const match = this.averageValueMatch(input, matchedTriggerPhrase);
     if (!match.matched) {
+      if (valuePolicy === "required") {
+        return {
+          outcome: "review_required",
+          reasonCode: "average_value_missing",
+          match,
+        };
+      }
+
       return {
-        outcome: "review_required",
-        reasonCode: "average_value_missing",
-        match,
+        outcome: "eligible",
+        reasonCode: "average_value_message_matched",
+        match: this.valuelessMatch(matchedTriggerPhrase),
       };
     }
 
@@ -203,22 +229,53 @@ export class ProviderConversionDecisionEngine {
       return { outcome: "not_applicable", reasonCode: "source_mismatch" };
     }
 
-    const match = this.averageValueMatch(input, null);
-    if (input.rule.eventName === "Purchase" && !match.matched) {
+    // Umbler's signed callback has already selected its automation rule and
+    // therefore arrives without labels. UAZAPI label webhooks must intersect
+    // the labels configured on the rule before entering the value policy.
+    if (input.occurrence.labels) {
+      const labels = new Set(
+        input.occurrence.labels.map((label) =>
+          label.trim().toLocaleLowerCase("pt-BR"),
+        ),
+      );
+      const matched = input.rule.triggerPhrases.some((phrase) =>
+        labels.has(phrase.trim().toLocaleLowerCase("pt-BR")),
+      );
+      if (!matched) {
+        return { outcome: "not_applicable", reasonCode: "trigger_missing" };
+      }
+    }
+
+    const valuePolicy = conversionEventValuePolicy(input.rule.eventName);
+    if (valuePolicy === "none") {
       return {
-        outcome: "review_required",
-        reasonCode: "average_value_missing",
-        match,
+        outcome: "eligible",
+        reasonCode: "automation_matched",
+        match: this.valuelessMatch(null),
+      };
+    }
+
+    const match = this.averageValueMatch(input, null);
+    if (!match.matched) {
+      if (valuePolicy === "required") {
+        return {
+          outcome: "review_required",
+          reasonCode: "average_value_missing",
+          match,
+        };
+      }
+
+      return {
+        outcome: "eligible",
+        reasonCode: "automation_matched",
+        match: this.valuelessMatch(null),
       };
     }
 
     return {
       outcome: "eligible",
       reasonCode: "automation_matched",
-      match:
-        input.rule.eventName === "QualifiedLead"
-          ? this.qualifiedLeadMatch()
-          : match,
+      match,
     };
   }
 
@@ -226,9 +283,20 @@ export class ProviderConversionDecisionEngine {
     input: ProviderConversionDecisionInput,
     matchedTriggerPhrase: string | null,
   ): StructuredCatalogTestMessageResultDto {
-    const matched = Boolean(
-      input.rule.defaultValueCents && input.rule.defaultCurrency,
-    );
+    // valueMode "message_extracted": the message carries the price, the
+    // configured average value is only a fallback. Never invent a value.
+    const extractedValueCents =
+      input.occurrence.source === "automation"
+        ? (input.occurrence.observedValueCents ?? null)
+        : this.extractedValueCents(input);
+    const valueCents = extractedValueCents ?? input.rule.defaultValueCents;
+    const currency =
+      (input.occurrence.source === "automation"
+        ? (input.occurrence.observedCurrency ?? null)
+        : null) ??
+      input.rule.defaultCurrency ??
+      (extractedValueCents ? "BRL" : null);
+    const matched = Boolean(valueCents && currency);
 
     return {
       matched,
@@ -237,21 +305,35 @@ export class ProviderConversionDecisionEngine {
       matchedTriggerPhrase,
       parsedAttributes: [],
       items: [],
-      parsedValueCents: matched ? input.rule.defaultValueCents : null,
-      calculatedValueCents: matched ? input.rule.defaultValueCents : null,
-      observedPaymentValueCents: null,
+      parsedValueCents: matched ? valueCents : null,
+      calculatedValueCents: matched ? valueCents : null,
+      // Non-null only when the value was read from the message itself, which is
+      // what downstream production uses to report valueSource "actual".
+      observedPaymentValueCents: matched ? extractedValueCents : null,
       catalogVariantId: null,
       contentName: input.rule.defaultContentName,
-      currency: input.rule.defaultCurrency,
+      currency: matched ? currency : input.rule.defaultCurrency,
     };
   }
 
-  private qualifiedLeadMatch(): StructuredCatalogTestMessageResultDto {
+  private extractedValueCents(
+    input: ProviderConversionDecisionInput,
+  ): number | null {
+    if (input.rule.valueMode !== "message_extracted") return null;
+    if (input.occurrence.source !== "message") return null;
+
+    return extractSingleMoneyValueCents(input.occurrence.messageText);
+  }
+
+  /** Recognized match for events that travel to Meta without a value. */
+  private valuelessMatch(
+    matchedTriggerPhrase: string | null,
+  ): StructuredCatalogTestMessageResultDto {
     return {
       matched: true,
       reasonCode: "matched",
       classification: "recognized",
-      matchedTriggerPhrase: null,
+      matchedTriggerPhrase,
       parsedAttributes: [],
       items: [],
       parsedValueCents: null,
@@ -279,8 +361,7 @@ export class ProviderConversionDecisionEngine {
   private base(
     input: ProviderConversionDecisionInput,
     conversion: ProviderConversionDecisionConversionDto,
-    businessDedupePolicy:
-      | ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
+    businessDedupePolicy: ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
   ) {
     return {
       engineVersion: PROVIDER_CONVERSION_DECISION_ENGINE_VERSION,
@@ -294,8 +375,7 @@ export class ProviderConversionDecisionEngine {
 
   private occurrence(
     input: ProviderConversionDecisionInput,
-    businessDedupePolicy:
-      | ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
+    businessDedupePolicy: ProviderConversionDecisionOccurrenceDto["businessDedupePolicy"],
   ): ProviderConversionDecisionOccurrenceDto {
     const occurrence = input.occurrence;
 
@@ -329,10 +409,19 @@ export class ProviderConversionDecisionEngine {
     const scopeKey = [
       input.rule.eventName,
       input.occurrence.workspaceId,
+      input.occurrence.connectionId,
+      // A single paid lead can legitimately convert through two WhatsApp
+      // channels. Keep the business dedupe local to the channel that observed
+      // the fact; the production route then keeps each channel on its own Meta
+      // account/destination path.
+      input.occurrence.channelId ?? "unresolved-channel",
       input.leadResolution.lead.id,
     ].join(":");
 
-    return input.rule.eventName === "QualifiedLead"
+    // "lifetime" is reserved by the catalog for events that only make sense
+    // once per lead (LeadSubmitted, QualifiedLead); everything else keeps the
+    // 24h rolling window used by Purchase and InitiateCheckout.
+    return conversionEventDedupeMode(input.rule.eventName) === "lifetime"
       ? {
           mode: "lifetime",
           scopeKey,

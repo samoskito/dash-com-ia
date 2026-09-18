@@ -30,11 +30,17 @@ import { InboundWebhookProcessor } from "./inbound-webhook.processor";
 import { InboundWebhookPublicController } from "./inbound-webhook-public.controller";
 import { InboundWebhookQueueService } from "./inbound-webhook-queue.service";
 import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser.registry";
+import { UazapiConversionBridgeModule } from "./uazapi-conversion-bridge.module";
+import { UazapiProviderConversionService } from "./uazapi-provider-conversion.service";
+import { UazapiAdapter } from "../integrations/uazapi/uazapi.adapter";
+import { MetaTokenEncryptionService } from "../integrations/meta/meta-token-encryption.service";
+import { INTEGRATION_ENV } from "../integrations/integration.types";
 
 @Module({
   imports: [
     AuthModule,
     BillingSeatModule,
+    UazapiConversionBridgeModule,
     PrismaModule,
     RuntimeModule,
     ConversionRulesModule,
@@ -69,6 +75,10 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     InboundWebhookProcessor,
     InboundWebhookQueueService,
     InboundWebhookParserRegistry,
+    UazapiProviderConversionService,
+    UazapiAdapter,
+    MetaTokenEncryptionService,
+    { provide: INTEGRATION_ENV, useValue: process.env },
   ],
   exports: [
     InboundWebhookChannelRoutesService,
@@ -78,6 +88,8 @@ import { InboundWebhookParserRegistry } from "./providers/inbound-webhook-parser
     InboundWebhookProductionIntakeService,
     InboundWebhookProductionQueueService,
     InboundWebhookParserRegistry,
+    UazapiConversionBridgeModule,
+    UazapiProviderConversionService,
   ],
 })
 export class InboundWebhooksModule {}

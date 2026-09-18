@@ -13,6 +13,7 @@ import type {
   ProviderConversionDecisionRuleSnapshotDto,
   PurchaseReviewDecisionInputDto,
 } from "@wpptrack/shared";
+import { readMessagePhraseConfig } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
 import { parseInboundWebhooksConfig } from "../config/deployment-config";
@@ -413,6 +414,10 @@ export class ProviderConversionReviewApprovalService {
       throw new ConflictException("A regra revisada nao representa uma compra");
     }
 
+    const messagePhrase =
+      triggerType === "message_phrase"
+        ? readMessagePhraseConfig(rule.conversionRule.defaultItems)
+        : { valueMode: "fixed" as const, exampleMessage: null };
     const base = {
       providerRuleId: rule.id,
       conversionRuleId: rule.conversionRuleId,
@@ -425,6 +430,8 @@ export class ProviderConversionReviewApprovalService {
       defaultValueCents: rule.conversionRule.defaultValueCents,
       defaultCurrency: rule.conversionRule.defaultCurrency,
       defaultContentName: rule.conversionRule.defaultContentName,
+      valueMode: messagePhrase.valueMode,
+      exampleMessage: messagePhrase.exampleMessage,
     };
 
     return {

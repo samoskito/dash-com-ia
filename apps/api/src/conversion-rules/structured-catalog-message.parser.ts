@@ -212,6 +212,15 @@ function observedPaymentValue(
   return values.size === 1 ? [...values][0] : null;
 }
 
+/**
+ * Money value of a free-form message, for message_phrase rules with
+ * valueMode "message_extracted". Reuses the catalog payment heuristic: a value
+ * is only trusted when the message carries exactly one distinct amount.
+ */
+export function extractSingleMoneyValueCents(messageText: string): number | null {
+  return observedPaymentValue(messageText.split(/\r?\n/u), new Set());
+}
+
 function contentNameFor(
   catalog: ProviderConversionCatalogDto,
   variant: CatalogVariant,

@@ -3,6 +3,8 @@ import {
   ConflictException,
   InternalServerErrorException,
 } from "@nestjs/common";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ClientSwapRateLimitService } from "../src/workspaces/client-swap/client-swap-rate-limit.service";
 import {
@@ -68,9 +70,15 @@ function createHarness(options: {
       findMany: vi.fn(async () => [{ id: "connector_1" }]),
     },
     workspace: {
-      findUnique: vi.fn(async ({ where }: any) => {
+      findUnique: vi.fn(async ({ where, include }: any) => {
         if (where.id === workspaceId) {
-          return workspace;
+          const memberFilter = include?.members?.where?.userId;
+          return {
+            ...workspace,
+            members: memberFilter
+              ? workspace.members.filter((member) => member.userId === memberFilter)
+              : workspace.members,
+          };
         }
         if (where.slug && slugHits.has(where.slug)) {
           return { id: "workspace_other" };
@@ -156,6 +164,8 @@ describe("client swap service", () => {
     expect(harness.auditLogs).toHaveLength(1);
     expect(harness.auditLogs[0]).toMatchObject({
       action: CLIENT_SWAP_COMPLETED_ACTION,
+      actorType: "user",
+      actorUserId: actorUserId,
       resultStatus: "success",
       beforeSummary: { idempotencyKeyHash },
     });
@@ -175,14 +185,34 @@ describe("client swap service", () => {
     );
   });
 
-  it("deletes Restrict children before their parents", () => {
+  it("covers every schema-declared wiped Restrict edge in child-before-parent order and retains auth, billing, and audit boundaries", () => {
     const sequence = [...CLIENT_SWAP_WIPE_DELEGATES];
+    const schema = readFileSync(resolve(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const schemaRestrictEdges: Array<[string, string]> = [];
+    const modelPattern = /model\s+(\w+)\s*\{([\s\S]*?)\n\}/g;
+    for (const match of schema.matchAll(modelPattern)) {
+      const child = `${match[1][0].toLowerCase()}${match[1].slice(1)}`;
+      for (const line of match[2].split("\n")) {
+        const relation = line.match(/^\s*\w+\s+(\w+)(?:\?|\[\])?\s+@relation\([^\n]*onDelete:\s*Restrict/);
+        if (!relation) continue;
+        const parent = `${relation[1][0].toLowerCase()}${relation[1].slice(1)}`;
+        if (sequence.includes(child as never) && sequence.includes(parent as never) && child !== parent) schemaRestrictEdges.push([child, parent]);
+      }
+    }
+
+    expect(new Set(sequence).size).toBe(sequence.length);
+    expect(new Set(CLIENT_SWAP_RESTRICT_EDGES.map((edge) => edge.join(":"))).size).toBe(CLIENT_SWAP_RESTRICT_EDGES.length);
+    expect(CLIENT_SWAP_RESTRICT_EDGES).toEqual(expect.arrayContaining(schemaRestrictEdges));
 
     for (const [child, parent] of CLIENT_SWAP_RESTRICT_EDGES) {
-      expect(sequence.indexOf(child)).toBeGreaterThanOrEqual(0);
-      expect(sequence.indexOf(parent)).toBeGreaterThanOrEqual(0);
-      expect(sequence.indexOf(child)).toBeLessThan(sequence.indexOf(parent));
+      const childIndex = sequence.indexOf(child);
+      const parentIndex = sequence.indexOf(parent);
+      expect(childIndex).toBeGreaterThanOrEqual(0);
+      expect(parentIndex).toBeGreaterThanOrEqual(0);
+      expect(childIndex).toBeLessThan(parentIndex);
     }
+
+    expect(sequence).not.toEqual(expect.arrayContaining(["authSession", "subscription", "auditLog"]));
   });
 
   it("refuses confirm !== true without wiping", async () => {
@@ -397,5 +427,27 @@ describe("client swap service", () => {
       ),
     ).rejects.toBeInstanceOf(InternalServerErrorException);
     expect(harness.prisma.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("audits platform_admin and skips membership when actorType is platform_admin", async () => {
+    const harness = createHarness();
+    const platformOwnerId = "user_platform_owner";
+
+    const result = await harness.service.swap(
+      workspaceId,
+      platformOwnerId,
+      { confirm: true },
+      idempotencyKey,
+      "platform_admin",
+    );
+
+    expect(result.success).toBe(true);
+    expect(harness.auditLogs).toHaveLength(1);
+    expect(harness.auditLogs[0]).toMatchObject({
+      action: CLIENT_SWAP_COMPLETED_ACTION,
+      actorType: "platform_admin",
+      actorUserId: platformOwnerId,
+    });
+    expect(harness.prisma.lead.deleteMany).toHaveBeenCalled();
   });
 });

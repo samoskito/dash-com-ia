@@ -140,6 +140,54 @@ export const workspacePackageAssignmentInputSchema = z.object({
   reason: z.string().trim().min(3).max(500),
 });
 
+export const workspaceTrialStartInputSchema = z.object({
+  capacity: z.number().int().min(1).max(20),
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const billingTrialReminderMoments = ["d3", "day_of", "post"] as const;
+
+export const billingTrialReminderTemplateSchema = z.object({
+  moment: z.enum(billingTrialReminderMoments),
+  body: z.string().trim().min(1).max(10_000),
+  emailSubject: z.string().trim().min(1).max(300).refine(
+    (value) => !/[\r\n]/.test(value),
+    "O assunto não pode conter quebras de linha",
+  ),
+}).superRefine((template, context) => {
+  const supported = new Set(["cliente", "data_fim", "valor", "numeros", "link_assinatura"]);
+  for (const match of `${template.body}\n${template.emailSubject}`.matchAll(/{{\s*([^{}]+?)\s*}}/g)) {
+    if (!supported.has(match[1])) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Placeholder não suportado: {{${match[1]}}}`,
+        path: ["body"],
+      });
+    }
+  }
+});
+
+export const billingTrialReminderTemplatesInputSchema = z
+  .object({ templates: z.array(billingTrialReminderTemplateSchema).length(3) })
+  .superRefine(({ templates }, context) => {
+    const moments = new Set(templates.map((template) => template.moment));
+    if (moments.size !== billingTrialReminderMoments.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe exatamente um template para cada momento",
+        path: ["templates"],
+      });
+    }
+  });
+
+export const workspaceTrialAutoconvertDisableInputSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const backofficePackageContractCancellationInputSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+
 export const workspacePackageAssignmentSchema = z.object({
   workspaceId: z.string().min(1),
   subscriptionId: z.string().min(1),
@@ -189,13 +237,59 @@ export const workspacePackageSubscriptionSchema = z.object({
   currentPeriodStart: z.string().datetime().nullable(),
   currentPeriodEnd: z.string().datetime().nullable(),
   graceEndsAt: z.string().datetime().nullable(),
+  trialEndsAt: z.string().datetime().nullable(),
+  canAutoconvert: z.boolean(),
+  trialDaysRemaining: z.number().int().nullable(),
   cancelAtPeriodEnd: z.boolean(),
   accessEndsAt: z.string().datetime().nullable(),
   fiscalStatus: billingInvoiceStatusSchema,
+  /** Live capacity-holding row for the workspace. */
+  isCurrent: z.boolean(),
+  /**
+   * Backoffice may end this row: draft/awaiting_payment, or non-current
+   * exempt/legacy_protected leftovers. Never true for the live contract.
+   */
+  canCancel: z.boolean(),
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        key: z.string().min(1),
+        name: z.string().min(1),
+        quantity: z.number().int().positive(),
+        capacity: z.number().int().positive(),
+        monthlyPriceCents: z.number().int().positive(),
+        status: z.enum(["pending_payment", "active"]),
+        providerSyncStatus: z.enum([
+          "not_required",
+          "pending",
+          "synced",
+          "failed",
+        ]),
+      }),
+    )
+    .default([]),
 });
 
 export const workspacePackageCheckoutInputSchema = z.object({
   planId: z.string().min(1),
+});
+
+// Idempotency is carried only by the required HTTP Idempotency-Key header.
+// Unknown legacy body fields are stripped and can never supply the key.
+export const workspaceAddWhatsappNumberInputSchema = z.object({});
+
+export const workspaceAddWhatsappNumberSchema = z.object({
+  subscriptionId: z.string().min(1),
+  itemId: z.string().min(1),
+  chargeId: z.string().min(1),
+  addedCapacity: z.number().int().nonnegative(),
+  capacity: z.number().int().positive(),
+  monthlyPriceCents: z.number().int().positive(),
+  paymentAmountCents: z.number().int().positive(),
+  checkoutUrl: z.string().url(),
+  externalPaymentId: z.string().min(1),
+  status: z.enum(["awaiting_payment", "active"]),
 });
 
 export const workspacePackageCheckoutSchema = z.object({
@@ -530,6 +624,7 @@ export const whatsappInstanceConnectionSchema = z.object({
     "error",
   ]),
   connectionStatus: z.enum(whatsappConnectionStatuses),
+  providerStatusText: z.string().min(1).nullable().default(null),
   qrCode: z.string().min(1).nullable(),
   connectedPhone: z.string().min(8).max(24).nullable().default(null),
   message: z.string().min(1).nullable(),
@@ -554,15 +649,6 @@ export const whatsappInstanceSummarySchema = z.object({
 export const whatsappInstanceSummaryListSchema = z.array(
   whatsappInstanceSummarySchema,
 );
-
-export const whatsappLabelSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  colorHex: z.string().min(1).nullable(),
-  labelId: z.string().min(1).nullable(),
-});
-
-export const whatsappLabelListSchema = z.array(whatsappLabelSchema);
 
 export const splitReceiverCreateInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -696,6 +782,21 @@ export type WhatsappPackagePlanUpdateInputDto = z.infer<
 export type WorkspacePackageAssignmentInputDto = z.infer<
   typeof workspacePackageAssignmentInputSchema
 >;
+export type WorkspaceTrialStartInputDto = z.infer<
+  typeof workspaceTrialStartInputSchema
+>;
+export type BillingTrialReminderTemplateDto = z.infer<
+  typeof billingTrialReminderTemplateSchema
+>;
+export type BillingTrialReminderTemplatesInputDto = z.infer<
+  typeof billingTrialReminderTemplatesInputSchema
+>;
+export type WorkspaceTrialAutoconvertDisableInputDto = z.infer<
+  typeof workspaceTrialAutoconvertDisableInputSchema
+>;
+export type BackofficePackageContractCancellationInputDto = z.infer<
+  typeof backofficePackageContractCancellationInputSchema
+>;
 export type WorkspacePackageAssignmentDto = z.infer<
   typeof workspacePackageAssignmentSchema
 >;
@@ -713,6 +814,12 @@ export type WorkspacePackageCheckoutInputDto = z.infer<
 >;
 export type WorkspacePackageCheckoutDto = z.infer<
   typeof workspacePackageCheckoutSchema
+>;
+export type WorkspaceAddWhatsappNumberInputDto = z.infer<
+  typeof workspaceAddWhatsappNumberInputSchema
+>;
+export type WorkspaceAddWhatsappNumberDto = z.infer<
+  typeof workspaceAddWhatsappNumberSchema
 >;
 export type WorkspaceSubscriptionCancellationInputDto = z.infer<
   typeof workspaceSubscriptionCancellationInputSchema
@@ -788,8 +895,6 @@ export type WhatsappInstanceSummaryDto = z.infer<
 export type WhatsappInstanceSummaryListDto = z.infer<
   typeof whatsappInstanceSummaryListSchema
 >;
-export type WhatsappLabelDto = z.infer<typeof whatsappLabelSchema>;
-export type WhatsappLabelListDto = z.infer<typeof whatsappLabelListSchema>;
 export type SplitReceiverCreateInputDto = z.infer<
   typeof splitReceiverCreateInputSchema
 >;

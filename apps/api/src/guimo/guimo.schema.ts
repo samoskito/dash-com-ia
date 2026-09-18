@@ -1,0 +1,53 @@
+export const GUIMO_CRM_AUTH_HEADER_NAMES = ["authorization", "x-api-key"] as const;
+const GUIMO_CRM_AUTH_HEADER_NAME_SET = new Set<string>(GUIMO_CRM_AUTH_HEADER_NAMES);
+const GUIMO_OPERATIONAL_HEADER_NAMES = new Set(["accept", "content-type", "host", "origin"]);
+
+export type GuimoConfigurationInput = { qualifiedStageId?: string | null; qualifiedStageName?: string | null; purchaseStageId?: string | null; purchaseStageName?: string | null; purchaseCurrency?: string | null; purchaseValueUnit?: "major" | "cents" | null; crmHeaders?: Record<string, string> };
+
+export function parseGuimoConversionRuleCreate(value: unknown): GuimoConversionRuleCreateInputDto | null {
+  const parsed = guimoConversionRuleCreateInputSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+export function parseGuimoConversionRuleUpdate(value: unknown): GuimoConversionRuleUpdateInputDto | null {
+  const parsed = guimoConversionRuleUpdateInputSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Accept only the observed CRM authentication headers; callers never control transport headers. */
+export function parseGuimoCrmHeaders(value: unknown): Record<string, string> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  if (entries.length === 0) return null;
+  const result: Record<string, string> = {};
+  for (const [rawName, rawValue] of entries) {
+    const name = rawName.trim().toLowerCase();
+    if (!name || GUIMO_OPERATIONAL_HEADER_NAMES.has(name) || !GUIMO_CRM_AUTH_HEADER_NAME_SET.has(name) || typeof rawValue !== "string" || !rawValue.trim() || name in result) return null;
+    result[name] = rawValue.trim();
+  }
+  return result;
+}
+
+export function parseGuimoConfiguration(value: unknown): GuimoConfigurationInput | null {
+  const result = parseGuimoConfigurationFields(value);
+  return result;
+}
+
+/** Same field parsing as `parseGuimoConfiguration`, but for a partial update: any single
+ * field (including only currency/unit/credentials) is enough, since the rule already exists. */
+export function parseGuimoConfigurationUpdate(value: unknown): GuimoConfigurationInput | null {
+  const result = parseGuimoConfigurationFields(value);
+  if (!result) return null;
+  return Object.values(result).some((field) => field !== undefined) ? result : null;
+}
+
+function parseGuimoConfigurationFields(value: unknown): GuimoConfigurationInput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const text = (key: string): string | null | undefined => v[key] === null ? null : typeof v[key] === "string" && v[key].trim() ? v[key].trim() : undefined;
+  const unit = text("purchaseValueUnit"); if (unit && unit !== "major" && unit !== "cents") return null;
+  const headers = v.crmHeaders === undefined ? undefined : parseGuimoCrmHeaders(v.crmHeaders);
+  if (v.crmHeaders !== undefined && !headers) return null;
+  return { qualifiedStageId: text("qualifiedStageId"), qualifiedStageName: text("qualifiedStageName"), purchaseStageId: text("purchaseStageId"), purchaseStageName: text("purchaseStageName"), purchaseCurrency: text("purchaseCurrency"), purchaseValueUnit: unit as "major" | "cents" | null | undefined, crmHeaders: headers ?? undefined };
+}
+import { guimoConversionRuleCreateInputSchema, guimoConversionRuleUpdateInputSchema, type GuimoConversionRuleCreateInputDto, type GuimoConversionRuleUpdateInputDto } from "@wpptrack/shared";

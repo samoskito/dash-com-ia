@@ -56,7 +56,8 @@ export async function serverApiFetch<T>(
     return undefined as T;
   }
 
-  return (await response.json()) as T;
+  const body = await response.text();
+  return (body.trim() ? JSON.parse(body) : undefined) as T;
 }
 
 function logSlowApiRequest(

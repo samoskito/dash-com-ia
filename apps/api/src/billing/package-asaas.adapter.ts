@@ -34,6 +34,12 @@ export type AsaasPaymentResult = {
   paymentDate: string | null;
   subscriptionId: string | null;
   externalReference: string | null;
+  invoiceUrl: string | null;
+};
+
+export type AsaasCheckoutPaymentResult = {
+  id: string;
+  invoiceUrl: string;
 };
 
 export type AsaasInvoiceResult = {
@@ -48,7 +54,7 @@ export class PackageAsaasError extends Error {
     readonly code: string,
     readonly statusCode: number | null,
     readonly retryable: boolean,
-    readonly description: string | null = null
+    readonly description: string | null = null,
   ) {
     super(code);
     this.name = "PackageAsaasError";
@@ -57,9 +63,7 @@ export class PackageAsaasError extends Error {
 
 @Injectable()
 export class PackageAsaasAdapter {
-  constructor(
-    private readonly configuration: PackageBillingConfiguration
-  ) {}
+  constructor(private readonly configuration: PackageBillingConfiguration) {}
 
   isConfigured(): boolean {
     return this.configuration.asaasApiKey() !== null;
@@ -67,7 +71,7 @@ export class PackageAsaasAdapter {
 
   async createCustomer(
     workspaceId: string,
-    profile: WorkspaceBillingProfile
+    profile: WorkspaceBillingProfile,
   ): Promise<AsaasCustomerResult> {
     const response = await this.request("POST", "/customers", {
       name: profile.payerName,
@@ -80,32 +84,31 @@ export class PackageAsaasAdapter {
       province: profile.district,
       postalCode: this.digits(profile.postalCode),
       externalReference: this.customerExternalReference(workspaceId),
-      notificationDisabled: false
+      notificationDisabled: false,
     });
 
     return this.mapCustomer(response);
   }
 
   async findCustomerByExternalReference(
-    workspaceId: string
+    workspaceId: string,
   ): Promise<AsaasCustomerResult | null> {
     const externalReference = this.customerExternalReference(workspaceId);
     const query = new URLSearchParams({
       externalReference,
       limit: "10",
-      offset: "0"
+      offset: "0",
     });
     const response = await this.request(
       "GET",
-      `/customers?${query.toString()}`
+      `/customers?${query.toString()}`,
     );
     const data = Array.isArray(response.data) ? response.data : [];
     const customer = data
       .filter(this.isRecord)
       .find(
         (item) =>
-          this.optionalString(item, "externalReference") ===
-          externalReference
+          this.optionalString(item, "externalReference") === externalReference,
       );
 
     return customer ? this.mapCustomer(customer) : null;
@@ -114,7 +117,7 @@ export class PackageAsaasAdapter {
   async updateCustomer(
     customerId: string,
     workspaceId: string,
-    profile: WorkspaceBillingProfile
+    profile: WorkspaceBillingProfile,
   ): Promise<AsaasCustomerResult> {
     const response = await this.request(
       "PUT",
@@ -130,8 +133,8 @@ export class PackageAsaasAdapter {
         province: profile.district,
         postalCode: this.digits(profile.postalCode),
         externalReference: this.customerExternalReference(workspaceId),
-        notificationDisabled: false
-      }
+        notificationDisabled: false,
+      },
     );
 
     return this.mapCustomer(response);
@@ -152,7 +155,7 @@ export class PackageAsaasAdapter {
       throw new PackageAsaasError(
         "asaas_checkout_callback_not_configured",
         null,
-        false
+        false,
       );
     }
 
@@ -163,20 +166,20 @@ export class PackageAsaasAdapter {
       minutesToExpire: 1440,
       externalReference: this.contractExternalReference(
         input.workspaceId,
-        input.subscriptionId
+        input.subscriptionId,
       ),
       callback: {
         successUrl,
         cancelUrl,
-        expiredUrl: cancelUrl
+        expiredUrl: cancelUrl,
       },
       items: [
         {
           name: input.planName,
           description: "Assinatura mensal WppTrack",
           quantity: 1,
-          value: input.monthlyPriceCents / 100
-        }
+          value: input.monthlyPriceCents / 100,
+        },
       ],
       customerData: {
         name: input.profile.payerName,
@@ -188,12 +191,12 @@ export class PackageAsaasAdapter {
         complement: input.profile.addressComplement ?? undefined,
         postalCode: this.digits(input.profile.postalCode),
         province: input.profile.district,
-        city: input.customerCityId
+        city: input.customerCityId,
       },
       subscription: {
         cycle: "MONTHLY",
-        nextDueDate: this.asaasDateTime(new Date())
-      }
+        nextDueDate: this.asaasDateTime(new Date()),
+      },
     });
 
     const id = this.requiredString(response, "id");
@@ -203,30 +206,30 @@ export class PackageAsaasAdapter {
         this.optionalString(response, "link") ??
         `https://asaas.com/checkoutSession/show?id=${encodeURIComponent(id)}`,
       status: this.optionalString(response, "status"),
-      expiresAt
+      expiresAt,
     };
   }
 
   async getSubscription(id: string): Promise<AsaasSubscriptionResult> {
     const response = await this.request(
       "GET",
-      `/subscriptions/${encodeURIComponent(id)}`
+      `/subscriptions/${encodeURIComponent(id)}`,
     );
     return this.mapSubscription(response);
   }
 
   async findSubscriptionByExternalReference(
-    externalReference: string
+    externalReference: string,
   ): Promise<AsaasSubscriptionResult | null> {
     const query = new URLSearchParams({
       externalReference,
       includeDeleted: "true",
       limit: "10",
-      offset: "0"
+      offset: "0",
     });
     const response = await this.request(
       "GET",
-      `/subscriptions?${query.toString()}`
+      `/subscriptions?${query.toString()}`,
     );
     const data = Array.isArray(response.data) ? response.data : [];
     const first = data.find(this.isRecord);
@@ -235,25 +238,82 @@ export class PackageAsaasAdapter {
 
   async removeSubscription(id: string): Promise<void> {
     try {
-      await this.request(
-        "DELETE",
-        `/subscriptions/${encodeURIComponent(id)}`
-      );
+      await this.request("DELETE", `/subscriptions/${encodeURIComponent(id)}`);
     } catch (error) {
-      if (
-        error instanceof PackageAsaasError &&
-        error.statusCode === 404
-      ) {
+      if (error instanceof PackageAsaasError && error.statusCode === 404) {
         return;
       }
       throw error;
     }
   }
 
+  /** Changes the existing workspace recurrence; it never creates a second one. */
+  async updateSubscriptionValue(
+    id: string,
+    monthlyPriceCents: number,
+  ): Promise<void> {
+    await this.request("PUT", `/subscriptions/${encodeURIComponent(id)}`, {
+      value: monthlyPriceCents / 100,
+    });
+  }
+
+  /** Creates the one-off checkout that authorizes one F1 capacity increase. */
+  async createAdditivePayment(input: {
+    customerId: string;
+    workspaceId: string;
+    subscriptionId: string;
+    itemId: string;
+    amountCents: number;
+    description: string;
+  }): Promise<AsaasCheckoutPaymentResult> {
+    const response = await this.request("POST", "/payments", {
+      customer: input.customerId,
+      billingType: "UNDEFINED",
+      value: input.amountCents / 100,
+      dueDate: this.asaasDateTime(new Date()).slice(0, 10),
+      description: input.description,
+      externalReference: this.additiveItemExternalReference(
+        input.workspaceId,
+        input.subscriptionId,
+        input.itemId,
+      ),
+    });
+    const id = this.requiredString(response, "id");
+    const invoiceUrl =
+      this.optionalString(response, "invoiceUrl") ??
+      this.optionalString(response, "bankSlipUrl");
+    if (!invoiceUrl) {
+      throw new PackageAsaasError(
+        "asaas_invalid_response_invoice_url",
+        null,
+        false,
+      );
+    }
+    return { id, invoiceUrl };
+  }
+
+  async findPaymentByExternalReference(
+    reference: string,
+  ): Promise<AsaasPaymentResult | null> {
+    const query = new URLSearchParams({
+      externalReference: reference,
+      limit: "10",
+      offset: "0",
+    });
+    const response = await this.request("GET", `/payments?${query.toString()}`);
+    const payment = (Array.isArray(response.data) ? response.data : [])
+      .filter(this.isRecord)
+      .find(
+        (entry) =>
+          this.optionalString(entry, "externalReference") === reference,
+      );
+    return payment ? this.mapPayment(payment) : null;
+  }
+
   async getPayment(id: string): Promise<AsaasPaymentResult> {
     const response = await this.request(
       "GET",
-      `/payments/${encodeURIComponent(id)}`
+      `/payments/${encodeURIComponent(id)}`,
     );
 
     return {
@@ -264,18 +324,21 @@ export class PackageAsaasAdapter {
       dueDate: this.optionalString(response, "dueDate"),
       paymentDate: this.optionalString(response, "paymentDate"),
       subscriptionId: this.relationId(response.subscription),
-      externalReference: this.optionalString(response, "externalReference")
+      externalReference: this.optionalString(response, "externalReference"),
+      invoiceUrl:
+        this.optionalString(response, "invoiceUrl") ??
+        this.optionalString(response, "bankSlipUrl"),
     };
   }
 
   async listSubscriptionPayments(
-    asaasSubscriptionId: string
+    asaasSubscriptionId: string,
   ): Promise<AsaasPaymentResult[]> {
     const response = await this.request(
       "GET",
       `/subscriptions/${encodeURIComponent(
-        asaasSubscriptionId
-      )}/payments?limit=100&offset=0`
+        asaasSubscriptionId,
+      )}/payments?limit=100&offset=0`,
     );
     const data = Array.isArray(response.data) ? response.data : [];
     return data
@@ -291,7 +354,7 @@ export class PackageAsaasAdapter {
     taxes: JsonRecord;
   }): Promise<JsonRecord> {
     const path = `/subscriptions/${encodeURIComponent(
-      input.asaasSubscriptionId
+      input.asaasSubscriptionId,
     )}/invoiceSettings`;
     const body = {
       municipalServiceId: input.municipalServiceId ?? undefined,
@@ -299,17 +362,14 @@ export class PackageAsaasAdapter {
       effectiveDatePeriod: "ON_PAYMENT_CONFIRMATION",
       receivedOnly: true,
       observations: input.observations ?? undefined,
-      taxes: input.taxes
+      taxes: input.taxes,
     };
 
     try {
       await this.request("GET", path);
       return this.request("PUT", path, body);
     } catch (error) {
-      if (
-        error instanceof PackageAsaasError &&
-        error.statusCode === 404
-      ) {
+      if (error instanceof PackageAsaasError && error.statusCode === 404) {
         return this.request("POST", path, body);
       }
       throw error;
@@ -339,49 +399,55 @@ export class PackageAsaasAdapter {
       municipalServiceCode: input.municipalServiceCode ?? undefined,
       municipalServiceName:
         input.municipalServiceId === null
-          ? input.municipalServiceCode ?? undefined
+          ? (input.municipalServiceCode ?? undefined)
           : undefined,
       updatePayment: false,
-      taxes: input.taxes
+      taxes: input.taxes,
     });
     return this.mapInvoice(response);
   }
 
   async listSubscriptionInvoices(
-    asaasSubscriptionId: string
+    asaasSubscriptionId: string,
   ): Promise<AsaasInvoiceResult[]> {
     const response = await this.request(
       "GET",
       `/subscriptions/${encodeURIComponent(
-        asaasSubscriptionId
-      )}/invoices?limit=100&offset=0`
+        asaasSubscriptionId,
+      )}/invoices?limit=100&offset=0`,
     );
     return Array.isArray(response.data)
-      ? response.data.filter(this.isRecord).map((invoice) =>
-          this.mapInvoice(invoice)
-        )
+      ? response.data
+          .filter(this.isRecord)
+          .map((invoice) => this.mapInvoice(invoice))
       : [];
   }
 
   async findSubscriptionInvoice(
     asaasSubscriptionId: string,
-    externalReference: string
+    externalReference: string,
   ): Promise<AsaasInvoiceResult | null> {
-    const invoices = await this.listSubscriptionInvoices(
-      asaasSubscriptionId
-    );
+    const invoices = await this.listSubscriptionInvoices(asaasSubscriptionId);
     return (
       invoices.find(
-        (invoice) => invoice.externalReference === externalReference
+        (invoice) => invoice.externalReference === externalReference,
       ) ?? null
     );
   }
 
   contractExternalReference(
     workspaceId: string,
-    subscriptionId: string
+    subscriptionId: string,
   ): string {
     return `wpptrack:contract:${workspaceId}:${subscriptionId}`;
+  }
+
+  additiveItemExternalReference(
+    workspaceId: string,
+    subscriptionId: string,
+    itemId: string,
+  ): string {
+    return `wpptrack:additive:${workspaceId}:${subscriptionId}:${itemId}`;
   }
 
   private customerExternalReference(workspaceId: string): string {
@@ -389,22 +455,20 @@ export class PackageAsaasAdapter {
   }
 
   parseContractExternalReference(
-    value: string | null
+    value: string | null,
   ): { workspaceId: string; subscriptionId: string } | null {
     if (!value) {
       return null;
     }
 
     const match = /^wpptrack:contract:([^:]+):([^:]+)$/.exec(value);
-    return match
-      ? { workspaceId: match[1], subscriptionId: match[2] }
-      : null;
+    return match ? { workspaceId: match[1], subscriptionId: match[2] } : null;
   }
 
   private async request(
     method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
-    body?: JsonRecord
+    body?: JsonRecord,
   ): Promise<JsonRecord> {
     const apiKey = this.configuration.asaasApiKey();
     if (!apiKey) {
@@ -423,11 +487,11 @@ export class PackageAsaasAdapter {
             accept: "application/json",
             "content-type": "application/json",
             access_token: apiKey,
-            "user-agent": "WppTrack Billing"
+            "user-agent": "WppTrack Billing",
           },
           body: body ? JSON.stringify(body) : undefined,
-          signal: controller.signal
-        }
+          signal: controller.signal,
+        },
       );
       const payload = await this.readResponse(response);
 
@@ -439,7 +503,7 @@ export class PackageAsaasAdapter {
           response.status === 408 ||
             response.status === 429 ||
             response.status >= 500,
-          providerError.description
+          providerError.description,
         );
       }
 
@@ -454,7 +518,7 @@ export class PackageAsaasAdapter {
           ? "asaas_timeout"
           : "asaas_network_error",
         null,
-        true
+        true,
       );
     } finally {
       clearTimeout(timeout);
@@ -477,7 +541,7 @@ export class PackageAsaasAdapter {
 
   private extractError(
     payload: JsonRecord,
-    status: number
+    status: number,
   ): { code: string; description: string | null } {
     const errors = Array.isArray(payload.errors) ? payload.errors : [];
     const first = errors.find(this.isRecord);
@@ -488,7 +552,7 @@ export class PackageAsaasAdapter {
 
     return {
       code: code ? `asaas_${code}` : `asaas_http_${status}`,
-      description
+      description,
     };
   }
 
@@ -499,14 +563,14 @@ export class PackageAsaasAdapter {
       billingType: this.optionalString(payload, "billingType"),
       nextDueDate: this.optionalString(payload, "nextDueDate"),
       externalReference: this.optionalString(payload, "externalReference"),
-      deleted: payload.deleted === true
+      deleted: payload.deleted === true,
     };
   }
 
   private mapCustomer(payload: JsonRecord): AsaasCustomerResult {
     return {
       id: this.requiredString(payload, "id"),
-      cityId: this.requiredNumber(payload, "city")
+      cityId: this.requiredNumber(payload, "city"),
     };
   }
 
@@ -521,7 +585,10 @@ export class PackageAsaasAdapter {
         this.optionalString(payload, "paymentDate") ??
         this.optionalString(payload, "clientPaymentDate"),
       subscriptionId: this.relationId(payload.subscription),
-      externalReference: this.optionalString(payload, "externalReference")
+      externalReference: this.optionalString(payload, "externalReference"),
+      invoiceUrl:
+        this.optionalString(payload, "invoiceUrl") ??
+        this.optionalString(payload, "bankSlipUrl"),
     };
   }
 
@@ -532,18 +599,14 @@ export class PackageAsaasAdapter {
       paymentId:
         this.relationId(payload.payment) ??
         this.optionalString(payload, "payment"),
-      externalReference: this.optionalString(payload, "externalReference")
+      externalReference: this.optionalString(payload, "externalReference"),
     };
   }
 
   private requiredString(payload: JsonRecord, key: string): string {
     const value = this.optionalString(payload, key);
     if (!value) {
-      throw new PackageAsaasError(
-        `asaas_invalid_response_${key}`,
-        null,
-        false
-      );
+      throw new PackageAsaasError(`asaas_invalid_response_${key}`, null, false);
     }
     return value;
   }
@@ -561,11 +624,7 @@ export class PackageAsaasAdapter {
   private requiredNumber(payload: JsonRecord, key: string): number {
     const value = this.optionalNumber(payload, key);
     if (value === null) {
-      throw new PackageAsaasError(
-        `asaas_invalid_response_${key}`,
-        null,
-        false
-      );
+      throw new PackageAsaasError(`asaas_invalid_response_${key}`, null, false);
     }
     return value;
   }
@@ -585,7 +644,10 @@ export class PackageAsaasAdapter {
   }
 
   private asaasDateTime(value: Date): string {
-    return value.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+    return value
+      .toISOString()
+      .replace("T", " ")
+      .replace(/\.\d{3}Z$/, "");
   }
 
   private readonly isRecord = (value: unknown): value is JsonRecord =>
