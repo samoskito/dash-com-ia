@@ -19,6 +19,11 @@ async function createApp() {
       id: "contract_1",
       contractStatus: "canceled",
     })),
+    startTrial: vi.fn(async () => ({ id: "trial_1", contractStatus: "exempt" })),
+    disableTrialAutoconvert: vi.fn(async () => ({
+      id: "trial_1",
+      trialAutoconvertDisabled: true,
+    })),
   };
   const moduleRef = await Test.createTestingModule({
     controllers: [BackofficePackageBillingController],
@@ -38,6 +43,43 @@ async function createApp() {
 }
 
 describe("backoffice package billing controller", () => {
+  it("starts a one- or three-seat trial for a platform owner", async () => {
+    const { app, contracts } = await createApp();
+
+    await request(app.getHttpServer())
+      .post("/backoffice/billing/package-contracts/workspace_1/start-trial")
+      .set("Authorization", "Bearer refresh-token")
+      .send({ capacity: 3, reason: "Trial aprovado pelo comercial" })
+      .expect(201)
+      .expect(({ body }) => expect(body.contractStatus).toBe("exempt"));
+
+    expect(contracts.startTrial).toHaveBeenCalledWith(
+      "workspace_1",
+      { capacity: 3, reason: "Trial aprovado pelo comercial" },
+      "owner_1",
+    );
+    await app.close();
+  });
+
+  it("records a contract-level automatic-conversion opt-out", async () => {
+    const { app, contracts } = await createApp();
+
+    await request(app.getHttpServer())
+      .post(
+        "/backoffice/billing/package-contracts/workspace_1/trial-autoconvert/disable",
+      )
+      .set("Authorization", "Bearer refresh-token")
+      .send({ reason: "Cliente com excecao comercial" })
+      .expect(201);
+
+    expect(contracts.disableTrialAutoconvert).toHaveBeenCalledWith(
+      "workspace_1",
+      "Cliente com excecao comercial",
+      "owner_1",
+    );
+    await app.close();
+  });
+
   it("lets a platform owner end a stale package contract", async () => {
     const { app, contracts, platformAdminService } = await createApp();
 

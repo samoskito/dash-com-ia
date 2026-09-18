@@ -489,13 +489,13 @@ export class InboundWebhookConnectionsService {
   }
 
   /**
-   * Seat enforcement is resolved lazily: externalChannelEnforcementEnabled()
+   * Seat tracking is resolved lazily: externalChannelSeatTrackingEnabled()
    * throws when enforcement is on without a seat service, so it must only run
    * at the points the activation flow actually bills a seat.
    */
   private seatHook(): ExternalChannelSeatHook {
     return {
-      enforcementEnabled: () => this.externalChannelEnforcementEnabled(),
+      enforcementEnabled: () => this.externalChannelSeatTrackingEnabled(),
       activateSeat: (transaction, seatInput) =>
         this.whatsappSeats!.activateExternalChannelSeat(transaction, seatInput),
     };
@@ -574,10 +574,11 @@ export class InboundWebhookConnectionsService {
     return config;
   }
 
-  private externalChannelEnforcementEnabled(): boolean {
+  private externalChannelSeatTrackingEnabled(): boolean {
     const enabled =
       this.billingConfiguration?.isPackageBillingEnabled() === true &&
-      this.billingConfiguration.isExternalChannelEnforcementEnabled();
+      (this.billingConfiguration.isExternalChannelEnforcementEnabled() ||
+        this.billingConfiguration.isTrialAutoconvertEnabled?.() === true);
 
     if (enabled && !this.whatsappSeats) {
       throw new ServiceUnavailableException(

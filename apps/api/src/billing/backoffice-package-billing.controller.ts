@@ -16,6 +16,8 @@ import {
   whatsappPackagePlanUpdateInputSchema,
   platformFiscalSettingsInputSchema,
   workspacePackageAssignmentInputSchema,
+  workspaceTrialAutoconvertDisableInputSchema,
+  workspaceTrialStartInputSchema,
   workspaceSubscriptionContractStatuses,
 } from "@wpptrack/shared";
 import type { WorkspaceSubscriptionContractStatus } from "@prisma/client";
@@ -125,6 +127,40 @@ export class BackofficePackageBillingController {
       parsed.data.planId,
       operator.id,
       parsed.data.reason,
+    );
+  }
+
+  @Post("package-contracts/:workspaceId/start-trial")
+  async startTrial(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = workspaceTrialStartInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Dados do trial invalidos");
+    }
+    return this.contracts.startTrial(workspaceId, parsed.data, operator.id);
+  }
+
+  @Post("package-contracts/:workspaceId/trial-autoconvert/disable")
+  async disableTrialAutoconvert(
+    @AuthToken() refreshToken: string,
+    @Param("workspaceId") workspaceId: string,
+    @Body() body: unknown,
+  ) {
+    const operator =
+      await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = workspaceTrialAutoconvertDisableInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Dados de opt-out invalidos");
+    }
+    return this.contracts.disableTrialAutoconvert(
+      workspaceId,
+      parsed.data.reason,
+      operator.id,
     );
   }
 

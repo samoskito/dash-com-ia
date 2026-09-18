@@ -140,6 +140,15 @@ export const workspacePackageAssignmentInputSchema = z.object({
   reason: z.string().trim().min(3).max(500),
 });
 
+export const workspaceTrialStartInputSchema = z.object({
+  capacity: z.union([z.literal(1), z.literal(3)]),
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const workspaceTrialAutoconvertDisableInputSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
+
 export const backofficePackageContractCancellationInputSchema = z.object({
   reason: z.string().trim().min(3).max(500),
 });
@@ -193,6 +202,9 @@ export const workspacePackageSubscriptionSchema = z.object({
   currentPeriodStart: z.string().datetime().nullable(),
   currentPeriodEnd: z.string().datetime().nullable(),
   graceEndsAt: z.string().datetime().nullable(),
+  trialEndsAt: z.string().datetime().nullable(),
+  canAutoconvert: z.boolean(),
+  trialDaysRemaining: z.number().int().nullable(),
   cancelAtPeriodEnd: z.boolean(),
   accessEndsAt: z.string().datetime().nullable(),
   fiscalStatus: billingInvoiceStatusSchema,
@@ -734,6 +746,12 @@ export type WhatsappPackagePlanUpdateInputDto = z.infer<
 >;
 export type WorkspacePackageAssignmentInputDto = z.infer<
   typeof workspacePackageAssignmentInputSchema
+>;
+export type WorkspaceTrialStartInputDto = z.infer<
+  typeof workspaceTrialStartInputSchema
+>;
+export type WorkspaceTrialAutoconvertDisableInputDto = z.infer<
+  typeof workspaceTrialAutoconvertDisableInputSchema
 >;
 export type BackofficePackageContractCancellationInputDto = z.infer<
   typeof backofficePackageContractCancellationInputSchema
