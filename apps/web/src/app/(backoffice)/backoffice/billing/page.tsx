@@ -23,9 +23,11 @@ import {
   assignPackagePlanAction,
   cancelPackageContractAction,
   createPackagePlanAction,
+  disableTrialAutoconvertAction,
   reconcileWorkspaceBillingAction,
   retryFiscalInvoiceAction,
   saveFiscalSettingsAction,
+  startWorkspaceTrialAction,
   updatePackagePlanAction,
 } from "./actions";
 import { EndContractButton } from "./end-contract-button";
@@ -33,6 +35,12 @@ import {
   contractConsumesCapacity,
   selectEndableContractIds,
 } from "./end-contract-eligibility";
+import { TrialAutoconvertButton } from "./trial-autoconvert-button";
+import {
+  canDisableTrialAutoconvert,
+  selectTrialEligibleWorkspaces,
+  trialBadge,
+} from "./trial-eligibility";
 
 type ResourceResult<T> = {
   data: T;
@@ -149,6 +157,10 @@ export default async function BackofficeBillingPage() {
     );
   const specialPlans = plans.filter((plan) => plan.kind !== "standard").length;
   const endableContractIds = selectEndableContractIds(contracts);
+  const trialEligibleWorkspaces = selectTrialEligibleWorkspaces(
+    workspaces,
+    contracts,
+  );
 
   return (
     <section className="page-stack standalone-page billing-admin-page">
@@ -596,6 +608,60 @@ export default async function BackofficeBillingPage() {
           </BackofficeActionForm>
         ) : null}
 
+        {isPlatformOwner ? (
+          <details className="client-management-disclosure">
+            <summary>
+              <span>
+                <strong>Iniciar trial 30d</strong>
+                <small>
+                  Libera 1 ou 3 numeros por 30 dias, sem cobranca no periodo.
+                </small>
+              </span>
+            </summary>
+            {trialEligibleWorkspaces.length ? (
+              <BackofficeActionForm
+                action={startWorkspaceTrialAction}
+                className="billing-assignment-form"
+                resetOnSuccess
+              >
+                <label>
+                  Workspace
+                  <select name="workspaceId" required defaultValue="">
+                    <option value="" disabled>
+                      Escolher cliente
+                    </option>
+                    {trialEligibleWorkspaces.map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>
+                        {workspace.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Numeros no trial
+                  <select name="capacity" defaultValue="1">
+                    <option value="1">1 numero</option>
+                    <option value="3">3 numeros</option>
+                  </select>
+                </label>
+                <label>
+                  Motivo da liberacao
+                  <input name="reason" minLength={3} required />
+                </label>
+                <PendingSubmitButton
+                  label="Iniciar trial 30d"
+                  pendingLabel="Iniciando..."
+                />
+              </BackofficeActionForm>
+            ) : (
+              <p className="muted">
+                Todos os clientes ja possuem contrato atual. Encerre o contrato
+                antes de liberar um trial.
+              </p>
+            )}
+          </details>
+        ) : null}
+
         <div className="table-wrap billing-contract-table">
           <table>
             <thead>
@@ -631,6 +697,7 @@ export default async function BackofficeBillingPage() {
                       >
                         {contractStatusLabel(contract.status)}
                       </span>
+                      <TrialContractBadge contract={contract} />
                     </td>
                     <td>{fiscalStatusLabel(contract.fiscalStatus)}</td>
                     {isPlatformOwner ? (
@@ -649,6 +716,13 @@ export default async function BackofficeBillingPage() {
                               pendingLabel="Conferindo..."
                             />
                           </BackofficeActionForm>
+                          {canDisableTrialAutoconvert(contract) ? (
+                            <TrialAutoconvertButton
+                              workspaceId={workspace.id}
+                              workspaceName={workspace.name}
+                              action={disableTrialAutoconvertAction}
+                            />
+                          ) : null}
                           {endableContractIds.has(contract.id) ? (
                             <EndContractButton
                               workspaceId={workspace.id}
@@ -864,6 +938,29 @@ function SummaryFact({
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+/**
+ * Trial rows are exempt contracts with a deadline, so the plain "Isento" chip
+ * is not enough: the badge says how long the free period still runs.
+ */
+function TrialContractBadge({
+  contract,
+}: {
+  contract: WorkspacePackageSubscriptionDto;
+}) {
+  const badge = trialBadge(contract);
+
+  if (!badge) {
+    return null;
+  }
+
+  return (
+    <>
+      <span className="status-chip">{badge.label}</span>
+      <small>{badge.detail}</small>
+    </>
   );
 }
 
