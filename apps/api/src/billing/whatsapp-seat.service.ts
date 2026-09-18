@@ -96,7 +96,8 @@ export class WhatsappSeatService {
             !contractAllowsWhatsappAccess(
               contract.contractStatus,
               new Date(),
-              contract.accessEndsAt
+              contract.accessEndsAt,
+              contract.graceEndsAt
             )
           ) {
             throw new Error("workspace_without_active_contract");
@@ -251,7 +252,8 @@ export class WhatsappSeatService {
       !contractAllowsWhatsappAccess(
         contract.contractStatus,
         now,
-        contract.accessEndsAt
+        contract.accessEndsAt,
+        contract.graceEndsAt
       )
     ) {
       throw new ConflictException("Workspace sem contrato com acesso ativo");

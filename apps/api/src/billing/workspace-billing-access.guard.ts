@@ -8,7 +8,6 @@ import {
 } from "@nestjs/common";
 import { extractAuthToken } from "../auth/auth-token";
 import { AuthService } from "../auth/auth.service";
-import { PackageBillingConfiguration } from "./package-billing.configuration";
 import { WorkspacePackageAccessService } from "./workspace-package-access.service";
 
 type BillingGuardRequest = {
@@ -24,25 +23,18 @@ const PUBLIC_OR_RECOVERY_PREFIXES = [
   "/backoffice",
   "/billing",
   "/health",
-  "/webhooks",
 ];
 
 @Injectable()
 export class WorkspaceBillingAccessGuard implements CanActivate {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
-    @Inject(PackageBillingConfiguration)
-    private readonly configuration: PackageBillingConfiguration,
     @Inject(WorkspacePackageAccessService)
     private readonly access: WorkspacePackageAccessService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (
-      context.getType() !== "http" ||
-      !this.configuration.isPackageBillingEnabled() ||
-      !this.configuration.isEnforcementEnabled()
-    ) {
+    if (context.getType() !== "http") {
       return true;
     }
 
@@ -106,6 +98,10 @@ export class WorkspaceBillingAccessGuard implements CanActivate {
         (prefix) => path === prefix || path.startsWith(`${prefix}/`),
       )
     ) {
+      return true;
+    }
+
+    if (method === "POST" && path === "/webhooks/asaas") {
       return true;
     }
 

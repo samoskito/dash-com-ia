@@ -1,7 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
-import { contractAllowsWhatsappAccess } from "./package-billing.policy";
+import {
+  contractAllowsWhatsappAccess,
+  contractRequiresProcessingBlock,
+} from "./package-billing.policy";
 
 export const externalChannelBillingErrorCodes = [
   "external_channel_billing_contract_inactive",
@@ -37,10 +40,6 @@ export class ExternalChannelBillingAccessService {
     workspaceId: string,
     channelId: string,
   ): Promise<void> {
-    if (!this.isEnforced()) {
-      return;
-    }
-
     const contract = await this.prisma.workspaceSubscription.findFirst({
       where: {
         workspaceId,
@@ -51,16 +50,37 @@ export class ExternalChannelBillingAccessService {
         id: true,
         contractStatus: true,
         accessEndsAt: true,
+        graceEndsAt: true,
       },
       orderBy: { createdAt: "desc" },
     });
+
+    const now = new Date();
+
+    if (
+      contract &&
+      contractRequiresProcessingBlock(
+        contract.contractStatus,
+        now,
+        contract.graceEndsAt,
+      )
+    ) {
+      throw new ExternalChannelBillingAccessError(
+        "external_channel_billing_contract_inactive",
+      );
+    }
+
+    if (!this.isEnforced()) {
+      return;
+    }
 
     if (
       !contract ||
       !contractAllowsWhatsappAccess(
         contract.contractStatus,
-        new Date(),
+        now,
         contract.accessEndsAt,
+        contract.graceEndsAt,
       )
     ) {
       throw new ExternalChannelBillingAccessError(

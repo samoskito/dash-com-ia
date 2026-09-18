@@ -10,6 +10,7 @@ function createHarness(input: {
   externalEnforcementEnabled?: boolean;
   contractStatus?: WorkspaceSubscriptionContractStatus;
   accessEndsAt?: Date | null;
+  graceEndsAt?: Date | null;
   seatFound?: boolean;
 } = {}) {
   const workspaceSubscription = {
@@ -17,6 +18,11 @@ function createHarness(input: {
       id: "contract_1",
       contractStatus: input.contractStatus ?? "active",
       accessEndsAt: input.accessEndsAt ?? null,
+      graceEndsAt:
+        input.graceEndsAt ??
+        (input.contractStatus === "grace_period"
+          ? new Date("2999-01-01T00:00:00.000Z")
+          : null),
     })),
   };
   const whatsappSeat = {
@@ -42,14 +48,14 @@ function createHarness(input: {
 }
 
 describe("ExternalChannelBillingAccessService", () => {
-  it("bypasses billing reads while the external rollout flag is disabled", async () => {
+  it("keeps ordinary channel access open while the external rollout flag is disabled", async () => {
     const harness = createHarness({ externalEnforcementEnabled: false });
 
     await expect(
       harness.service.assertProductionAccess("workspace_1", "channel_1"),
     ).resolves.toBeUndefined();
 
-    expect(harness.workspaceSubscription.findFirst).not.toHaveBeenCalled();
+    expect(harness.workspaceSubscription.findFirst).toHaveBeenCalledOnce();
     expect(harness.whatsappSeat.findFirst).not.toHaveBeenCalled();
   });
 
@@ -82,6 +88,25 @@ describe("ExternalChannelBillingAccessService", () => {
 
   it("blocks a suspended contract before checking the seat", async () => {
     const harness = createHarness({ contractStatus: "suspended" });
+
+    await expect(
+      harness.service.assertProductionAccess("workspace_1", "channel_1"),
+    ).rejects.toEqual(
+      new ExternalChannelBillingAccessError(
+        "external_channel_billing_contract_inactive",
+      ),
+    );
+
+    expect(harness.whatsappSeat.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("blocks expired grace before checking the seat, even with rollout disabled", async () => {
+    const harness = createHarness({
+      externalEnforcementEnabled: false,
+      contractStatus: "grace_period",
+      graceEndsAt: new Date("2000-01-01T00:00:00.000Z"),
+      accessEndsAt: new Date("2999-01-01T00:00:00.000Z"),
+    });
 
     await expect(
       harness.service.assertProductionAccess("workspace_1", "channel_1"),

@@ -26,7 +26,6 @@ import { SplitController } from "./split.controller";
 import { SplitService } from "./split.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
-import { WorkspacePackageAccessService } from "./workspace-package-access.service";
 
 @Module({
   imports: [
@@ -55,7 +54,6 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     PackageCheckoutService,
     PackagePlanService,
     PackageContractService,
-    WorkspacePackageAccessService,
     {
       provide: APP_GUARD,
       useClass: WorkspaceBillingAccessGuard,
@@ -74,7 +72,6 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     PackageBillingWebhookService,
     PackageCheckoutService,
     PackageContractService,
-    WorkspacePackageAccessService,
     PackageFiscalService,
     LegacyBillingBackfillService,
     PackagePlanService,

@@ -189,11 +189,15 @@ function createHarness(options?: {
   };
   const env = runtimeEnvironment(options?.featureEnabled ?? true);
   const encryption = new InboundWebhookPayloadEncryptionService(env);
+  const workspaceAccess = {
+    getWorkspaceAccessState: vi.fn().mockResolvedValue({ allowed: true }),
+  };
   const service = new InboundWebhookIngestionService(
     prisma as unknown as PrismaService,
     env,
     encryption,
     queue as never,
+    workspaceAccess as never,
   );
 
   return {
@@ -203,6 +207,7 @@ function createHarness(options?: {
     prisma,
     queue,
     service,
+    workspaceAccess,
     failPersistence() {
       failPersistence = true;
     },
@@ -267,6 +272,28 @@ describe("inbound webhook ingestion service", () => {
       });
       expect(harness.deliveries.size).toBe(0);
     }
+  });
+
+  it("rejects a suspended workspace before persisting inbound data", async () => {
+    const harness = createHarness();
+    harness.workspaceAccess.getWorkspaceAccessState.mockResolvedValueOnce({
+      allowed: false,
+    });
+
+    await expect(
+      harness.service.ingest(
+        requestInput(Buffer.from('{"EventId":"evt_suspended"}')),
+      ),
+    ).rejects.toMatchObject({
+      status: 404,
+      message: "Webhook nao encontrado",
+    });
+
+    expect(harness.workspaceAccess.getWorkspaceAccessState).toHaveBeenCalledWith(
+      "workspace_safe",
+    );
+    expect(harness.deliveries.size).toBe(0);
+    expect(harness.queue.enqueueDelivery).not.toHaveBeenCalled();
   });
 
   it("rejects non-JSON media, invalid JSON and oversized bytes before persistence", async () => {

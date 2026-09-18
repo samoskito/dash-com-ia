@@ -5,7 +5,10 @@ import type {
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
-import { contractAllowsWhatsappAccess } from "./package-billing.policy";
+import {
+  contractAllowsWhatsappAccess,
+  contractRequiresProcessingBlock,
+} from "./package-billing.policy";
 
 @Injectable()
 export class WorkspacePackageAccessService {
@@ -23,14 +26,6 @@ export class WorkspacePackageAccessService {
       this.configuration.isPackageBillingEnabled() &&
       this.configuration.isEnforcementEnabled();
 
-    if (!enforcementEnabled) {
-      return this.result({
-        enforcementEnabled: false,
-        allowed: true,
-        reason: "enforcement_disabled",
-      });
-    }
-
     const contract = await this.prisma.workspaceSubscription.findFirst({
       where: {
         workspaceId,
@@ -40,9 +35,40 @@ export class WorkspacePackageAccessService {
       select: {
         contractStatus: true,
         accessEndsAt: true,
+        graceEndsAt: true,
       },
       orderBy: { createdAt: "desc" },
     });
+
+    if (
+      contract &&
+      contractRequiresProcessingBlock(
+        contract.contractStatus,
+        now,
+        contract.graceEndsAt,
+      )
+    ) {
+      return {
+        enforcementEnabled: true,
+        allowed: false,
+        reason: this.blockReason(
+          contract.contractStatus,
+          contract.accessEndsAt,
+          now,
+          contract.graceEndsAt,
+        ),
+        contractStatus: contract.contractStatus,
+        accessEndsAt: contract.accessEndsAt?.toISOString() ?? null,
+      };
+    }
+
+    if (!enforcementEnabled) {
+      return this.result({
+        enforcementEnabled: false,
+        allowed: true,
+        reason: "enforcement_disabled",
+      });
+    }
 
     if (!contract) {
       return this.result({
@@ -56,10 +82,16 @@ export class WorkspacePackageAccessService {
       contract.contractStatus,
       now,
       contract.accessEndsAt,
+      contract.graceEndsAt,
     );
     const reason: WorkspacePackageAccessReason = allowed
       ? "active_contract"
-      : this.blockReason(contract.contractStatus, contract.accessEndsAt, now);
+      : this.blockReason(
+          contract.contractStatus,
+          contract.accessEndsAt,
+          now,
+          contract.graceEndsAt,
+        );
 
     return {
       enforcementEnabled: true,
@@ -74,7 +106,15 @@ export class WorkspacePackageAccessService {
     contractStatus: Parameters<typeof contractAllowsWhatsappAccess>[0],
     accessEndsAt: Date | null,
     now: Date,
+    graceEndsAt: Date | null,
   ): WorkspacePackageAccessReason {
+    if (
+      contractStatus === "grace_period" &&
+      (graceEndsAt === null || graceEndsAt.getTime() <= now.getTime())
+    ) {
+      return "access_expired";
+    }
+
     if (accessEndsAt !== null && accessEndsAt.getTime() <= now.getTime()) {
       return "access_expired";
     }

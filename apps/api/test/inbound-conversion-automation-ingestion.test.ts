@@ -771,12 +771,16 @@ function createHarness(options?: {
       };
     }),
   };
+  const workspaceAccess = {
+    getWorkspaceAccessState: vi.fn().mockResolvedValue({ allowed: true }),
+  };
   const service = new InboundConversionAutomationIngestionService(
     prisma as unknown as PrismaService,
     env,
     encryption,
     productionQueue as never,
     conversionObservation as never,
+    workspaceAccess as never,
   );
 
   return {
@@ -791,6 +795,7 @@ function createHarness(options?: {
     conversionObservation,
     purchaseReviews,
     service,
+    workspaceAccess,
   };
 }
 
@@ -826,6 +831,28 @@ describe("inbound conversion automation ingestion", () => {
     await expect(
       invalidToken.service.ingest(input(Buffer.from("{}"), "wrong")),
     ).rejects.toMatchObject({ status: 404, message: "Webhook nao encontrado" });
+  });
+
+  it("rejects a suspended workspace before persisting automation data", async () => {
+    const harness = createHarness();
+    harness.workspaceAccess.getWorkspaceAccessState.mockResolvedValueOnce({
+      allowed: false,
+    });
+
+    await expect(
+      harness.service.ingest(
+        input(Buffer.from(JSON.stringify(automationPayload()))),
+      ),
+    ).rejects.toMatchObject({
+      status: 404,
+      message: "Webhook nao encontrado",
+    });
+
+    expect(harness.workspaceAccess.getWorkspaceAccessState).toHaveBeenCalledWith(
+      "workspace_safe",
+    );
+    expect(harness.deliveries.size).toBe(0);
+    expect(harness.productionQueue.enqueueProviderConversion).not.toHaveBeenCalled();
   });
 
   it("observes a valid qualified lead with workspace and PII isolated", async () => {

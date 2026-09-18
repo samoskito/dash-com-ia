@@ -4,6 +4,7 @@ import { WorkspacePackageAccessService } from "../src/billing/workspace-package-
 function createHarness(options?: {
   contract?: {
     accessEndsAt: Date | null;
+    graceEndsAt: Date | null;
     contractStatus:
       | "active"
       | "awaiting_payment"
@@ -43,7 +44,7 @@ function createHarness(options?: {
 }
 
 describe("WorkspacePackageAccessService", () => {
-  it("fails open without querying contracts while enforcement is disabled", async () => {
+  it("keeps ordinary access open while enforcement is disabled", async () => {
     const { findFirst, service } = createHarness({
       enforcementEnabled: false,
     });
@@ -57,7 +58,7 @@ describe("WorkspacePackageAccessService", () => {
       contractStatus: null,
       accessEndsAt: null,
     });
-    expect(findFirst).not.toHaveBeenCalled();
+    expect(findFirst).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -71,6 +72,10 @@ describe("WorkspacePackageAccessService", () => {
       contract: {
         contractStatus,
         accessEndsAt: new Date("2026-08-30T12:00:00.000Z"),
+        graceEndsAt:
+          contractStatus === "grace_period"
+            ? new Date("2026-08-30T12:00:00.000Z")
+            : null,
       },
     });
 
@@ -106,6 +111,7 @@ describe("WorkspacePackageAccessService", () => {
       contract: {
         contractStatus: "suspended",
         accessEndsAt: null,
+        graceEndsAt: null,
       },
     });
 
@@ -123,6 +129,7 @@ describe("WorkspacePackageAccessService", () => {
       contract: {
         contractStatus: "cancel_at_period_end",
         accessEndsAt: new Date("2026-07-28T11:59:59.000Z"),
+        graceEndsAt: null,
       },
     });
 
@@ -135,6 +142,49 @@ describe("WorkspacePackageAccessService", () => {
       allowed: false,
       reason: "access_expired",
       contractStatus: "cancel_at_period_end",
+    });
+  });
+
+  it("fails closed when grace has expired even if accessEndsAt is still current", async () => {
+    const { service } = createHarness({
+      contract: {
+        contractStatus: "grace_period",
+        graceEndsAt: new Date("2026-07-28T12:00:00.000Z"),
+        accessEndsAt: new Date("2026-08-30T12:00:00.000Z"),
+      },
+    });
+
+    await expect(
+      service.getWorkspaceAccessState(
+        "workspace_1",
+        new Date("2026-07-28T12:00:00.000Z"),
+      ),
+    ).resolves.toMatchObject({
+      allowed: false,
+      reason: "access_expired",
+      contractStatus: "grace_period",
+    });
+  });
+
+  it("fails closed for expired grace even when the rollout gate is disabled", async () => {
+    const { service } = createHarness({
+      enforcementEnabled: false,
+      contract: {
+        contractStatus: "grace_period",
+        graceEndsAt: new Date("2026-07-28T12:00:00.000Z"),
+        accessEndsAt: new Date("2026-08-30T12:00:00.000Z"),
+      },
+    });
+
+    await expect(
+      service.getWorkspaceAccessState(
+        "workspace_1",
+        new Date("2026-07-28T12:00:00.000Z"),
+      ),
+    ).resolves.toMatchObject({
+      enforcementEnabled: true,
+      allowed: false,
+      reason: "access_expired",
     });
   });
 });
