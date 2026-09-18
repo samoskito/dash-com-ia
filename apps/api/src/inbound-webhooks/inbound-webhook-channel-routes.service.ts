@@ -7,7 +7,7 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type InboundWebhookProvider } from "@prisma/client";
 import type {
   InboundWebhookChannelDto,
   InboundWebhookChannelReadinessBlockerDto,
@@ -377,7 +377,9 @@ export class InboundWebhookChannelRoutesService {
         await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
           workspaceId,
           channelId,
-          provider: current.connection.provider,
+          provider: this.externalChannelSeatProvider(
+            current.connection.provider,
+          ),
           normalizedPhone: current.connectedPhone || null,
           actorUserId,
         });
@@ -1137,6 +1139,18 @@ export class InboundWebhookChannelRoutesService {
     }
 
     return enabled;
+  }
+
+  private externalChannelSeatProvider(
+    provider: InboundWebhookProvider,
+  ): "umbler" | "gupshup" {
+    if (provider === "umbler" || provider === "gupshup") {
+      return provider;
+    }
+
+    throw new ConflictException(
+      "O provedor do webhook nao suporta vagas de canal externo",
+    );
   }
 
   private async loadChannelReadiness(

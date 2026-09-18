@@ -22,7 +22,7 @@ type TestParserRelease = {
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler" | "gupshup";
+  provider: "umbler" | "gupshup" | "data_crazy";
   displayName: string;
   parserReleaseId: string;
   secretHash: string | null;
@@ -634,6 +634,43 @@ describe("inbound webhook connections service", () => {
         reason: "connection_removed",
       }),
     );
+  });
+
+  it("rejects unsupported providers before activating production seats", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createConnection(
+      "workspace_1",
+      {
+        provider: "umbler",
+        displayName: "Conexao com provedor sem vaga externa",
+      },
+      "user_1",
+    );
+    const connection = harness.connections.get(created.connection.id)!;
+    connection.provider = "data_crazy";
+    connection.parserRelease.status = "certified";
+    harness.billingConfiguration.isPackageBillingEnabled.mockReturnValue(true);
+    harness.billingConfiguration.isExternalChannelEnforcementEnabled.mockReturnValue(
+      true,
+    );
+    harness.prisma.inboundWebhookChannel.findMany.mockResolvedValueOnce([
+      {
+        id: "channel_data_crazy",
+        routes: [{ id: "route_validated" }],
+      },
+    ]);
+
+    await expect(
+      harness.service.updateStatus(
+        "workspace_1",
+        created.connection.id,
+        { status: "production" },
+        "user_1",
+      ),
+    ).rejects.toThrow(
+      "O provedor do webhook nao suporta vagas de canal externo",
+    );
+    expect(harness.whatsappSeats.activateExternalChannelSeat).not.toHaveBeenCalled();
   });
 
   it("does not return a secret when a concurrent mutation wins", async () => {

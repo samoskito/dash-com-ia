@@ -7,7 +7,7 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type InboundWebhookProvider } from "@prisma/client";
 import type {
   InboundWebhookConnectionCreateInputDto,
   InboundWebhookConnectionCreateResultDto,
@@ -635,6 +635,8 @@ export class InboundWebhookConnectionsService {
       return;
     }
 
+    const provider = this.externalChannelSeatProvider(connection.provider);
+
     const channels = await transaction.inboundWebhookChannel.findMany({
       where: {
         workspaceId: connection.workspaceId,
@@ -652,7 +654,7 @@ export class InboundWebhookConnectionsService {
       await this.whatsappSeats!.activateExternalChannelSeat(transaction, {
         workspaceId: connection.workspaceId,
         channelId: channel.id,
-        provider: connection.provider,
+        provider,
         normalizedPhone: channel.connectedPhone || null,
         actorUserId,
       });
@@ -671,6 +673,18 @@ export class InboundWebhookConnectionsService {
     }
 
     return enabled;
+  }
+
+  private externalChannelSeatProvider(
+    provider: InboundWebhookProvider,
+  ): "umbler" | "gupshup" {
+    if (provider === "umbler" || provider === "gupshup") {
+      return provider;
+    }
+
+    throw new ConflictException(
+      "O provedor do webhook nao suporta vagas de canal externo",
+    );
   }
 
   private statusAuditAction(
