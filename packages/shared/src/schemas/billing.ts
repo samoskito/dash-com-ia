@@ -141,9 +141,44 @@ export const workspacePackageAssignmentInputSchema = z.object({
 });
 
 export const workspaceTrialStartInputSchema = z.object({
-  capacity: z.union([z.literal(1), z.literal(3)]),
+  capacity: z.number().int().min(1).max(20),
   reason: z.string().trim().min(3).max(500),
 });
+
+export const billingTrialReminderMoments = ["d3", "day_of", "post"] as const;
+
+export const billingTrialReminderTemplateSchema = z.object({
+  moment: z.enum(billingTrialReminderMoments),
+  body: z.string().trim().min(1).max(10_000),
+  emailSubject: z.string().trim().min(1).max(300).refine(
+    (value) => !/[\r\n]/.test(value),
+    "O assunto não pode conter quebras de linha",
+  ),
+}).superRefine((template, context) => {
+  const supported = new Set(["cliente", "data_fim", "valor", "numeros", "link_assinatura"]);
+  for (const match of `${template.body}\n${template.emailSubject}`.matchAll(/{{\s*([^{}]+?)\s*}}/g)) {
+    if (!supported.has(match[1])) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Placeholder não suportado: {{${match[1]}}}`,
+        path: ["body"],
+      });
+    }
+  }
+});
+
+export const billingTrialReminderTemplatesInputSchema = z
+  .object({ templates: z.array(billingTrialReminderTemplateSchema).length(3) })
+  .superRefine(({ templates }, context) => {
+    const moments = new Set(templates.map((template) => template.moment));
+    if (moments.size !== billingTrialReminderMoments.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Informe exatamente um template para cada momento",
+        path: ["templates"],
+      });
+    }
+  });
 
 export const workspaceTrialAutoconvertDisableInputSchema = z.object({
   reason: z.string().trim().min(3).max(500),
@@ -749,6 +784,12 @@ export type WorkspacePackageAssignmentInputDto = z.infer<
 >;
 export type WorkspaceTrialStartInputDto = z.infer<
   typeof workspaceTrialStartInputSchema
+>;
+export type BillingTrialReminderTemplateDto = z.infer<
+  typeof billingTrialReminderTemplateSchema
+>;
+export type BillingTrialReminderTemplatesInputDto = z.infer<
+  typeof billingTrialReminderTemplatesInputSchema
 >;
 export type WorkspaceTrialAutoconvertDisableInputDto = z.infer<
   typeof workspaceTrialAutoconvertDisableInputSchema

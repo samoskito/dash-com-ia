@@ -115,7 +115,7 @@ function createCancellationHarness(contract: ContractFixture | null) {
 }
 
 describe("PackageContractService", () => {
-  it.each([1, 3])("starts a %i-seat 30-day exempt trial", async (capacity) => {
+  it.each([1, 3, 5, 20])("starts a %i-seat 30-day exempt trial", async (capacity) => {
     const created = {
       ...pendingContract,
       id: `trial_${capacity}`,
@@ -150,7 +150,7 @@ describe("PackageContractService", () => {
 
     await service.startTrial(
       "workspace_1",
-      { capacity: capacity as 1 | 3, reason: "Trial comercial aprovado" },
+      { capacity: capacity as 1 | 20, reason: "Trial comercial aprovado" },
       "owner_1",
     );
 

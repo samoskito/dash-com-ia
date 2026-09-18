@@ -155,6 +155,23 @@ export class EmailMessageRenderer {
       };
     }
 
+    if (envelope.template === "billing_trial_reminder") {
+      return {
+        subject: envelope.data.emailSubject,
+        body: {
+          preheader: envelope.data.emailSubject,
+          heading: this.personalizedHeading(
+            envelope.data.recipientName,
+            "lembrete sobre seu período de teste",
+          ),
+          paragraphs: envelope.data.body.split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean),
+          actionLabel: "Ver assinatura",
+          actionUrl: envelope.data.subscriptionUrl,
+          footerNote: "Se precisar de ajuda, fale com nosso suporte.",
+        },
+      };
+    }
+
     return {
       subject: "Confirme seu e-mail no WppTrack",
       body: {

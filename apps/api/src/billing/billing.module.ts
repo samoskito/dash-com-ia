@@ -6,6 +6,8 @@ import { IdempotencyGuard } from "../common/guards/idempotency.guard";
 import { UazapiConversionBridgeModule } from "../inbound-webhooks/uazapi-conversion-bridge.module";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { WorkspacesModule } from "../workspaces/workspaces.module";
+import { EmailModule } from "../email/email.module";
+import { OpsAlertsModule } from "../ops-alerts/ops-alerts.module";
 import { AsaasAdapter } from "./asaas.adapter";
 import { AdditiveWhatsappBillingService } from "./additive-whatsapp-billing.service";
 import { BackofficePackageBillingController } from "./backoffice-package-billing.controller";
@@ -31,6 +33,8 @@ import { SplitService } from "./split.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
 import { WorkspacePackageAccessService } from "./workspace-package-access.service";
+import { BillingTrialReminderTemplateService } from "./billing-trial-reminder-template.service";
+import { BillingTrialReminderService } from "./billing-trial-reminder.service";
 
 @Module({
   imports: [
@@ -40,6 +44,8 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     IntegrationsModule,
     BillingSeatModule,
     UazapiConversionBridgeModule,
+    EmailModule,
+    OpsAlertsModule,
   ],
   controllers: [
     BillingController,
@@ -71,6 +77,8 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     LegacyBillingBackfillService,
     PackageSubscriptionLifecycleService,
     PackageTrialAutoconvertService,
+    BillingTrialReminderTemplateService,
+    BillingTrialReminderService,
     PackageUazapiProvisioningService,
     SplitService,
   ],
@@ -89,6 +97,8 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     PackagePlanService,
     PackageSubscriptionLifecycleService,
     PackageTrialAutoconvertService,
+    BillingTrialReminderTemplateService,
+    BillingTrialReminderService,
     PackageUazapiProvisioningService,
     SplitService,
   ],

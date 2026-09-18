@@ -112,6 +112,7 @@ export class EmailQueueService {
         "workspace_invitation",
         "client_owner_activation",
         "workspace_access_granted",
+        "billing_trial_reminder",
       ].includes(input.envelope.template) &&
       input.workspaceId === null
     ) {

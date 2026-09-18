@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { Prisma, type WorkspaceSubscription } from "@prisma/client";
 import { PrismaService } from "../common/prisma/prisma.service";
 import {
@@ -6,6 +6,7 @@ import {
   addDays,
 } from "./package-billing.policy";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
+import { BillingTrialReminderService } from "./billing-trial-reminder.service";
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -27,6 +28,9 @@ export class PackageTrialAutoconvertService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(PackageBillingConfiguration)
     private readonly configuration: PackageBillingConfiguration,
+    @Optional()
+    @Inject(BillingTrialReminderService)
+    private readonly reminders?: BillingTrialReminderService,
   ) {}
 
   async processDueTrials(now = new Date()): Promise<TrialAutoconvertResult> {
@@ -52,6 +56,7 @@ export class PackageTrialAutoconvertService {
       if (await this.recordD3Notice(candidate.id)) {
         result.notices += 1;
       }
+      await this.reminders?.sendOnce(candidate.id, "d3");
     }
 
     const dueTrials = await this.prisma.workspaceSubscription.findMany({
@@ -67,6 +72,12 @@ export class PackageTrialAutoconvertService {
       const outcome = await this.convertTrial(trial.id, now);
       result.draftsCreated += outcome.draftCreated ? 1 : 0;
       result.trialsExpiredWithoutUsage += outcome.expiredWithoutUsage ? 1 : 0;
+      if (outcome.graceStarted || outcome.expiredWithoutUsage) {
+        await this.reminders?.sendOnce(trial.id, "day_of");
+      }
+      if (outcome.graceStarted) {
+        await this.reminders?.sendOnce(trial.id, "post");
+      }
     }
     return result;
   }
@@ -108,14 +119,14 @@ export class PackageTrialAutoconvertService {
   private async convertTrial(
     subscriptionId: string,
     now: Date,
-  ): Promise<{ draftCreated: boolean; expiredWithoutUsage: boolean }> {
+  ): Promise<{ draftCreated: boolean; expiredWithoutUsage: boolean; graceStarted: boolean }> {
     return this.prisma.$transaction(
       async (transaction) => {
         const initial = await transaction.workspaceSubscription.findUnique({
           where: { id: subscriptionId },
         });
         if (!initial) {
-          return { draftCreated: false, expiredWithoutUsage: false };
+          return { draftCreated: false, expiredWithoutUsage: false, graceStarted: false };
         }
         await this.lockWorkspace(transaction, initial.workspaceId);
         const trial = await transaction.workspaceSubscription.findUnique({
@@ -129,7 +140,7 @@ export class PackageTrialAutoconvertService {
           !trial.trialEndsAt ||
           trial.trialEndsAt.getTime() > now.getTime()
         ) {
-          return { draftCreated: false, expiredWithoutUsage: false };
+          return { draftCreated: false, expiredWithoutUsage: false, graceStarted: false };
         }
 
         const occupied = await transaction.whatsappSeat.count({
@@ -159,7 +170,7 @@ export class PackageTrialAutoconvertService {
               afterSnapshot: this.snapshot(ended),
             },
           });
-          return { draftCreated: false, expiredWithoutUsage: true };
+          return { draftCreated: false, expiredWithoutUsage: true, graceStarted: false };
         }
 
         const idempotencyReason = `trial_autoconvert:${trial.id}`;
@@ -243,7 +254,7 @@ export class PackageTrialAutoconvertService {
             afterSnapshot: this.snapshot(graceTrial),
           },
         });
-        return { draftCreated, expiredWithoutUsage: false };
+        return { draftCreated, expiredWithoutUsage: false, graceStarted: true };
       },
       { isolationLevel: "Serializable" },
     );
