@@ -10,7 +10,7 @@ import { InboundWebhookChannelRoutesService } from "../src/inbound-webhooks/inbo
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler";
+  provider: "umbler" | "data_crazy";
   status: "observation" | "production" | "paused";
   removedAt: Date | null;
 };
@@ -1292,6 +1292,50 @@ describe("inbound webhook channel routes service", () => {
         actorUserId: "user_2",
       }),
     );
+  });
+
+  it("rejects unsupported providers before activating an external channel seat", async () => {
+    const harness = createHarness();
+    await harness.service.replaceRoutes(
+      workspaceId,
+      "channel_1",
+      {
+        routes: [
+          {
+            metaBusinessConnectionId: "business_1",
+            metaReportingAccountId: "reporting_1",
+            metaConversionDestinationId: "destination_1",
+          },
+        ],
+      },
+      "user_1",
+    );
+    await harness.service.updateChannelStatus(
+      workspaceId,
+      "channel_1",
+      { status: "paused" },
+      "user_1",
+    );
+
+    const connection = harness.connections.get("connection_1")!;
+    connection.status = "production";
+    connection.provider = "data_crazy";
+    harness.billingConfiguration.isPackageBillingEnabled.mockReturnValue(true);
+    harness.billingConfiguration.isExternalChannelEnforcementEnabled.mockReturnValue(
+      true,
+    );
+
+    await expect(
+      harness.service.updateChannelStatus(
+        workspaceId,
+        "channel_1",
+        { status: "active" },
+        "user_2",
+      ),
+    ).rejects.toThrow(
+      "O provedor do webhook nao suporta vagas de canal externo",
+    );
+    expect(harness.whatsappSeats.activateExternalChannelSeat).not.toHaveBeenCalled();
   });
 
   it("rolls route changes back when the audit cannot be stored", async () => {

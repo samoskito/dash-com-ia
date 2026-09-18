@@ -22,6 +22,7 @@ import type {
 import { conversionEventNameSchema } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
+import { WorkspacePackageAccessService } from "../billing/workspace-package-access.service";
 import {
   ProviderConversionObservationService,
   type ProviderConversionAutomationObservationResult,
@@ -182,6 +183,8 @@ export class InboundConversionAutomationIngestionService {
     private readonly productionQueue: InboundWebhookProductionQueueService,
     @Inject(ProviderConversionObservationService)
     private readonly conversionObservation: ProviderConversionObservationService,
+    @Inject(WorkspacePackageAccessService)
+    private readonly workspaceAccess: WorkspacePackageAccessService,
   ) {}
 
   async ingest(
@@ -192,6 +195,7 @@ export class InboundConversionAutomationIngestionService {
       input.endpointId,
       input.token,
     );
+    await this.assertWorkspaceProcessingAllowed(endpoint.workspaceId);
     const rawBody = this.requireJsonBody(input.contentType, input.rawBody);
     const payload = JSON.parse(rawBody.toString("utf8")) as unknown;
     const parsed = this.parseAutomation(endpoint, payload);
@@ -1098,6 +1102,16 @@ export class InboundConversionAutomationIngestionService {
   private assertFeatureEnabled(): void {
     const config = parseInboundWebhooksConfig(this.env);
     if (!config.enabled || !config.conversionRulesEnabled) {
+      throw new NotFoundException(publicEndpointNotFoundMessage);
+    }
+  }
+
+  private async assertWorkspaceProcessingAllowed(
+    workspaceId: string,
+  ): Promise<void> {
+    const access = await this.workspaceAccess.getWorkspaceAccessState(workspaceId);
+
+    if (!access.allowed) {
       throw new NotFoundException(publicEndpointNotFoundMessage);
     }
   }

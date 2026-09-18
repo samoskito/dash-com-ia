@@ -12,6 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { RUNTIME_ENV, type RuntimeEnv } from "../common/runtime/runtime.module";
+import { WorkspacePackageAccessService } from "../billing/workspace-package-access.service";
 import {
   INBOUND_WEBHOOK_RAW_RETENTION_DAYS,
   parseInboundWebhooksConfig,
@@ -90,6 +91,8 @@ export class InboundWebhookIngestionService {
     private readonly encryption: InboundWebhookPayloadEncryptionService,
     @Inject(InboundWebhookQueueService)
     private readonly queue: InboundWebhookQueueService,
+    @Inject(WorkspacePackageAccessService)
+    private readonly workspaceAccess: WorkspacePackageAccessService,
   ) {}
 
   async ingest(
@@ -100,6 +103,7 @@ export class InboundWebhookIngestionService {
       input.connectionId,
       input.token,
     );
+    await this.assertWorkspaceProcessingAllowed(connection.workspaceId);
     const rawBody = this.requireJsonBody(input.contentType, input.rawBody);
     const providerAttempt = parseInboundWebhookProviderAttempt(
       input.providerAttempt,
@@ -186,6 +190,16 @@ export class InboundWebhookIngestionService {
 
   private assertFeatureEnabled(): void {
     if (!parseInboundWebhooksConfig(this.env).enabled) {
+      throw new NotFoundException(publicConnectionNotFoundMessage);
+    }
+  }
+
+  private async assertWorkspaceProcessingAllowed(
+    workspaceId: string,
+  ): Promise<void> {
+    const access = await this.workspaceAccess.getWorkspaceAccessState(workspaceId);
+
+    if (!access.allowed) {
       throw new NotFoundException(publicConnectionNotFoundMessage);
     }
   }

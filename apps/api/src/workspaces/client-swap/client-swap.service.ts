@@ -22,6 +22,12 @@ export const CLIENT_SWAP_COMPLETED_ACTION = "workspace.client_swapped";
 
 /** Workspace-scoped Prisma delegates wiped in FK-safe order (children first). */
 export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
+  "workspaceOpsAlertSettings",
+  "workspaceOpsAlertDelivery",
+  "billingTrialReminderDelivery",
+  "workspaceSubscriptionItem",
+  "xmaxShadowEvent",
+  "xmaxAccount",
   "guimoConversionRule",
   "guimoWebhookEvent",
   "guimoWebhookRateLimit",
@@ -44,6 +50,7 @@ export const CLIENT_SWAP_PRE_CONNECTOR_DELEGATES = [
   "inboundWebhookDelivery",
   "inboundWebhookChannelRoute",
   "externalIngestionRecord",
+  "uazapiChatLabelState",
   "whatsappSeat",
   "inboundWebhookChannel",
   "inboundWebhookConnection",
@@ -108,6 +115,7 @@ export const CLIENT_SWAP_RESTRICT_EDGES = [
   ["guimoConversionRule", "guimoIntegration"],
   ["guimoWebhookEvent", "guimoIntegration"],
   ["guimoWebhookRateLimit", "guimoIntegration"],
+  ["uazapiChatLabelState", "whatsappInstance"],
   ["whatsappSeat", "whatsappInstance"],
   ["whatsappSeat", "inboundWebhookChannel"],
   ["whatsappInstanceActivation", "whatsappInstance"],
@@ -163,6 +171,7 @@ export const CLIENT_SWAP_RESTRICT_EDGES = [
  */
 export const CLIENT_SWAP_EXTERNAL_HARD_PARENT_EDGES = [
   ["whatsappInstance", "workspace", "workspace", "default-required"],
+  ["uazapiChatLabelState", "workspace", "workspace", "Restrict"],
   ["whatsappSeat", "workspace", "workspace", "Restrict"],
   ["whatsappSeat", "workspaceSubscription", "subscription", "Restrict"],
   ["whatsappInstanceActivation", "workspace", "workspace", "default-required"],
@@ -215,6 +224,26 @@ export const CLIENT_SWAP_EXTERNAL_HARD_PARENT_EDGES = [
   ["inboundWebhookReplayBatch", "user", "requestedBy", "Restrict"],
   ["inboundWebhookReplayItem", "workspace", "workspace", "Restrict"],
   ["inboundWebhookProductionItem", "workspace", "workspace", "Restrict"],
+  [
+    "billingTrialReminderDelivery",
+    "workspace",
+    "workspace",
+    "Restrict",
+  ],
+  ["workspaceSubscriptionItem", "workspace", "workspace", "Restrict"],
+  [
+    "workspaceSubscriptionItem",
+    "workspaceSubscription",
+    "subscription",
+    "Restrict",
+  ],
+  ["guimoIntegration", "workspace", "workspace", "Restrict"],
+  ["guimoConversionRule", "workspace", "workspace", "Restrict"],
+  ["guimoWebhookEvent", "workspace", "workspace", "Restrict"],
+  ["guimoWebhookRateLimit", "workspace", "workspace", "Restrict"],
+  ["xmaxAccount", "workspace", "workspace", "Restrict"],
+  ["xmaxAccount", "xmaxIngress", "ingress", "Restrict"],
+  ["xmaxShadowEvent", "workspace", "workspace", "Restrict"],
   ["metaCampaign", "workspace", "workspace", "default-required"],
   ["metaAdSet", "workspace", "workspace", "default-required"],
   ["metaAd", "workspace", "workspace", "default-required"],
@@ -244,6 +273,12 @@ export const CLIENT_SWAP_EXTERNAL_PARENT_HANDLING = {
     referentialIntegrity: "delete-child",
     reason:
       "Parser releases are shared platform configuration, not workspace data.",
+  },
+  xmaxIngress: {
+    action: "preserve-parent",
+    referentialIntegrity: "delete-child",
+    reason:
+      "XMAX ingress credentials are shared configuration, not prior-client data.",
   },
   user: {
     action: "preserve-parent",

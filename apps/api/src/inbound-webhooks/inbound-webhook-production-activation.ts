@@ -84,12 +84,7 @@ export type ExternalChannelSeatHook = {
     input: {
       workspaceId: string;
       channelId: string;
-      // UAZAPI holds a WhatsappInstance seat; Data Crazy is lead tracking and
-      // Payt is purchase-only, so none consumes an external-channel seat.
-      provider: Exclude<
-        $Enums.InboundWebhookProvider,
-        "uazapi" | "datacrazy" | "payt"
-      >;
+      provider: "umbler" | "gupshup";
       normalizedPhone: string | null;
       actorUserId: string;
     },
@@ -194,8 +189,6 @@ export async function applyInboundWebhookChannelStatus(
     status === "active" &&
     current.connection.status === "production" &&
     current.connection.provider !== "uazapi" &&
-    current.connection.provider !== "datacrazy" &&
-    current.connection.provider !== "payt" &&
     input.seats.enforcementEnabled()
   ) {
     // UAZAPI/NOD channels are billed as WhatsappInstance seats already
@@ -204,7 +197,7 @@ export async function applyInboundWebhookChannelStatus(
     await input.seats.activateSeat(transaction, {
       workspaceId,
       channelId,
-      provider: current.connection.provider,
+      provider: externalChannelSeatProvider(current.connection.provider),
       normalizedPhone: current.connectedPhone || null,
       actorUserId,
     });
@@ -452,15 +445,15 @@ async function activateProductionSeats(
 ): Promise<void> {
   if (
     !options.seats.enforcementEnabled() ||
-    connection.provider === "uazapi" ||
-    connection.provider === "datacrazy" ||
-    connection.provider === "payt"
+    connection.provider === "uazapi"
   ) {
     // UAZAPI/NOD channels are billed as WhatsappInstance seats already
     // (see WhatsappSeatProvider "uazapi"); billing them again here as an
     // "external channel" seat would double-charge the workspace.
     return;
   }
+
+  const provider = externalChannelSeatProvider(connection.provider);
 
   const channels = await transaction.inboundWebhookChannel.findMany({
     where: {
@@ -479,11 +472,23 @@ async function activateProductionSeats(
     await options.seats.activateSeat(transaction, {
       workspaceId: connection.workspaceId,
       channelId: channel.id,
-      provider: connection.provider,
+      provider,
       normalizedPhone: channel.connectedPhone || null,
       actorUserId: options.actorUserId,
     });
   }
+}
+
+function externalChannelSeatProvider(
+  provider: $Enums.InboundWebhookProvider,
+): "umbler" | "gupshup" {
+  if (provider === "umbler" || provider === "gupshup") {
+    return provider;
+  }
+
+  throw new ConflictException(
+    "O provedor do webhook nao suporta vagas de canal externo",
+  );
 }
 
 async function createActivationAudit(

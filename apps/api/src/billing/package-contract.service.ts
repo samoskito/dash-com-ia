@@ -571,10 +571,11 @@ export class PackageContractService {
     if (
       !contract ||
       !contractAllowsWhatsappAccess(
-        contract.contractStatus,
-        now,
-        contract.accessEndsAt,
-      )
+          contract.contractStatus,
+          now,
+          contract.accessEndsAt,
+          contract.graceEndsAt,
+        )
     ) {
       throw new ConflictException("Workspace sem contrato com acesso ativo");
     }

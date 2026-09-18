@@ -305,6 +305,12 @@ describe("inbound webhook connections service", () => {
         creationEnabled: true,
       },
       {
+        provider: "payt",
+        parserVersion: "v1",
+        parserReleaseStatus: null,
+        creationEnabled: false,
+      },
+      {
         provider: "gupshup",
         parserVersion: "v1",
         parserReleaseStatus: "observation_only",
@@ -676,6 +682,51 @@ describe("inbound webhook connections service", () => {
         reason: "connection_removed",
       }),
     );
+  });
+
+  it("rejects unsupported providers before activating production seats", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createConnection(
+      "workspace_1",
+      {
+        provider: "umbler",
+        displayName: "Conexao com provedor sem vaga externa",
+      },
+      "user_1",
+    );
+    const connection = harness.connections.get(created.connection.id)!;
+    connection.provider = "datacrazy";
+    connection.parserRelease.status = "certified";
+    harness.billingConfiguration.isPackageBillingEnabled.mockReturnValue(true);
+    harness.billingConfiguration.isExternalChannelEnforcementEnabled.mockReturnValue(
+      true,
+    );
+    harness.prisma.inboundWebhookChannel.findMany.mockResolvedValueOnce([
+      {
+        id: "channel_datacrazy",
+        routes: [
+          {
+            id: "route_validated",
+            validationStatus: "valid",
+            metaBusinessConnectionId: "meta_business_1",
+            metaReportingAccountId: "act_1",
+            metaConversionDestinationId: "dataset_1",
+          },
+        ],
+      },
+    ]);
+
+    await expect(
+      harness.service.updateStatus(
+        "workspace_1",
+        created.connection.id,
+        { status: "production" },
+        "user_1",
+      ),
+    ).rejects.toThrow(
+      "O provedor do webhook nao suporta vagas de canal externo",
+    );
+    expect(harness.whatsappSeats.activateExternalChannelSeat).not.toHaveBeenCalled();
   });
 
   it("does not return a secret when a concurrent mutation wins", async () => {

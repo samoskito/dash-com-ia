@@ -127,6 +127,12 @@ describe("inbound webhook connection overview", () => {
           creationEnabled: true,
         },
         {
+          provider: "payt",
+          parserVersion: "v1",
+          parserReleaseStatus: null,
+          creationEnabled: false,
+        },
+        {
           provider: "gupshup",
           parserVersion: "v1",
           parserReleaseStatus: "observation_only",
@@ -153,6 +159,10 @@ describe("inbound webhook connection overview", () => {
       providers: [
         expect.objectContaining({
           provider: "umbler",
+          creationEnabled: false,
+        }),
+        expect.objectContaining({
+          provider: "payt",
           creationEnabled: false,
         }),
         expect.objectContaining({

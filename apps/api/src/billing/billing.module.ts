@@ -32,7 +32,6 @@ import { SplitController } from "./split.controller";
 import { SplitService } from "./split.service";
 import { WhatsappSeatService } from "./whatsapp-seat.service";
 import { WorkspaceBillingAccessGuard } from "./workspace-billing-access.guard";
-import { WorkspacePackageAccessService } from "./workspace-package-access.service";
 import { BillingTrialReminderTemplateService } from "./billing-trial-reminder-template.service";
 import { BillingTrialReminderService } from "./billing-trial-reminder.service";
 
@@ -68,7 +67,6 @@ import { BillingTrialReminderService } from "./billing-trial-reminder.service";
     PackageCheckoutService,
     PackagePlanService,
     PackageContractService,
-    WorkspacePackageAccessService,
     {
       provide: APP_GUARD,
       useClass: WorkspaceBillingAccessGuard,
@@ -91,7 +89,6 @@ import { BillingTrialReminderService } from "./billing-trial-reminder.service";
     PackageBillingWebhookService,
     PackageCheckoutService,
     PackageContractService,
-    WorkspacePackageAccessService,
     PackageFiscalService,
     LegacyBillingBackfillService,
     PackagePlanService,

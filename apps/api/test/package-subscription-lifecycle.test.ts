@@ -215,4 +215,38 @@ describe("PackageSubscriptionLifecycleService", () => {
       new Date("2026-07-30T12:00:00.000Z")
     );
   });
+
+  it("suspends due grace once, records the audit, and is idempotent on repeat", async () => {
+    const { prisma, seats, service, transaction } = createHarness();
+    const now = new Date("2026-07-30T12:00:00.000Z");
+    prisma.workspaceSubscription.findMany
+      .mockResolvedValueOnce([{ id: "contract_grace" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await expect(service.reconcileDueContracts(now)).resolves.toEqual({
+      canceled: 0,
+      expiredReservations: 0,
+      suspended: 1,
+    });
+    await expect(service.reconcileDueContracts(now)).resolves.toEqual({
+      canceled: 0,
+      expiredReservations: 0,
+      suspended: 0,
+    });
+
+    expect(transaction.workspaceSubscription.update).toHaveBeenCalledWith({
+      where: { id: "contract_grace" },
+      data: expect.objectContaining({
+        contractStatus: "suspended",
+        accessEndsAt: now,
+        suspendedAt: now,
+      }),
+    });
+    expect(seats.suspendSubscriptionSeats).toHaveBeenCalledTimes(1);
+    expect(transaction.billingContractAudit.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "contract.grace_expired" }),
+    });
+  });
 });

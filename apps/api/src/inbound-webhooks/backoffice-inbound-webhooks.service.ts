@@ -1827,6 +1827,9 @@ export class BackofficeInboundWebhooksService {
       contactIdentityHash: event.contactIdentityHash,
       adId: event.adId,
       hasCtwa: event.hasCtwa,
+      ...(summary?.phoneDivergenceDetected === true
+        ? { phoneDivergenceDetected: true }
+        : {}),
       classification: event.classification,
       classificationReason: event.classificationReason,
       resolvedBusinessConnectionId: event.resolvedBusinessConnectionId,

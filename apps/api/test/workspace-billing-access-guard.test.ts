@@ -19,9 +19,8 @@ function requestContext(path: string, method = "GET", authenticated = true) {
 
 function createHarness(options?: {
   accessAllowed?: boolean;
-  accessReason?: "contract_inactive" | "missing_contract";
+  accessReason?: "access_expired" | "contract_inactive" | "missing_contract";
   activeWorkspaceId?: string | null;
-  enforcementEnabled?: boolean;
   supportContext?: boolean;
   workspaceCount?: number;
 }) {
@@ -41,12 +40,6 @@ function createHarness(options?: {
       ? { workspaceId: "workspace_support" }
       : null,
   });
-  const configuration = {
-    isPackageBillingEnabled: vi.fn().mockReturnValue(true),
-    isEnforcementEnabled: vi
-      .fn()
-      .mockReturnValue(options?.enforcementEnabled ?? true),
-  };
   const getWorkspaceAccessState = vi.fn().mockResolvedValue({
     enforcementEnabled: true,
     allowed: options?.accessAllowed ?? true,
@@ -56,7 +49,6 @@ function createHarness(options?: {
   });
   const guard = new WorkspaceBillingAccessGuard(
     { getSession } as never,
-    configuration as never,
     { getWorkspaceAccessState } as never,
   );
 
@@ -65,7 +57,6 @@ function createHarness(options?: {
 
 describe("WorkspaceBillingAccessGuard", () => {
   it.each([
-    ["POST", "/webhooks/inbound/umbler"],
     ["POST", "/webhooks/asaas"],
     ["GET", "/backoffice/billing"],
     ["GET", "/billing/package/state"],
@@ -91,15 +82,24 @@ describe("WorkspaceBillingAccessGuard", () => {
     },
   );
 
-  it("does not enforce contracts while the rollout flag is disabled", async () => {
-    const { getSession, guard } = createHarness({
-      enforcementEnabled: false,
-    });
+  it("uses the centralized access decision", async () => {
+    const { getSession, guard } = createHarness();
 
     await expect(guard.canActivate(requestContext("/reports"))).resolves.toBe(
       true,
     );
-    expect(getSession).not.toHaveBeenCalled();
+    expect(getSession).toHaveBeenCalledOnce();
+  });
+
+  it("does not bypass an inbound data-processing route", async () => {
+    const { getWorkspaceAccessState, guard } = createHarness({
+      accessAllowed: false,
+    });
+
+    await expect(
+      guard.canActivate(requestContext("/webhooks/inbound/connection_1")),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(getWorkspaceAccessState).toHaveBeenCalledWith("workspace_1");
   });
 
   it("allows platform support to access a suspended workspace", async () => {
@@ -152,6 +152,8 @@ describe("WorkspaceBillingAccessGuard", () => {
     expect((thrown as ForbiddenException).getResponse()).toMatchObject({
       statusCode: 403,
       code: "workspace_billing_access_suspended",
+      message:
+        "Assinatura inativa. Acesse Assinatura para regularizar o acesso.",
       billingAccess: {
         allowed: false,
         reason: "contract_inactive",

@@ -34,12 +34,33 @@ export function contractAllowsWhatsappAccess(
   status: WorkspaceSubscriptionContractStatus,
   now: Date,
   accessEndsAt: Date | null,
+  graceEndsAt: Date | null = null,
 ): boolean {
   if (!ACCESS_STATUSES.has(status)) {
     return false;
   }
 
+  if (status === "grace_period") {
+    return (
+      graceEndsAt !== null &&
+      graceEndsAt.getTime() > now.getTime() &&
+      (accessEndsAt === null || accessEndsAt.getTime() > now.getTime())
+    );
+  }
+
   return accessEndsAt === null || accessEndsAt.getTime() > now.getTime();
+}
+
+export function contractRequiresProcessingBlock(
+  status: WorkspaceSubscriptionContractStatus,
+  now: Date,
+  graceEndsAt: Date | null,
+): boolean {
+  return (
+    status === "suspended" ||
+    (status === "grace_period" &&
+      (graceEndsAt === null || graceEndsAt.getTime() <= now.getTime()))
+  );
 }
 
 export function seatConsumesCapacity(status: WhatsappSeatStatus): boolean {
