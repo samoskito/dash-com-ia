@@ -115,6 +115,64 @@ function createCancellationHarness(contract: ContractFixture | null) {
 }
 
 describe("PackageContractService", () => {
+  it.each([1, 3])("starts a %i-seat 30-day exempt trial", async (capacity) => {
+    const created = {
+      ...pendingContract,
+      id: `trial_${capacity}`,
+      planId: null,
+      status: "active",
+      contractStatus: "exempt",
+      isCurrent: true,
+      includedWhatsappNumbersSnapshot: capacity,
+      trialEndsAt: new Date("2026-08-25T12:00:00.000Z"),
+      trialAutoconvertDisabled: false,
+      createdAt: new Date("2026-07-26T12:00:00.000Z"),
+    };
+    const transaction = {
+      $executeRaw: vi.fn().mockResolvedValue(1),
+      workspaceSubscription: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(created),
+      },
+      whatsappSeat: { count: vi.fn().mockResolvedValue(0) },
+      billingContractAudit: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const prisma = {
+      $transaction: vi.fn().mockImplementation((callback) => callback(transaction)),
+    };
+    const seats = { bindWorkspaceSeatsToContract: vi.fn().mockResolvedValue(0) };
+    const service = new PackageContractService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      seats as never,
+    );
+
+    await service.startTrial(
+      "workspace_1",
+      { capacity: capacity as 1 | 3, reason: "Trial comercial aprovado" },
+      "owner_1",
+    );
+
+    expect(transaction.workspaceSubscription.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        contractStatus: "exempt",
+        isCurrent: true,
+        includedWhatsappNumbersSnapshot: capacity,
+        monthlyPriceCentsSnapshot: 0,
+        trialEndsAt: expect.any(Date),
+        accessEndsAt: expect.any(Date),
+      }),
+    });
+    expect(seats.bindWorkspaceSeatsToContract).toHaveBeenCalledWith(
+      expect.any(Object),
+      "workspace_1",
+      `trial_${capacity}`,
+      "trial_started",
+      expect.any(Date),
+    );
+  });
+
   it("reports effective capacity from verified paid additions without double-counting active items", async () => {
     const current = {
       ...pendingContract,

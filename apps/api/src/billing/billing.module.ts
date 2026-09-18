@@ -23,6 +23,7 @@ import { PackageFiscalService } from "./package-fiscal.service";
 import { PackagePlanService } from "./package-plan.service";
 import { PackageAsaasAdapter } from "./package-asaas.adapter";
 import { PackageSubscriptionLifecycleService } from "./package-subscription-lifecycle.service";
+import { PackageTrialAutoconvertService } from "./package-trial-autoconvert.service";
 import { PackageUazapiProvisioningService } from "./package-uazapi-provisioning.service";
 import { LegacyBillingBackfillService } from "./legacy-billing-backfill.service";
 import { SplitController } from "./split.controller";
@@ -69,6 +70,7 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     PackageFiscalService,
     LegacyBillingBackfillService,
     PackageSubscriptionLifecycleService,
+    PackageTrialAutoconvertService,
     PackageUazapiProvisioningService,
     SplitService,
   ],
@@ -86,6 +88,7 @@ import { WorkspacePackageAccessService } from "./workspace-package-access.servic
     LegacyBillingBackfillService,
     PackagePlanService,
     PackageSubscriptionLifecycleService,
+    PackageTrialAutoconvertService,
     PackageUazapiProvisioningService,
     SplitService,
   ],

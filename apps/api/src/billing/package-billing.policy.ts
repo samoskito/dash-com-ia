@@ -18,7 +18,7 @@ const OCCUPIED_SEAT_STATUSES = new Set<WhatsappSeatStatus>([
 ]);
 
 const INDIVIDUAL_NUMBER_KEY = "individual-whatsapp-number";
-const INDIVIDUAL_NUMBER_PRICE_CENTS = 3_000;
+export const INDIVIDUAL_NUMBER_PRICE_CENTS = 3_000;
 
 type AdditiveCapacityItem = {
   key: string;

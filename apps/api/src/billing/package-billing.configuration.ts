@@ -25,6 +25,13 @@ export class PackageBillingConfiguration {
     return this.boolean("WPPTRACK_BILLING_LIFECYCLE_ENABLED", false);
   }
 
+  isTrialAutoconvertEnabled(): boolean {
+    return this.boolean(
+      "WPPTRACK_BILLING_TRIAL_AUTOCONVERT_ENABLED",
+      false,
+    );
+  }
+
   isFiscalEnabled(): boolean {
     return this.boolean("WPPTRACK_ASAAS_FISCAL_ENABLED", false);
   }

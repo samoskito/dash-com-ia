@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../../lib/server-api";
 import { parseMoneyInputToCents } from "../../../../lib/money-input";
 import { DEFAULT_END_CONTRACT_REASON } from "./end-contract-eligibility";
+import { DEFAULT_DISABLE_AUTOCONVERT_REASON } from "./trial-eligibility";
 
 function result(
   status: "success" | "error",
@@ -166,6 +167,85 @@ export async function cancelPackageContractAction(
       error instanceof Error
         ? error.message
         : "Nao foi possivel encerrar o contrato.",
+    );
+  }
+}
+
+export async function startWorkspaceTrialAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const capacity = Number(String(formData.get("capacity") ?? "").trim());
+  const reason = String(formData.get("reason") ?? "").trim();
+
+  if (capacity !== 1 && capacity !== 3) {
+    return result("error", "Escolha 1 ou 3 numeros para o trial.");
+  }
+
+  if (reason.length < 3) {
+    return result("error", "Escreva um motivo com pelo menos 3 letras.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/billing/package-contracts/${encodeURIComponent(
+        workspaceId,
+      )}/start-trial`,
+      {
+        method: "POST",
+        body: JSON.stringify({ capacity, reason }),
+      },
+    );
+    revalidatePath("/backoffice/billing");
+    return result(
+      "success",
+      `Trial de 30 dias iniciado com ${capacity} numero(s).`,
+    );
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel iniciar o trial.",
+    );
+  }
+}
+
+export async function disableTrialAutoconvertAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const workspaceId = String(formData.get("workspaceId") ?? "").trim();
+  const reason =
+    String(formData.get("reason") ?? "").trim() ||
+    DEFAULT_DISABLE_AUTOCONVERT_REASON;
+
+  if (reason.length < 3) {
+    return result("error", "Escreva um motivo com pelo menos 3 letras.");
+  }
+
+  try {
+    await serverApiFetch(
+      `/backoffice/billing/package-contracts/${encodeURIComponent(
+        workspaceId,
+      )}/trial-autoconvert/disable`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
+    revalidatePath("/backoffice/billing");
+    return result(
+      "success",
+      "Auto-cobranca desligada. O trial termina sem gerar cobranca.",
+    );
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel desligar a auto-cobranca.",
     );
   }
 }

@@ -996,6 +996,10 @@ model WorkspaceSubscription {
   cancellationReason              String?
   cancelAtPeriodEnd               Boolean                             @default(false)
   accessEndsAt                    DateTime?
+  /// A trial is represented by an exempt contract with this immutable end.
+  trialEndsAt                     DateTime?
+  /// Platform support may exclude this specific trial from automatic conversion.
+  trialAutoconvertDisabled        Boolean                             @default(false)
   fiscalStatus                    BillingInvoiceStatus                @default(not_configured)
   fiscalLastErrorCode             String?
   fiscalLastErrorAt               DateTime?
@@ -1026,6 +1030,7 @@ model WorkspaceSubscription {
   @@index([asaasCheckoutExpiresAt])
   @@index([graceEndsAt])
   @@index([accessEndsAt])
+  @@index([trialEndsAt, isCurrent, contractStatus])
   @@index([fiscalStatus, fiscalLastErrorAt])
   @@index([assignedByUserId])
 }

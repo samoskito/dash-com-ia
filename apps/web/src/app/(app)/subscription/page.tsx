@@ -29,6 +29,10 @@ import {
 import { AddWhatsappNumberButton } from "./add-whatsapp-number-button";
 import { PackageBillingActionForm } from "./package-billing-action-form";
 import { PackageInstanceRemoveButton } from "./package-instance-remove-button";
+import {
+  subscriptionTrialNotice,
+  trialStatusChipLabel,
+} from "./trial-status";
 
 type BillingResource = {
   data: WorkspacePackageBillingStateDto | null;
@@ -177,6 +181,8 @@ export default async function SubscriptionPage() {
   const canManageBilling = workspace.permissions.canManageBilling;
   const canManageIntegrations = workspace.permissions.canManageIntegrations;
   const contract = billing.contract;
+  const trialChip = trialStatusChipLabel(contract);
+  const trialNotice = subscriptionTrialNotice(contract);
   const planIsManagedByPlatform =
     contract?.status === "exempt" || contract?.status === "legacy_protected";
   const checkoutPending =
@@ -226,10 +232,20 @@ export default async function SubscriptionPage() {
           <span
             className={`status-chip${contractStatusTone(contract?.status)}`}
           >
-            {contractStatusLabel(contract?.status)}
+            {trialChip ?? contractStatusLabel(contract?.status)}
           </span>
         </div>
       </header>
+
+      {trialNotice ? (
+        <div
+          className={`feedback-banner${trialNotice.tone === "warn" ? " warn" : ""}`}
+          role="status"
+        >
+          <strong>{trialNotice.title}</strong>
+          <span>{trialNotice.description}</span>
+        </div>
+      ) : null}
 
       {!billing.capabilities.packageBilling ? (
         <div className="feedback-banner warn" role="status">
@@ -263,7 +279,7 @@ export default async function SubscriptionPage() {
           <Fact
             icon={CreditCard}
             label="Pagamento"
-            value={contractStatusLabel(contract?.status)}
+            value={trialChip ?? contractStatusLabel(contract?.status)}
           />
           <Fact
             icon={Smartphone}
@@ -273,10 +289,14 @@ export default async function SubscriptionPage() {
           <Fact
             icon={CalendarClock}
             label="Periodo atual"
-            value={periodLabel(
-              contract?.currentPeriodStart,
-              contract?.currentPeriodEnd,
-            )}
+            value={
+              contract?.trialEndsAt && !contract.currentPeriodStart
+                ? `Trial ate ${dateLabel(contract.trialEndsAt)}`
+                : periodLabel(
+                    contract?.currentPeriodStart,
+                    contract?.currentPeriodEnd,
+                  )
+            }
           />
           <Fact
             icon={FileCheck2}
@@ -284,7 +304,7 @@ export default async function SubscriptionPage() {
             value={invoiceStatusLabel(contract?.fiscalStatus)}
           />
         </div>
-        {contract?.status === "grace_period" ? (
+        {contract?.status === "grace_period" && !contract.trialEndsAt ? (
           <div className="package-alert">
             <strong>Pagamento em atraso</strong>
             <span>

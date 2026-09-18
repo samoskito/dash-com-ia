@@ -20,6 +20,7 @@ import type {
   WorkspacePackageAssignmentDto,
   WorkspacePackageBillingStateDto,
   WorkspacePackageSubscriptionDto,
+  WorkspaceTrialStartInputDto,
 } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
 import { PackageBillingConfiguration } from "./package-billing.configuration";
@@ -122,7 +123,10 @@ export class PackageContractService {
       }),
     ]);
 
-    const contract = currentContract ?? pendingContract;
+    // A paid draft is actionable from /subscription. Keep the live contract
+    // for access and seat calculations below, but surface the draft first so
+    // the client can submit its private-plan checkout.
+    const contract = pendingContract ?? currentContract;
     const seats = currentContract?.whatsappSeats ?? [];
     const occupied = seats.filter((seat) =>
       seatConsumesCapacity(seat.status),
@@ -301,6 +305,116 @@ export class PackageContractService {
       plan: this.packagePlans.mapPlan(plan),
       assignedAt: (created.assignedAt ?? created.createdAt).toISOString(),
     };
+  }
+
+  async startTrial(
+    workspaceId: string,
+    input: WorkspaceTrialStartInputDto,
+    actorUserId: string,
+  ): Promise<WorkspaceSubscription> {
+    const now = new Date();
+    const trialEndsAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(
+      async (transaction) => {
+        await this.lockWorkspace(transaction, workspaceId);
+        const current = await transaction.workspaceSubscription.findFirst({
+          where: { workspaceId, isCurrent: true, planNameSnapshot: { not: null } },
+          orderBy: { createdAt: "desc" },
+        });
+        if (current) {
+          throw new ConflictException("Workspace ja possui contrato atual");
+        }
+
+        const occupied = await this.countWorkspaceOccupiedSeats(
+          transaction,
+          workspaceId,
+        );
+        assertDowngradeCapacity(input.capacity, occupied);
+        const subscription = await transaction.workspaceSubscription.create({
+          data: {
+            workspaceId,
+            status: "active",
+            activeInstances: occupied,
+            contractStatus: "exempt",
+            isCurrent: true,
+            planNameSnapshot: `Trial 30 dias (${input.capacity} número${input.capacity === 1 ? "" : "s"})`,
+            planVersionSnapshot: 1,
+            monthlyPriceCentsSnapshot: 0,
+            includedWhatsappNumbersSnapshot: input.capacity,
+            assignedAt: now,
+            assignedByUserId: actorUserId,
+            assignmentReason: input.reason,
+            activatedAt: now,
+            accessEndsAt: trialEndsAt,
+            trialEndsAt,
+            fiscalStatus: "not_configured",
+          },
+        });
+        await this.seats.bindWorkspaceSeatsToContract(
+          transaction,
+          workspaceId,
+          subscription.id,
+          "trial_started",
+          now,
+        );
+        await transaction.billingContractAudit.create({
+          data: {
+            workspaceId,
+            subscriptionId: subscription.id,
+            actorUserId,
+            actorType: "platform_owner",
+            action: "trial.started",
+            reason: input.reason,
+            afterSnapshot: this.contractSnapshot(subscription),
+          },
+        });
+        return subscription;
+      },
+      { isolationLevel: "Serializable" },
+    );
+  }
+
+  async disableTrialAutoconvert(
+    workspaceId: string,
+    reason: string,
+    actorUserId: string,
+  ): Promise<WorkspaceSubscription> {
+    return this.prisma.$transaction(async (transaction) => {
+      await this.lockWorkspace(transaction, workspaceId);
+      const trial = await transaction.workspaceSubscription.findFirst({
+        where: {
+          workspaceId,
+          isCurrent: true,
+          contractStatus: "exempt",
+          trialEndsAt: { not: null },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!trial) {
+        throw new NotFoundException("Trial atual nao encontrado");
+      }
+      if (trial.trialAutoconvertDisabled) {
+        return trial;
+      }
+      const updated = await transaction.workspaceSubscription.update({
+        where: { id: trial.id },
+        data: { trialAutoconvertDisabled: true },
+      });
+      await transaction.billingContractAudit.create({
+        data: {
+          workspaceId,
+          subscriptionId: trial.id,
+          actorUserId,
+          actorType: "platform_owner",
+          action: "trial.autoconvert_disabled",
+          reason,
+          beforeSnapshot: this.contractSnapshot(trial),
+          afterSnapshot: this.contractSnapshot(updated),
+        },
+      });
+      return updated;
+    });
   }
 
   async markAwaitingPayment(
@@ -627,6 +741,12 @@ export class PackageContractService {
       currentPeriodStart: contract.currentPeriodStart?.toISOString() ?? null,
       currentPeriodEnd: contract.currentPeriodEnd?.toISOString() ?? null,
       graceEndsAt: contract.graceEndsAt?.toISOString() ?? null,
+      trialEndsAt: contract.trialEndsAt?.toISOString() ?? null,
+      canAutoconvert:
+        Boolean(contract.trialEndsAt) && !contract.trialAutoconvertDisabled,
+      trialDaysRemaining: contract.trialEndsAt
+        ? Math.max(0, Math.ceil((contract.trialEndsAt.getTime() - Date.now()) / 86_400_000))
+        : null,
       cancelAtPeriodEnd: contract.cancelAtPeriodEnd,
       accessEndsAt: contract.accessEndsAt?.toISOString() ?? null,
       fiscalStatus: contract.fiscalStatus,
@@ -741,6 +861,8 @@ export class PackageContractService {
       currentPeriodStart: contract.currentPeriodStart?.toISOString() ?? null,
       currentPeriodEnd: contract.currentPeriodEnd?.toISOString() ?? null,
       accessEndsAt: contract.accessEndsAt?.toISOString() ?? null,
+      trialEndsAt: contract.trialEndsAt?.toISOString() ?? null,
+      trialAutoconvertDisabled: contract.trialAutoconvertDisabled,
     };
   }
 }
