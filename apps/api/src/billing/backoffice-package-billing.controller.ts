@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   Patch,
+  Put,
   Post,
   Query,
 } from "@nestjs/common";
@@ -18,6 +19,7 @@ import {
   workspacePackageAssignmentInputSchema,
   workspaceTrialAutoconvertDisableInputSchema,
   workspaceTrialStartInputSchema,
+  billingTrialReminderTemplatesInputSchema,
   workspaceSubscriptionContractStatuses,
 } from "@wpptrack/shared";
 import type { WorkspaceSubscriptionContractStatus } from "@prisma/client";
@@ -28,6 +30,7 @@ import { PackageBillingReconciliationService } from "./package-billing-reconcili
 import { PackageFiscalService } from "./package-fiscal.service";
 import { PackagePlanService } from "./package-plan.service";
 import { LegacyBillingBackfillService } from "./legacy-billing-backfill.service";
+import { BillingTrialReminderTemplateService } from "./billing-trial-reminder-template.service";
 
 @Controller("backoffice/billing")
 export class BackofficePackageBillingController {
@@ -44,12 +47,33 @@ export class BackofficePackageBillingController {
     private readonly reconciliation: PackageBillingReconciliationService,
     @Inject(LegacyBillingBackfillService)
     private readonly legacyBackfill: LegacyBillingBackfillService,
+    @Inject(BillingTrialReminderTemplateService)
+    private readonly trialReminderTemplates: BillingTrialReminderTemplateService,
   ) {}
 
   @Get("package-plans")
   async listPlans(@AuthToken() refreshToken: string) {
     await this.platformAdminService.assertPlatformAdmin(refreshToken);
     return this.packagePlans.listBackofficePlans();
+  }
+
+  @Get("trial-reminder-templates")
+  async listTrialReminderTemplates(@AuthToken() refreshToken: string) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    return this.trialReminderTemplates.list();
+  }
+
+  @Put("trial-reminder-templates")
+  async replaceTrialReminderTemplates(
+    @AuthToken() refreshToken: string,
+    @Body() body: unknown,
+  ) {
+    await this.platformAdminService.assertPlatformOwner(refreshToken);
+    const parsed = billingTrialReminderTemplatesInputSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Templates de lembrete inválidos");
+    }
+    return this.trialReminderTemplates.replace(parsed.data);
   }
 
   @Post("package-plans")

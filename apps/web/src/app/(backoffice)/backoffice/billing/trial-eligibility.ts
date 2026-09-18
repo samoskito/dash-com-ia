@@ -4,7 +4,29 @@ import { contractConsumesCapacity } from "./end-contract-eligibility";
 export const DEFAULT_DISABLE_AUTOCONVERT_REASON =
   "cliente pediu para nao cobrar apos o trial";
 
+/** The API accepts any seat count in this range; the form mirrors the bounds. */
+export const TRIAL_MIN_CAPACITY = 1;
+export const TRIAL_MAX_CAPACITY = 20;
+export const TRIAL_DEFAULT_CAPACITY = 1;
+
 const DAY_IN_MS = 86_400_000;
+
+/**
+ * Returns the seat count the trial should start with, or `null` when the typed
+ * value is not a whole number inside the range the API accepts. Keeping it here
+ * lets both the server action and the tests use the same rule as the input.
+ */
+export function parseTrialCapacity(value: unknown): number | null {
+  const parsed = Number(String(value ?? "").trim());
+
+  if (!Number.isInteger(parsed)) {
+    return null;
+  }
+
+  return parsed >= TRIAL_MIN_CAPACITY && parsed <= TRIAL_MAX_CAPACITY
+    ? parsed
+    : null;
+}
 
 /**
  * Trial fields arrive on the contract DTO (`trialEndsAt`, `canAutoconvert`,

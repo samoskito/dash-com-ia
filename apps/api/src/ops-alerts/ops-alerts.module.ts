@@ -7,5 +7,5 @@ import { OpsAlertNotifier } from "./ops-alert.notifier";
 import { OpsAlertsController } from "./ops-alerts.controller";
 import { OpsAlertService } from "./ops-alerts.service";
 
-@Module({ imports: [AuthModule, PrismaModule, IntegrationsModule, WorkspacesModule], controllers: [OpsAlertsController], providers: [OpsAlertNotifier, OpsAlertService], exports: [OpsAlertService] })
+@Module({ imports: [AuthModule, PrismaModule, IntegrationsModule, WorkspacesModule], controllers: [OpsAlertsController], providers: [OpsAlertNotifier, OpsAlertService], exports: [OpsAlertService, OpsAlertNotifier] })
 export class OpsAlertsModule {}

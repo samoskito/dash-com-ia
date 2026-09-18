@@ -72,20 +72,47 @@ describe("start workspace trial action", () => {
     );
   });
 
-  it("refuses a capacity the API does not accept", async () => {
+  it("posts any seat count the API accepts", async () => {
+    serverApiFetch.mockResolvedValueOnce({});
+
     const result = await startWorkspaceTrialAction(
       initialBackofficeActionState,
       form({
         workspaceId: "workspace_1",
-        capacity: "2",
-        reason: "teste comercial",
+        capacity: "20",
+        reason: "cliente grande em avaliacao",
       }),
     );
 
-    expect(serverApiFetch).not.toHaveBeenCalled();
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("1 ou 3");
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        body: JSON.stringify({
+          capacity: 20,
+          reason: "cliente grande em avaliacao",
+        }),
+      }),
+    );
+    expect(result.status).toBe("success");
   });
+
+  it.each(["0", "21", "2.5", "", "tres"])(
+    "refuses the capacity %s that the API would reject",
+    async (capacity) => {
+      const result = await startWorkspaceTrialAction(
+        initialBackofficeActionState,
+        form({
+          workspaceId: "workspace_1",
+          capacity,
+          reason: "teste comercial",
+        }),
+      );
+
+      expect(serverApiFetch).not.toHaveBeenCalled();
+      expect(result.status).toBe("error");
+      expect(result.message).toContain("1 a 20");
+    },
+  );
 
   it("refuses a reason that is too short to audit", async () => {
     const result = await startWorkspaceTrialAction(

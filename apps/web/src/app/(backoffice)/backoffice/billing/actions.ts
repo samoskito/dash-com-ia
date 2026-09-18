@@ -5,7 +5,13 @@ import { revalidatePath } from "next/cache";
 import { serverApiFetch } from "../../../../lib/server-api";
 import { parseMoneyInputToCents } from "../../../../lib/money-input";
 import { DEFAULT_END_CONTRACT_REASON } from "./end-contract-eligibility";
-import { DEFAULT_DISABLE_AUTOCONVERT_REASON } from "./trial-eligibility";
+import { parseTrialReminderTemplates } from "./reminder-templates";
+import {
+  DEFAULT_DISABLE_AUTOCONVERT_REASON,
+  TRIAL_MAX_CAPACITY,
+  TRIAL_MIN_CAPACITY,
+  parseTrialCapacity,
+} from "./trial-eligibility";
 
 function result(
   status: "success" | "error",
@@ -176,11 +182,14 @@ export async function startWorkspaceTrialAction(
   formData: FormData,
 ): Promise<BackofficeActionState> {
   const workspaceId = String(formData.get("workspaceId") ?? "").trim();
-  const capacity = Number(String(formData.get("capacity") ?? "").trim());
+  const capacity = parseTrialCapacity(formData.get("capacity"));
   const reason = String(formData.get("reason") ?? "").trim();
 
-  if (capacity !== 1 && capacity !== 3) {
-    return result("error", "Escolha 1 ou 3 numeros para o trial.");
+  if (capacity === null) {
+    return result(
+      "error",
+      `Escolha um numero inteiro de ${TRIAL_MIN_CAPACITY} a ${TRIAL_MAX_CAPACITY} para o trial.`,
+    );
   }
 
   if (reason.length < 3) {
@@ -208,6 +217,36 @@ export async function startWorkspaceTrialAction(
       error instanceof Error
         ? error.message
         : "Nao foi possivel iniciar o trial.",
+    );
+  }
+}
+
+export async function saveTrialReminderTemplatesAction(
+  _previousState: BackofficeActionState,
+  formData: FormData,
+): Promise<BackofficeActionState> {
+  const parsed = parseTrialReminderTemplates(formData);
+
+  if (!parsed.ok) {
+    return result("error", parsed.message);
+  }
+
+  try {
+    await serverApiFetch("/backoffice/billing/trial-reminder-templates", {
+      method: "PUT",
+      body: JSON.stringify({ templates: parsed.templates }),
+    });
+    revalidatePath("/backoffice/billing");
+    return result(
+      "success",
+      "Mensagens salvas. Os proximos lembretes ja usam este texto.",
+    );
+  } catch (error) {
+    return result(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Nao foi possivel salvar as mensagens.",
     );
   }
 }

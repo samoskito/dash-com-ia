@@ -98,6 +98,16 @@ const transactionalEmailEnvelopeSchema = z.discriminatedUnion("template", [
       supportEmail: supportEmail.optional(),
     }),
   }),
+  z.object({
+    to: recipient,
+    template: z.literal("billing_trial_reminder"),
+    data: z.object({
+      recipientName: shortText.optional(),
+      emailSubject: shortText,
+      body: z.string().trim().min(1).max(10_000),
+      subscriptionUrl: z.string().trim().max(2_000),
+    }),
+  }),
 ]);
 
 @Injectable()
