@@ -125,6 +125,15 @@ export class InboundWebhookConnectionsService {
       workspaceId,
       connectionId,
     );
+
+    // UAZAPI does not use the generic inbound observation pipeline. Its
+    // connection is a bridge to one WhatsApp instance, and CTWA messages are
+    // materialized directly into platform leads. Reading InboundWebhookEvent
+    // here would therefore make an active UAZAPI connection look empty.
+    if (connection.provider === "uazapi") {
+      return this.getUazapiOverview(workspaceId, connection);
+    }
+
     const [eventCounts, deliveries] = await Promise.all([
       this.prisma.inboundWebhookEvent.groupBy({
         by: ["classification"],
@@ -166,6 +175,73 @@ export class InboundWebhookConnectionsService {
         invalid: deliveries.filter(
           (delivery) => delivery.classification === "invalid_payload",
         ).length,
+      },
+    };
+  }
+
+  private async getUazapiOverview(
+    workspaceId: string,
+    connection: PersistedInboundWebhookConnection,
+  ): Promise<InboundWebhookConnectionOverviewDto> {
+    const channel = await this.prisma.inboundWebhookChannel.findFirst({
+      where: {
+        workspaceId,
+        connectionId: connection.id,
+        whatsappInstanceId: { not: null },
+      },
+      select: {
+        whatsappInstanceId: true,
+      },
+    });
+
+    const whatsappInstanceId = channel?.whatsappInstanceId;
+    if (!whatsappInstanceId) {
+      return {
+        connection: this.toDto(connection),
+        counters: {
+          eligibleRouted: 0,
+          eligibleUnresolved: 0,
+          ignoredNoCtwa: 0,
+          duplicate: 0,
+          invalid: 0,
+        },
+      };
+    }
+
+    const [eligibleRouted, latestLog] = await Promise.all([
+      this.prisma.lead.count({
+        where: {
+          workspaceId,
+          whatsappInstanceId,
+          source: "uazapi",
+          ctwaClid: { not: null },
+        },
+      }),
+      this.prisma.webhookLog.findFirst({
+        where: {
+          workspaceId,
+          whatsappInstanceId,
+          source: "uazapi",
+        },
+        orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+        select: {
+          receivedAt: true,
+        },
+      }),
+    ]);
+
+    return {
+      connection: this.toDto(connection, latestLog?.receivedAt ?? null),
+      counters: {
+        // A UAZAPI lead is only created for an inbound message with ctwaClid.
+        eligibleRouted,
+        // UAZAPI has no persisted unresolved route state: do not invent one.
+        eligibleUnresolved: 0,
+        // WebhookLog retains a redacted payload, not a queryable CTWA outcome.
+        ignoredNoCtwa: 0,
+        // Duplicate and invalid attempts return before a distinct log exists.
+        duplicate: 0,
+        invalid: 0,
       },
     };
   }
@@ -537,6 +613,7 @@ export class InboundWebhookConnectionsService {
 
   private toDto(
     connection: PersistedInboundWebhookConnection,
+    lastDeliveryAt: Date | null = connection.lastDeliveryAt,
   ): InboundWebhookConnectionDto {
     return {
       id: connection.id,
@@ -548,7 +625,7 @@ export class InboundWebhookConnectionsService {
       status: connection.status,
       productionActivatedAt:
         connection.productionActivatedAt?.toISOString() ?? null,
-      lastDeliveryAt: connection.lastDeliveryAt?.toISOString() ?? null,
+      lastDeliveryAt: lastDeliveryAt?.toISOString() ?? null,
       lastSuccessfulParseAt:
         connection.lastSuccessfulParseAt?.toISOString() ?? null,
       createdAt: connection.createdAt.toISOString(),

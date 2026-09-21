@@ -30,8 +30,25 @@ const connection = {
   updatedAt: timestamp,
   parserRelease,
 };
+const uazapiConnection = {
+  ...connection,
+  provider: "uazapi" as const,
+  displayName: "UAZAPI Comercial",
+  lastDeliveryAt: null as Date | null,
+  lastSuccessfulParseAt: null as Date | null,
+  parserRelease: {
+    ...parserRelease,
+    id: "parser_uazapi_v1",
+    provider: "uazapi" as const,
+  },
+};
 
-function createService(enabled = true) {
+type OverviewTestConnection = typeof connection | typeof uazapiConnection;
+
+function createService(
+  enabled = true,
+  activeConnection: OverviewTestConnection = connection,
+) {
   const prisma = {
     inboundWebhookParserRelease: {
       findMany: vi.fn(async () => [
@@ -51,9 +68,17 @@ function createService(enabled = true) {
     },
     inboundWebhookConnection: {
       findFirst: vi.fn(async ({ where }) =>
-        where.id === connection.id &&
-        where.workspaceId === connection.workspaceId
-          ? connection
+        where.id === activeConnection.id &&
+        where.workspaceId === activeConnection.workspaceId
+          ? activeConnection
+          : null,
+      ),
+    },
+    inboundWebhookChannel: {
+      findFirst: vi.fn(async ({ where }) =>
+        where.workspaceId === "workspace_1" &&
+        where.connectionId === activeConnection.id
+          ? { whatsappInstanceId: "instance_a" }
           : null,
       ),
     },
@@ -88,6 +113,24 @@ function createService(enabled = true) {
           classification: "invalid_payload",
         },
       ]),
+    },
+    lead: {
+      count: vi.fn(
+        async ({ where }: { where: { whatsappInstanceId?: string } }) =>
+          where.whatsappInstanceId === "instance_a"
+            ? 3
+            : where.whatsappInstanceId === "instance_b"
+              ? 17
+              : 20,
+      ) as ReturnType<typeof vi.fn>,
+    },
+    webhookLog: {
+      findFirst: vi.fn(
+        async ({ where }: { where: { whatsappInstanceId?: string } }) =>
+          where.whatsappInstanceId === "instance_a"
+            ? { receivedAt: new Date("2026-07-20T10:00:00.000Z") }
+            : { receivedAt: new Date("2026-07-21T10:00:00.000Z") },
+      ) as ReturnType<typeof vi.fn>,
     },
   };
   const service = new InboundWebhookConnectionsService(
@@ -213,5 +256,78 @@ describe("inbound webhook connection overview", () => {
     ).rejects.toMatchObject({
       message: "Conexao de webhook nao encontrada",
     });
+  });
+
+  it("uses the bridged UAZAPI instance's materialized CTWA leads and logs instead of another instance", async () => {
+    const { prisma, service } = createService(true, uazapiConnection);
+
+    const overview = await service.getOverview("workspace_1", "connection_1");
+
+    expect(overview.counters).toEqual({
+      eligibleRouted: 3,
+      eligibleUnresolved: 0,
+      ignoredNoCtwa: 0,
+      duplicate: 0,
+      invalid: 0,
+    });
+    expect(overview.connection.lastDeliveryAt).toBe("2026-07-20T10:00:00.000Z");
+    expect(prisma.inboundWebhookChannel.findFirst).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        connectionId: "connection_1",
+        whatsappInstanceId: { not: null },
+      },
+      select: { whatsappInstanceId: true },
+    });
+    expect(prisma.lead.count).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        whatsappInstanceId: "instance_a",
+        source: "uazapi",
+        ctwaClid: { not: null },
+      },
+    });
+    expect(prisma.webhookLog.findFirst).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace_1",
+        whatsappInstanceId: "instance_a",
+        source: "uazapi",
+      },
+      orderBy: [{ receivedAt: "desc" }, { id: "desc" }],
+      select: { receivedAt: true },
+    });
+    expect(prisma.inboundWebhookEvent.groupBy).not.toHaveBeenCalled();
+    expect(prisma.inboundWebhookDelivery.findMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty UAZAPI instance at zero without falling back to other instances", async () => {
+    const { prisma, service } = createService(true, uazapiConnection);
+    prisma.lead.count.mockResolvedValueOnce(0);
+    prisma.webhookLog.findFirst.mockResolvedValueOnce(null);
+
+    const overview = await service.getOverview("workspace_1", "connection_1");
+
+    expect(overview.counters).toEqual({
+      eligibleRouted: 0,
+      eligibleUnresolved: 0,
+      ignoredNoCtwa: 0,
+      duplicate: 0,
+      invalid: 0,
+    });
+    expect(overview.connection.lastDeliveryAt).toBeNull();
+    expect(prisma.lead.count.mock.calls[0][0].where).toMatchObject({
+      workspaceId: "workspace_1",
+      whatsappInstanceId: "instance_a",
+    });
+  });
+
+  it("does not reveal a UAZAPI connection from another workspace", async () => {
+    const { prisma, service } = createService(true, uazapiConnection);
+
+    await expect(
+      service.getOverview("workspace_2", "connection_1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.lead.count).not.toHaveBeenCalled();
+    expect(prisma.webhookLog.findFirst).not.toHaveBeenCalled();
   });
 });
