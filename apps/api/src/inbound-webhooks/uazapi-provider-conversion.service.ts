@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import type {
+  ProviderConversionCatalogDto,
+  ProviderConversionDecisionCatalogSnapshotDto,
   ProviderConversionDecisionDto,
   ProviderConversionDecisionRuleSnapshotDto,
 } from "@wpptrack/shared";
@@ -48,6 +50,12 @@ const ruleInclude = {
     },
   },
   parserRelease: true,
+  catalog: {
+    include: {
+      attributes: { orderBy: { position: "asc" } },
+      variants: { orderBy: { createdAt: "asc" } },
+    },
+  },
 } satisfies Prisma.ProviderConversionRuleConfigInclude;
 
 type Rule = Prisma.ProviderConversionRuleConfigGetPayload<{
@@ -64,7 +72,7 @@ export type UazapiTeamMessageInput = {
 };
 
 export type UazapiTeamMessageResult = {
-  /** True once at least one active message_phrase rule matched the event. */
+  /** True once at least one active message rule matched the event. */
   evaluated: boolean;
   eligibleExecutionId: string | null;
 };
@@ -99,11 +107,12 @@ export type UazapiLabelInput = {
 };
 
 /**
- * U2c: evaluates message_phrase conversion rules for `fromMe=true` (team)
- * messages on a UAZAPI/NOD WhatsApp instance, reusing the same decision
- * engine + orchestrator + production pipeline as the Umbler provider
- * conversion flow (see ProviderConversionObservationService). Paid-lead-only,
- * fail-closed: no resolved lead (adId + ctwaClid) means no CAPI, ever.
+ * U2c: evaluates message_phrase and structured_catalog conversion rules for
+ * `fromMe=true` (team) messages on a UAZAPI/NOD WhatsApp instance, reusing
+ * the same decision engine + orchestrator + production pipeline as the Umbler
+ * provider conversion flow (see ProviderConversionObservationService).
+ * Paid-lead-only, fail-closed: no resolved lead (adId + ctwaClid) means no
+ * CAPI, ever.
  */
 @Injectable()
 export class UazapiProviderConversionService {
@@ -177,7 +186,7 @@ export class UazapiProviderConversionService {
       const decisionInput: ProviderConversionDecisionInput = {
         parserVersion: PARSER_VERSION,
         rule: ruleSnapshot,
-        catalog: null,
+        catalog: this.catalogSnapshot(rule),
         leadResolution,
         contactIdentityHash: hashPhoneIdentity(phone) ?? null,
         occurrence: {
@@ -499,7 +508,7 @@ export class UazapiProviderConversionService {
     let eligibleExecutionId: string | null = null;
 
     for (const rule of rules) {
-      const ruleSnapshot = this.ruleSnapshot(rule, "provider_automation");
+      const ruleSnapshot = this.ruleSnapshot(rule);
       const matched = this.matchLabels(rule, newIds, catalog);
       if (!matched) continue;
 
@@ -624,8 +633,16 @@ export class UazapiProviderConversionService {
     workspaceId: string,
     connectionId: string,
     channelId: string,
-    triggerType: "message_phrase" | "provider_automation" = "message_phrase",
+    triggerType:
+      | "message_phrase"
+      | "provider_automation"
+      | "team_message" = "team_message",
   ): Promise<Rule[]> {
+    const conversionRuleTriggerType: Prisma.EnumConversionTriggerTypeFilter<"ConversionRule"> =
+      triggerType === "team_message"
+        ? { in: ["structured_catalog", "message_phrase"] }
+        : { equals: triggerType };
+
     return this.prisma.providerConversionRuleConfig.findMany({
       where: {
         workspaceId,
@@ -633,7 +650,7 @@ export class UazapiProviderConversionService {
         removedAt: null,
         conversionRule: {
           active: true,
-          triggerType,
+          triggerType: conversionRuleTriggerType,
         },
         channels: {
           some: { channelId },
@@ -641,7 +658,7 @@ export class UazapiProviderConversionService {
       },
       include: ruleInclude,
       orderBy: { createdAt: "asc" },
-    });
+    }) as Promise<Rule[]>;
   }
 
   private async ensureDelivery(input: {
@@ -793,8 +810,8 @@ export class UazapiProviderConversionService {
 
   private ruleSnapshot(
     rule: Rule,
-    triggerType: "message_phrase" | "provider_automation" = "message_phrase",
   ): ProviderConversionDecisionRuleSnapshotDto {
+    const triggerType = this.triggerType(rule);
     const eventName = this.eventName(rule);
     const messagePhrase = readMessagePhraseConfig(
       rule.conversionRule.defaultItems,
@@ -819,10 +836,82 @@ export class UazapiProviderConversionService {
       defaultValueCents: rule.conversionRule.defaultValueCents,
       defaultCurrency: rule.conversionRule.defaultCurrency,
       defaultContentName: rule.conversionRule.defaultContentName,
-      valueMode: messagePhrase.valueMode,
-      exampleMessage: messagePhrase.exampleMessage,
+      valueMode:
+        triggerType === "message_phrase" ? messagePhrase.valueMode : "fixed",
+      exampleMessage:
+        triggerType === "message_phrase" ? messagePhrase.exampleMessage : null,
       version: `rule-v1:${rule.updatedAt.getTime()}:${rule.conversionRule.updatedAt.getTime()}`,
     };
+  }
+
+  private catalogSnapshot(
+    rule: Rule,
+  ): ProviderConversionDecisionCatalogSnapshotDto | null {
+    if (this.triggerType(rule) !== "structured_catalog" || !rule.catalog) {
+      return null;
+    }
+
+    const catalog = this.catalogDto(rule);
+    const version = createHash("sha256")
+      .update(JSON.stringify(catalog), "utf8")
+      .digest("hex");
+    return { version: `catalog-v1:${version}`, catalog };
+  }
+
+  private catalogDto(rule: Rule): ProviderConversionCatalogDto {
+    const catalog = rule.catalog;
+    if (!catalog) {
+      throw new Error("Structured catalog rule is missing its catalog");
+    }
+
+    return {
+      id: catalog.id,
+      name: catalog.name,
+      productName: catalog.productName,
+      currency: catalog.currency,
+      active: catalog.active,
+      attributes: catalog.attributes.map((attribute) => ({
+        id: attribute.id,
+        position: attribute.position,
+        key: attribute.key,
+        label: attribute.label,
+      })),
+      variants: catalog.variants.map((variant) => ({
+        id: variant.id,
+        normalizedKey: variant.normalizedKey,
+        attributeValues: this.stringArray(variant.attributeValues),
+        aliases: this.nestedStringArray(variant.aliases),
+        valueCents: variant.valueCents,
+        contentName: variant.contentName,
+        active: variant.active,
+      })),
+    };
+  }
+
+  private triggerType(
+    rule: Rule,
+  ): "structured_catalog" | "message_phrase" | "provider_automation" {
+    const triggerType = rule.conversionRule.triggerType;
+    if (
+      triggerType !== "structured_catalog" &&
+      triggerType !== "message_phrase" &&
+      triggerType !== "provider_automation"
+    ) {
+      throw new Error(`Unsupported uazapi conversion rule: ${triggerType}`);
+    }
+    return triggerType;
+  }
+
+  private stringArray(value: Prisma.JsonValue): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string")
+      : [];
+  }
+
+  private nestedStringArray(value: Prisma.JsonValue | null): string[][] {
+    return Array.isArray(value)
+      ? value.map((item) => this.stringArray(item))
+      : [];
   }
 
   private eventName(rule: Rule): ConversionEventNameDto {

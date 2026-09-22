@@ -370,6 +370,119 @@ describe("UazapiProviderConversionService", () => {
     });
   });
 
+  it("evaluates a structured catalog team message with its catalog snapshot", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    prisma.providerConversionRuleConfig.findMany.mockResolvedValue([
+      sampleRule({
+        messageTriggerPhrases: ["Muchas gracias por la confianza"],
+        conversionRule: {
+          ...sampleRule().conversionRule,
+          triggerType: "structured_catalog",
+          eventName: "Purchase",
+          defaultValueCents: null,
+          defaultCurrency: "BRL",
+          defaultContentName: null,
+        },
+        catalog: {
+          id: "catalog_1",
+          name: "Servicos web",
+          productName: "Pagina web",
+          currency: "BRL",
+          active: true,
+          attributes: [
+            {
+              id: "attribute_1",
+              position: 1,
+              key: "service",
+              label: "Servico",
+            },
+          ],
+          variants: [
+            {
+              id: "variant_website",
+              normalizedKey: "website",
+              attributeValues: ["a fazer pagina web"],
+              aliases: [["a hacer la construcción de su página web"]],
+              valueCents: 29_700,
+              contentName: "Pagina web",
+              active: true,
+              createdAt: now,
+            },
+          ],
+        },
+      }),
+    ]);
+    paidLeads.resolve.mockResolvedValue({
+      status: "resolved",
+      reasonCode: "paid_lead_resolved",
+      candidateLeadId: "lead_1",
+      leadId: "lead_1",
+    });
+    decisionEngine.evaluate.mockReturnValue({
+      decisionCode: "eligible",
+      reasonCode: "catalog_matched",
+      rule: { mode: "production", eventName: "Purchase" },
+      occurrence: {},
+      conversion: { valueCents: 29_700 },
+      leadResolution: { status: "resolved", leadId: "lead_1" },
+    });
+    prisma.inboundWebhookDelivery.findUnique.mockResolvedValue({
+      id: "delivery_catalog_1",
+    });
+    decisions.recordInitial.mockResolvedValue({
+      decision: {
+        decisionCode: "eligible",
+        reasonCode: "catalog_matched",
+        rule: { mode: "production", eventName: "Purchase" },
+      },
+    });
+    orchestrator.orchestrate.mockResolvedValue({
+      eligibleExecutionId: "execution_catalog_1",
+    });
+
+    await expect(
+      service.evaluateTeamMessage({
+        workspaceId: "workspace_1",
+        instance: {
+          id: "instance_1",
+          workspaceId: "workspace_1",
+          name: "NOD",
+          providerInstanceId: "p1",
+        },
+        phone: "+14085996089",
+        messageText:
+          "Muchas gracias por la confianza en nuestro servicios, vamos a hacer la construcción de su página web",
+        externalMessageId: "msg_catalog_1",
+      }),
+    ).resolves.toEqual({
+      evaluated: true,
+      eligibleExecutionId: "execution_catalog_1",
+    });
+
+    expect(
+      prisma.providerConversionRuleConfig.findMany.mock.calls[0][0].where
+        .conversionRule.triggerType,
+    ).toEqual({ in: ["structured_catalog", "message_phrase"] });
+    expect(decisionEngine.evaluate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rule: expect.objectContaining({ triggerType: "structured_catalog" }),
+        catalog: expect.objectContaining({
+          catalog: expect.objectContaining({
+            variants: [
+              expect.objectContaining({
+                id: "variant_website",
+                valueCents: 29_700,
+              }),
+            ],
+          }),
+        }),
+        occurrence: expect.objectContaining({
+          authorType: "organization_member",
+        }),
+      }),
+    );
+  });
+
   /**
    * The live webhook path must never backfill traffic that predates the
    * operator's activation: only an explicit manual recovery may do that.

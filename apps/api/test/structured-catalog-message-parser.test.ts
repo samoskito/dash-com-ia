@@ -232,6 +232,133 @@ describe("structured catalog message parser", () => {
     });
   });
 
+  it("matches a single active variant from UAZAPI team-message prose", () => {
+    const input: ProviderConversionCatalogDto = {
+      id: "catalog_incident",
+      name: "Servicos web",
+      productName: "Servico web",
+      currency: "BRL",
+      active: true,
+      attributes: [
+        { id: "service", position: 1, key: "service", label: "Servico" },
+      ],
+      variants: [
+        {
+          id: "branding",
+          normalizedKey: "branding",
+          attributeValues: ["desarrollar tu branding"],
+          aliases: [[]],
+          valueCents: 9_700,
+          contentName: "Branding",
+          active: true,
+        },
+        {
+          id: "website",
+          normalizedKey: "website",
+          // The configured typo does not silently fuzzy-match "construcción".
+          attributeValues: ["a hacer la construción de su pagina web"],
+          aliases: [["a hacer la construcción de su página web"]],
+          valueCents: 29_700,
+          contentName: "Pagina web",
+          active: true,
+        },
+      ],
+    };
+    const message =
+      "Muchas gracias por la confianza en nuestro servicios, vamos a hacer la construcción de su página web con todo el profesionalismo que mereces";
+
+    const result = matchStructuredCatalogMessage(input, message, {
+      triggerPhrases: ["Muchas gracias por la confianza en nuestro servicios"],
+    });
+
+    expect(result).toMatchObject({
+      matched: true,
+      reasonCode: "matched",
+      classification: "recognized",
+      catalogVariantId: "website",
+      calculatedValueCents: 29_700,
+      contentName: "Pagina web",
+    });
+    expect(result.items).toEqual([
+      expect.objectContaining({ quantity: 1, catalogVariantId: "website" }),
+    ]);
+  });
+
+  it("does not match the incident prose when only the misspelled value is configured", () => {
+    const input: ProviderConversionCatalogDto = {
+      id: "catalog_typo",
+      name: "Servicos web",
+      productName: "Servico web",
+      currency: "BRL",
+      active: true,
+      attributes: [
+        { id: "service", position: 1, key: "service", label: "Servico" },
+      ],
+      variants: [
+        {
+          id: "website",
+          normalizedKey: "website",
+          attributeValues: ["a hacer la construción de su pagina web"],
+          aliases: [[]],
+          valueCents: 29_700,
+          contentName: "Pagina web",
+          active: true,
+        },
+      ],
+    };
+
+    expect(
+      matchStructuredCatalogMessage(
+        input,
+        "Muchas gracias por la confianza en nuestro servicios, vamos a hacer la construcción de su página web",
+        { triggerPhrases: ["Muchas gracias por la confianza"] },
+      ),
+    ).toMatchObject({ matched: false, reasonCode: "empty_template" });
+  });
+
+  it("sends prose that contains multiple active variants to review", () => {
+    const input = catalog();
+    const result = matchStructuredCatalogMessage(
+      input,
+      "Dados para confirmar o pedido: temos Tamanho 4,90 e 4,27 disponiveis",
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
+    );
+
+    expect(result).toMatchObject({
+      matched: false,
+      reasonCode: "ambiguous_variant",
+      classification: "review_required",
+    });
+  });
+
+  it("keeps the structured path authoritative when prose also contains a variant value", () => {
+    const result = matchStructuredCatalogMessage(
+      catalog(),
+      "Dados para confirmar o pedido:\nTamanho: 4,90\nModelo: Nacional\nTambem temos 4,27",
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
+    );
+
+    expect(result).toMatchObject({
+      matched: true,
+      catalogVariantId: "variant_1",
+      calculatedValueCents: 359_700,
+    });
+  });
+
+  it("enforces a trigger phrase before considering prose fallback", () => {
+    const result = matchStructuredCatalogMessage(
+      catalog(),
+      "O cliente quer o modelo 4,90 Nacional",
+      { triggerPhrases: ["Dados para confirmar o pedido"] },
+    );
+
+    expect(result).toMatchObject({
+      matched: false,
+      reasonCode: "trigger_missing",
+      classification: "ignored",
+    });
+  });
+
   it("ignores a blank template with no purchase data", () => {
     const result = matchStructuredCatalogMessage(
       catalog(),
