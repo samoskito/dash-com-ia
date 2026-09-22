@@ -638,10 +638,11 @@ export class UazapiProviderConversionService {
       | "provider_automation"
       | "team_message" = "team_message",
   ): Promise<Rule[]> {
-    const conversionRuleTriggerType =
+    const conversionRuleTriggerType: Prisma.EnumConversionTriggerTypeFilter<"ConversionRule"> =
       triggerType === "team_message"
         ? { in: ["structured_catalog", "message_phrase"] }
-        : triggerType;
+        : { equals: triggerType };
+
     return this.prisma.providerConversionRuleConfig.findMany({
       where: {
         workspaceId,
@@ -657,7 +658,7 @@ export class UazapiProviderConversionService {
       },
       include: ruleInclude,
       orderBy: { createdAt: "asc" },
-    });
+    }) as Promise<Rule[]>;
   }
 
   private async ensureDelivery(input: {
