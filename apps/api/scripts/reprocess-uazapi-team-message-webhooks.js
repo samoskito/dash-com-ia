@@ -1,8 +1,8 @@
 // Reprocess a single Uazapi WebhookLog row, or recover a single already
-// frozen ProviderConversionDecisionAudit row, through the U2c message_phrase
-// team-message (fromMe=true) evaluation path, for diagnosing why a rule did
-// or did not match and for recovering occurrences that were audited but left
-// without a linked execution.
+// frozen ProviderConversionDecisionAudit row, through the U2c message_phrase /
+// structured_catalog team-message (fromMe=true) evaluation path, for
+// diagnosing why a rule did or did not match and for recovering occurrences
+// that were audited but left without a linked execution.
 //
 // Usage (from apps/api):
 //   DECISION_ID=<id> node scripts/reprocess-uazapi-team-message-webhooks.js --dry-run
@@ -35,7 +35,7 @@
 // BullMQ queue). Run from /app/apps/api so @prisma/client and the compiled
 // dist/ resolve.
 
-console.error("REPROCESS_TEAM_MSG_VERSION=2026-08-22c");
+console.error("REPROCESS_TEAM_MSG_VERSION=2026-09-22a");
 
 const { PrismaClient } = require("@prisma/client");
 
@@ -106,19 +106,24 @@ function extractFromSummaryPayload(body) {
   return { phone, messageText, fromMe, externalMessageId };
 }
 
-async function loadActiveMessagePhraseRules(workspaceId) {
+async function loadActiveTeamMessageRules(workspaceId) {
   return prisma.providerConversionRuleConfig.findMany({
     where: {
       workspaceId,
       removedAt: null,
-      conversionRule: { triggerType: "message_phrase", active: true },
+      conversionRule: {
+        triggerType: { in: ["message_phrase", "structured_catalog"] },
+        active: true,
+      },
     },
     select: {
       id: true,
       mode: true,
       messageTriggerPhrases: true,
       messageAuthorScope: true,
-      conversionRule: { select: { id: true, name: true, triggerValue: true } },
+      conversionRule: {
+        select: { id: true, name: true, triggerType: true, triggerValue: true },
+      },
     },
   });
 }
@@ -288,7 +293,7 @@ async function reprocessByWebhookLogId(id) {
 
   const { phone, messageText, fromMe, externalMessageId } =
     extractFromSummaryPayload(body);
-  const rules = await loadActiveMessagePhraseRules(log.workspaceId);
+  const rules = await loadActiveTeamMessageRules(log.workspaceId);
   const targetPhrase = "consulta está agendada";
   const hasTargetPhraseMatch = Boolean(
     messageText &&
@@ -309,12 +314,13 @@ async function reprocessByWebhookLogId(id) {
     messageTextPresent: Boolean(messageText),
     hasTargetPhraseMatch,
     hasAnyActiveRuleMatch: hasAnyRuleMatch,
-    activeMessagePhraseRules: rules.map((r) => ({
+    activeTeamMessageRules: rules.map((r) => ({
       providerRuleId: r.id,
       mode: r.mode,
       authorScope: r.messageAuthorScope,
       conversionRuleId: r.conversionRule.id,
       conversionRuleName: r.conversionRule.name,
+      triggerType: r.conversionRule.triggerType,
     })),
   });
 
@@ -395,7 +401,9 @@ async function reprocessByWebhookLogId(id) {
 }
 
 async function main() {
-  console.log("=== REPROCESS UAZAPI TEAM MESSAGE (message_phrase) ===");
+  console.log(
+    "=== REPROCESS UAZAPI TEAM MESSAGE (message_phrase / structured_catalog) ===",
+  );
   console.log({
     mode,
     decisionId: decisionId ?? null,

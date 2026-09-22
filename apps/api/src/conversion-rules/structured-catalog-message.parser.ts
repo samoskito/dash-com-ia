@@ -340,6 +340,67 @@ function parseItem(
   };
 }
 
+function proseFallback(
+  catalog: ProviderConversionCatalogDto,
+  messageText: string,
+  matchedTriggerPhrase: string | null,
+  observedPaymentValueCents: number | null,
+): StructuredCatalogTestMessageResultDto | null {
+  const normalizedMessage = normalizeStructuredCatalogText(messageText);
+  const variants = catalog.variants.filter((variant) => {
+    if (!variant.active) return false;
+
+    return variant.attributeValues.some((attributeValue, attributeIndex) =>
+      [attributeValue, ...(variant.aliases[attributeIndex] ?? [])].some(
+        (value) => {
+          const normalizedValue = normalizeStructuredCatalogText(value);
+          return (
+            normalizedValue.length > 0 &&
+            normalizedMessage.includes(normalizedValue)
+          );
+        },
+      ),
+    );
+  });
+
+  if (variants.length === 0) return null;
+  if (variants.length > 1) {
+    return emptyResult(catalog, {
+      reasonCode: "ambiguous_variant",
+      classification: "review_required",
+      matchedTriggerPhrase,
+      observedPaymentValueCents,
+    });
+  }
+
+  const variant = variants[0];
+  const contentName = contentNameFor(catalog, variant);
+  const item: StructuredCatalogParsedItemDto = {
+    position: 1,
+    quantity: 1,
+    parsedAttributes: [],
+    catalogVariantId: variant.id,
+    unitValueCents: variant.valueCents,
+    subtotalValueCents: variant.valueCents,
+    contentName,
+    reasonCode: "matched",
+  };
+  return {
+    matched: true,
+    reasonCode: "matched",
+    classification: "recognized",
+    matchedTriggerPhrase,
+    parsedAttributes: [],
+    items: [item],
+    parsedValueCents: variant.valueCents,
+    calculatedValueCents: variant.valueCents,
+    observedPaymentValueCents,
+    catalogVariantId: variant.id,
+    contentName,
+    currency: catalog.currency,
+  };
+}
+
 export function matchStructuredCatalogMessage(
   catalog: ProviderConversionCatalogDto,
   messageText: string,
@@ -377,6 +438,18 @@ export function matchStructuredCatalogMessage(
     (item) => item.parsedAttributes.length > 0,
   );
   if (!hasAnyCatalogValue) {
+    // UAZAPI/NOD team messages are often prose rather than the attribute-line
+    // template used by Umbler. Only use this additive fallback after the
+    // structured parser found no catalog values, so structured data remains
+    // authoritative whenever it is present.
+    const prose = proseFallback(
+      catalog,
+      messageText,
+      matchedTriggerPhrase,
+      observedPaymentValueCents,
+    );
+    if (prose) return prose;
+
     return emptyResult(catalog, {
       reasonCode: "empty_template",
       classification: "ignored",
