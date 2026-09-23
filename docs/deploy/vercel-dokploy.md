@@ -144,6 +144,80 @@ de rotacionar `SMTP_PASSWORD`, pause novos disparos e deixe a fila
 `transactional-email` terminar; depois da troca, reenvie apenas entregas que
 ainda estavam pendentes.
 
+## Resgate de licença (base de alunos)
+
+O resgate consulta `palm_up.Transacoes`. Crie no MySQL um usuario dedicado com
+acesso somente de leitura (`SELECT`) a essa tabela. Nao reutilize um usuario com
+permissao de escrita e nunca coloque credenciais MySQL na Vercel ou em variaveis
+`NEXT_PUBLIC_*`.
+
+Variaveis da API no Dokploy:
+
+```env
+LICENSE_CLAIM_ENABLED=
+LICENSE_CLAIM_MYSQL_HOST=
+LICENSE_CLAIM_MYSQL_PORT=
+LICENSE_CLAIM_MYSQL_DATABASE=
+LICENSE_CLAIM_MYSQL_USER=
+LICENSE_CLAIM_MYSQL_PASSWORD=
+LICENSE_CLAIM_MYSQL_SSL_MODE=
+LICENSE_CLAIM_MYSQL_SSL_CA=
+LICENSE_CLAIM_MYSQL_CONNECT_TIMEOUT_MS=
+LICENSE_CLAIM_MYSQL_QUERY_TIMEOUT_MS=
+LICENSE_CLAIM_MYSQL_POOL_SIZE=
+LICENSE_CLAIM_PRODUCT_SKU=
+LICENSE_CLAIM_INTERVAL=
+LICENSE_CLAIM_WHATSAPP_NOTIFY_ENABLED=
+LICENSE_CLAIM_TURNSTILE_SECRET_KEY=
+```
+
+Defaults da API: porta MySQL `3306`, timeouts de conexao e consulta `5000` ms,
+pool com `3` conexoes, SKU `rastrackdash_student_claim`, intervalo `annual` e
+notificacao por WhatsApp desabilitada. `LICENSE_CLAIM_MYSQL_SSL_MODE` aceita
+`disabled`, `required` ou `verify_identity`; o CA e opcional. O segredo do
+Turnstile vazio desabilita a verificacao de captcha.
+
+Variaveis publicas do Web na Vercel:
+
+```env
+NEXT_PUBLIC_LICENSE_CLAIM_TURNSTILE_SITE_KEY=
+NEXT_PUBLIC_LICENSE_CLAIM_SUPPORT_EMAIL=
+```
+
+O kill switch e `LICENSE_CLAIM_ENABLED`. Ausente, vazio ou com qualquer valor
+diferente de `true`, ele assume `false` e os endpoints de resgate respondem
+`503 license_claim_disabled`. Em rollback, defina explicitamente
+`LICENSE_CLAIM_ENABLED=false` no Dokploy e reinicie a API.
+
+### Stop-before-apply e ordem de habilitacao
+
+**STOP antes de aplicar a migracao:** o `Dockerfile` executa
+`prisma migrate deploy` quando o container inicia. Portanto, fazer deploy de
+uma imagem que contenha a migracao tambem aplica a migracao. Nao faça merge nem
+deploy ate a migracao `LicenseClaim` ser revisada e sua aplicacao no ambiente
+ser explicitamente aprovada.
+
+Depois da aprovacao, habilite nesta ordem:
+
+1. Registrar a aprovacao da migracao.
+2. Fazer o deploy da API; o boot aplica a migracao aprovada.
+3. Configurar no Dokploy as variaveis MySQL, usando o usuario somente leitura.
+4. Definir `LICENSE_CLAIM_ENABLED=true` e reiniciar a API.
+5. Executar em staging os smokes A1-A8 abaixo antes de habilitar producao.
+
+### Smoke A1-A8 (staging)
+
+| ID | Cenario | Resultado esperado |
+|---|---|---|
+| A1 | Email de aluno elegivel em `Transacoes` | O codigo chega por email, a chave e revelada e uma instalacao nova ativa com `200` e `bound:true` |
+| A2 | Repetir o resgate com o mesmo email | A mesma chave e revelada e nenhuma segunda licenca e criada |
+| A3 | Email ausente da base | A tela mostra a mesma mensagem generica de A1 apos a solicitacao e nenhum email chega |
+| A4 | Compra nao paga ou produto nao elegivel | Mesmo resultado de A3 |
+| A5 | Ativar a chave de A1 com outra `accountIdentity` | A API responde `403 license_account_mismatch` |
+| A6 | Remover temporariamente as credenciais MySQL | A tela continua generica, o log mostra `mysql_unavailable:not_configured` e `/health/ready` continua `200` |
+| A7 | Definir `LICENSE_CLAIM_ENABLED=false` | Os endpoints respondem `503` e a pagina mostra que o resgate esta indisponivel |
+| A8 | Procurar nos logs por `PALMUP-` e pelo email usado em A1-A7 | Somente o `keyPrefix` pode aparecer; a chave completa e o email nao podem aparecer |
+
 ## Build
 
 Comandos esperados no monorepo:
