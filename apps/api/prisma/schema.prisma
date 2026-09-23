@@ -2772,6 +2772,7 @@ model License {
 
   activations      LicenseActivation[]
   deliveryArtifact LicenseDeliveryArtifact?
+  claim             LicenseClaim?
 
   @@index([status, issuedAt])
   @@index([buyerEmail])
@@ -2829,4 +2830,31 @@ model LicenseWebhookEvent {
   @@unique([provider, eventType, externalTransactionId])
   @@index([provider, receivedAt])
   @@index([resultStatus, receivedAt])
+}
+
+/// Self-service claim ledger (student base -> license). One row per normalized email.
+/// The verification code is stored only as an HMAC; the raw license key is never stored here.
+model LicenseClaim {
+  id                  String    @id @default(cuid())
+  emailNormalized     String    @unique
+  /// code_sent | code_verified | issuing | issued
+  status              String
+  codeHash            String?
+  codeExpiresAt       DateTime?
+  codeAttempts        Int       @default(0)
+  codeSentCount       Int       @default(0)
+  codeWindowStartedAt DateTime?
+  lastCodeSentAt      DateTime?
+  sourceProduct       String?
+  buyerName           String?
+  phoneE164           String?
+  licenseId           String?   @unique
+  issuedAt            DateTime?
+  revealedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  license License? @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+
+  @@index([status, updatedAt])
 }

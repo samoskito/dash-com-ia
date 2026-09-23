@@ -44,10 +44,18 @@ export class LicenseRateLimitService {
 
   assertAllowed(route: string, ip: string, rawKey?: unknown): void {
     try {
-      this.consume(`${route}:${ip || "unknown"}`);
+      this.consume(
+        `${route}:${ip || "unknown"}`,
+        this.maxRequests,
+        this.windowMs,
+      );
       if (typeof rawKey === "string" && rawKey.trim()) {
         const keyHashPrefix = hashLicenseKey(rawKey).slice(0, KEY_HASH_PREFIX_LENGTH);
-        this.consume(`${route}:${keyHashPrefix}`);
+        this.consume(
+          `${route}:${keyHashPrefix}`,
+          this.maxRequests,
+          this.windowMs,
+        );
       }
     } catch (error) {
       if (error instanceof HttpException) {
@@ -57,11 +65,18 @@ export class LicenseRateLimitService {
     }
   }
 
-  private consume(bucketKey: string): void {
+  consume(bucketKey: string, maxRequests: number, windowMs: number): void {
+    if (!Number.isFinite(maxRequests) || maxRequests < 1) {
+      throw new Error("Rate-limit maxRequests must be a positive number");
+    }
+    if (!Number.isFinite(windowMs) || windowMs < 1) {
+      throw new Error("Rate-limit windowMs must be a positive number");
+    }
+
     const now = this.now();
-    const windowStart = now - this.windowMs;
+    const windowStart = now - windowMs;
     const recent = (this.hits.get(bucketKey) ?? []).filter((ts) => ts > windowStart);
-    if (recent.length >= this.maxRequests) {
+    if (recent.length >= maxRequests) {
       this.hits.set(bucketKey, recent);
       throwRateLimited();
     }

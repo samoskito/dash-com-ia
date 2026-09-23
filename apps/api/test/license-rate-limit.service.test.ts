@@ -101,4 +101,23 @@ describe("LicenseRateLimitService", () => {
     now += 1_001;
     limiter.assertAllowed("public-key", "203.0.113.10");
   });
+
+  it("supports independent public buckets with per-call limits and windows", () => {
+    let now = 1_700_000_000_000;
+    const limiter = new LicenseRateLimitService({ now: () => now });
+
+    limiter.consume("claim-request:ip:203.0.113.10", 1, 1_000);
+    limiter.consume("claim-request:email:abc123", 2, 60_000);
+    limiter.consume("claim-request:email:abc123", 2, 60_000);
+
+    expect(() =>
+      limiter.consume("claim-request:ip:203.0.113.10", 1, 1_000),
+    ).toThrow(HttpException);
+    expect(() =>
+      limiter.consume("claim-request:email:abc123", 2, 60_000),
+    ).toThrow(HttpException);
+
+    now += 1_001;
+    limiter.consume("claim-request:ip:203.0.113.10", 1, 1_000);
+  });
 });

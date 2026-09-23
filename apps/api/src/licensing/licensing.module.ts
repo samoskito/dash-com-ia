@@ -1,10 +1,15 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module";
 import { PrismaModule } from "../common/prisma/prisma.module";
+import { RuntimeModule } from "../common/runtime/runtime.module";
 import { EmailModule } from "../email/email.module";
 import { GuruLicenseWebhookController } from "./guru-license-webhook.controller";
 import { GuruLicenseWebhookService } from "./guru-license-webhook.service";
 import { LicenseAccountBindingService } from "./license-account-binding.service";
+import { LicenseClaimCaptchaService } from "./license-claim-captcha.service";
+import { LicenseClaimCodeService } from "./license-claim-code.service";
+import { LicenseClaimController } from "./license-claim.controller";
+import { LicenseClaimService } from "./license-claim.service";
 import { LicenseCryptoService } from "./license-crypto.service";
 import { LicenseDeliverySecretService } from "./license-delivery-secret.service";
 import { LicenseNotificationService } from "./license-notification.service";
@@ -13,17 +18,19 @@ import { LicenseWhatsappNotifier } from "./license-whatsapp.notifier";
 import { LicensingAdminController } from "./licensing.admin.controller";
 import { LicensingController } from "./licensing.controller";
 import { LicensingService } from "./licensing.service";
+import { StudentBaseMysqlAdapter } from "./student-base-mysql.adapter";
 
 // EmailModule is @Global() and imported everywhere via AppModule, but it's
 // imported here explicitly too so LicenseNotificationService's required
 // EmailQueueService dependency resolves even when LicensingModule is
 // compiled standalone (e.g. in tests).
 @Module({
-  imports: [PrismaModule, AuthModule, EmailModule],
+  imports: [PrismaModule, RuntimeModule, AuthModule, EmailModule],
   controllers: [
     LicensingController,
     GuruLicenseWebhookController,
     LicensingAdminController,
+    LicenseClaimController,
   ],
   providers: [
     LicenseCryptoService,
@@ -34,6 +41,10 @@ import { LicensingService } from "./licensing.service";
     LicenseNotificationService,
     LicensingService,
     GuruLicenseWebhookService,
+    StudentBaseMysqlAdapter,
+    LicenseClaimCodeService,
+    LicenseClaimCaptchaService,
+    LicenseClaimService,
   ],
   exports: [
     LicensingService,
