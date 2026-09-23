@@ -39,7 +39,7 @@ export type StudentBaseLookup =
 
 type StudentPurchaseRow = RowDataPacket & {
   nome_comprador: unknown;
-  telefone_comprados: unknown;
+  telefone_comprador: unknown;
   nome_produto: unknown;
 };
 
@@ -78,7 +78,7 @@ export class StudentBaseMysqlAdapter implements OnModuleDestroy {
 
     try {
       const [rows] = await this.getPool().query<StudentPurchaseRow[]>({
-        sql: `SELECT nome_comprador, telefone_comprados, nome_produto
+        sql: `SELECT nome_comprador, telefone_comprador, nome_produto
                 FROM ${LICENSE_CLAIM_TABLE}
                WHERE email_comprador = ?
                  AND status = '${LICENSE_CLAIM_PAID_STATUS}'
@@ -98,7 +98,7 @@ export class StudentBaseMysqlAdapter implements OnModuleDestroy {
       return {
         kind: "eligible",
         buyerName: this.optionalString(row.nome_comprador),
-        phone: this.optionalString(row.telefone_comprados),
+        phone: this.optionalString(row.telefone_comprador),
         productName: this.optionalString(row.nome_produto) ?? "",
       };
     } catch (error) {
