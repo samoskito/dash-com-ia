@@ -339,6 +339,28 @@ describe("inbound webhook panel", () => {
     expect(analystHtml).not.toContain("Salvar rotas");
   });
 
+  it("does not offer secret rotation for UAZAPI instance bridges", () => {
+    const html = renderPanel({
+      connections: [
+        {
+          ...connectionView,
+          overview: {
+            ...connectionView.overview,
+            connection: {
+              ...connectionView.overview.connection,
+              provider: "uazapi",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(html).not.toContain("Gerar nova URL");
+    expect(html).toContain(
+      "UAZAPI usa o webhook da instancia; gerar URL aqui quebra o recebimento.",
+    );
+  });
+
   it("marks connection, channel, number, BM, account, Pixel, and Page as private", () => {
     const html = renderPanel();
 

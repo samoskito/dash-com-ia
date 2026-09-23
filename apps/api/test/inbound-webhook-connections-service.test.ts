@@ -10,7 +10,7 @@ import { InboundWebhookConnectionsService } from "../src/inbound-webhooks/inboun
 
 type TestParserRelease = {
   id: string;
-  provider: "umbler" | "gupshup" | "datacrazy";
+  provider: "umbler" | "gupshup" | "uazapi" | "datacrazy";
   version: string;
   status: "observation_only" | "certified";
   certifiedByUserId: null;
@@ -22,7 +22,7 @@ type TestParserRelease = {
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler" | "gupshup" | "datacrazy";
+  provider: "umbler" | "gupshup" | "uazapi" | "datacrazy";
   displayName: string;
   parserReleaseId: string;
   secretHash: string | null;
@@ -400,6 +400,42 @@ describe("inbound webhook connections service", () => {
       action: "inbound_webhook.secret_rotated",
       actorUserId: "user_2",
     });
+  });
+
+  it("refuses to rotate a UAZAPI bridge secret without changing it", async () => {
+    const harness = createHarness();
+    const created = await harness.service.createConnection(
+      "workspace_1",
+      {
+        provider: "umbler",
+        displayName: "Umbler que virou bridge UAZAPI",
+      },
+      "user_1",
+    );
+    const persisted = harness.connections.get(created.connection.id)!;
+    const previousHash = persisted.secretHash;
+    harness.connections.set(created.connection.id, {
+      ...persisted,
+      provider: "uazapi",
+    });
+
+    await expect(
+      harness.service.rotateSecret(
+        "workspace_1",
+        created.connection.id,
+        "user_2",
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      message:
+        "Conexoes UAZAPI/NOD usam URL de instancia. Nao gere URL neste card — use a reconexao/webhook da instancia WhatsApp.",
+    });
+
+    expect(harness.connections.get(created.connection.id)?.secretHash).toBe(
+      previousHash,
+    );
+    expect(harness.prisma.inboundWebhookConnection.updateMany).not.toHaveBeenCalled();
+    expect(harness.audits).toHaveLength(1);
   });
 
   it("pauses, resumes and tombstones a connection without deleting observations", async () => {

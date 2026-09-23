@@ -37,6 +37,8 @@ import {
 import { UazapiConversionBridgeService } from "./uazapi-conversion-bridge.service";
 
 const parserVersion = "v1";
+const uazapiSecretRotationBlockedMessage =
+  "Conexoes UAZAPI/NOD usam URL de instancia. Nao gere URL neste card — use a reconexao/webhook da instancia WhatsApp.";
 
 @Injectable()
 export class InboundWebhookConnectionsService {
@@ -334,6 +336,16 @@ export class InboundWebhookConnectionsService {
     connectionId: string,
     actorUserId: string,
   ): Promise<InboundWebhookConnectionRotateSecretResultDto> {
+    const existing = await this.requireConnection(
+      this.prisma,
+      workspaceId,
+      connectionId,
+    );
+
+    if (existing.provider === "uazapi") {
+      throw new ConflictException(uazapiSecretRotationBlockedMessage);
+    }
+
     const config = this.requireEnabledConfig();
     const secret = this.generateSecret();
     const secretHash = this.hashSecret(secret);
@@ -344,6 +356,9 @@ export class InboundWebhookConnectionsService {
         workspaceId,
         connectionId,
       );
+      if (current.provider === "uazapi") {
+        throw new ConflictException(uazapiSecretRotationBlockedMessage);
+      }
       const updatedAt = this.nextMutationTime(current.updatedAt);
       const claimed = await transaction.inboundWebhookConnection.updateMany({
         where: this.activeMutationWhere(current),
