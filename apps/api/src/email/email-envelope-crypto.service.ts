@@ -100,6 +100,16 @@ const transactionalEmailEnvelopeSchema = z.discriminatedUnion("template", [
   }),
   z.object({
     to: recipient,
+    template: z.literal("license_claim_code"),
+    data: z.object({
+      code: z.string().regex(/^\d{6}$/),
+      expiresAt: expiry,
+      productName: shortText,
+      supportEmail: supportEmail.optional(),
+    }),
+  }),
+  z.object({
+    to: recipient,
     template: z.literal("billing_trial_reminder"),
     data: z.object({
       recipientName: shortText.optional(),

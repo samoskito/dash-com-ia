@@ -33,6 +33,18 @@ function context(): EmailEnvelopeContext {
   };
 }
 
+function claimContext(): EmailEnvelopeContext {
+  return {
+    deliveryId: "delivery-claim-1",
+    workspaceId: null,
+    template: "license_claim_code",
+    recipientHash: "recipient-hash",
+    actionType: "LicenseClaim",
+    actionId: "claim-1",
+    actionVersion: "code:2026-09-23T21:05:00.000Z",
+  };
+}
+
 describe("EmailEnvelopeCryptoService license_key_delivery", () => {
   it("round-trips a license key delivery envelope without leaking the key in ciphertext framing", () => {
     const configuration = new EmailConfigurationService(smtpEnvironment());
@@ -91,5 +103,43 @@ describe("EmailEnvelopeCryptoService license_key_delivery", () => {
     };
 
     expect(() => crypto.encrypt(envelope, context())).toThrow();
+  });
+});
+
+describe("EmailEnvelopeCryptoService license_claim_code", () => {
+  it("round-trips a valid claim-code envelope", () => {
+    const configuration = new EmailConfigurationService(smtpEnvironment());
+    const crypto = new EmailEnvelopeCryptoService(configuration);
+    const envelope = {
+      to: { address: "aluno@example.com" },
+      template: "license_claim_code" as const,
+      data: {
+        code: "012345",
+        expiresAt: "2026-09-23T21:20:00.000Z",
+        productName: "RastrackDash",
+        supportEmail: "suporte@palmup.com.br",
+      },
+    };
+    const ctx = claimContext();
+    const encrypted = crypto.encrypt(envelope, ctx);
+
+    expect(JSON.stringify(encrypted)).not.toContain("012345");
+    expect(crypto.decrypt(encrypted, ctx)).toEqual(envelope);
+  });
+
+  it.each(["12345", "abcdef"])("rejects invalid code %s", (code) => {
+    const configuration = new EmailConfigurationService(smtpEnvironment());
+    const crypto = new EmailEnvelopeCryptoService(configuration);
+    const envelope = {
+      to: { address: "aluno@example.com" },
+      template: "license_claim_code" as const,
+      data: {
+        code,
+        expiresAt: "2026-09-23T21:20:00.000Z",
+        productName: "RastrackDash",
+      },
+    };
+
+    expect(() => crypto.encrypt(envelope, claimContext())).toThrow();
   });
 });

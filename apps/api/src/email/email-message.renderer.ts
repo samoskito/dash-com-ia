@@ -11,6 +11,7 @@ type EmailBody = {
   paragraphs: string[];
   /** Optional monospaced block (e.g. license key). Escaped on render. */
   codeBlock?: string;
+  codeBlockLabel?: string;
   actionLabel: string;
   actionUrl: string;
   footerNote: string;
@@ -155,6 +156,30 @@ export class EmailMessageRenderer {
       };
     }
 
+    if (envelope.template === "license_claim_code") {
+      const productName = envelope.data.productName;
+      const support =
+        envelope.data.supportEmail?.trim() || "suporte@rastrack.app";
+      return {
+        subject: `Seu código para resgatar ${productName}`,
+        body: {
+          preheader: `Use este código para resgatar sua licença ${productName}.`,
+          heading: "Confirme seu email",
+          paragraphs: [
+            `Use o código abaixo para continuar o resgate da sua licença ${productName}.`,
+            "O código expira em 15 minutos. Se você não pediu, ignore este email.",
+            `Dúvidas: ${support}.`,
+          ],
+          codeBlock: envelope.data.code,
+          codeBlockLabel: "Seu código:",
+          actionLabel: "Resgatar licença",
+          actionUrl: this.licenseClaimUrl(),
+          footerNote:
+            "Não compartilhe este código. Ele confirma o acesso ao email usado na compra.",
+        },
+      };
+    }
+
     if (envelope.template === "billing_trial_reminder") {
       return {
         subject: envelope.data.emailSubject,
@@ -200,7 +225,7 @@ export class EmailMessageRenderer {
       "",
       ...body.paragraphs.flatMap((paragraph) => [paragraph, ""]),
       ...(body.codeBlock
-        ? ["Sua chave:", body.codeBlock, ""]
+        ? [body.codeBlockLabel ?? "Sua chave:", body.codeBlock, ""]
         : []),
       `${body.actionLabel}: ${body.actionUrl}`,
       "",
@@ -273,6 +298,13 @@ export class EmailMessageRenderer {
   private loginUrl(): string {
     return new URL(
       "/login",
+      `${this.configuration.getWebOrigin()}/`,
+    ).toString();
+  }
+
+  private licenseClaimUrl(): string {
+    return new URL(
+      "/licenca",
       `${this.configuration.getWebOrigin()}/`,
     ).toString();
   }

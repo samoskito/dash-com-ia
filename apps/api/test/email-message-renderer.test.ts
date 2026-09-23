@@ -158,6 +158,29 @@ describe("EmailMessageRenderer", () => {
     expect(message.html).toContain("suporte@palmup.com.br");
   });
 
+  it("renders a license claim code without exposing a license key", () => {
+    const configuration = new EmailConfigurationService(smtpEnvironment());
+    const renderer = new EmailMessageRenderer(configuration);
+    const message = renderer.render({
+      to: { address: "aluno@example.com" },
+      template: "license_claim_code",
+      data: {
+        code: "012345",
+        expiresAt: "2026-09-23T21:20:00.000Z",
+        productName: "RastrackDash",
+        supportEmail: "suporte@palmup.com.br",
+      },
+    });
+
+    expect(message.subject).toBe("Seu código para resgatar RastrackDash");
+    expect(message.html).toContain("012345");
+    expect(message.text).toContain("012345");
+    expect(message.html).toContain("15 minutos");
+    expect(message.text).toContain("15 minutos");
+    expect(message.html).not.toContain("PALMUP-");
+    expect(message.text).not.toContain("PALMUP-");
+  });
+
   it("escapes user-controlled display values before rendering HTML", () => {
     const configuration = new EmailConfigurationService(smtpEnvironment());
     const crypto = new EmailEnvelopeCryptoService(configuration);

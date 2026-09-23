@@ -1,10 +1,14 @@
 import { Logger } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LicenseNotificationService } from "../src/licensing/license-notification.service";
 
 const RAW_KEY = "PALMUP-ABCD-1234-EFGH-5678";
 const DEFAULT_REPO_URL = "https://github.com/samoskito/nod-rastrackdash-wpp";
 const DEFAULT_PRODUCT_NAME = "RastrackDash";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function baseLicense(overrides: Partial<{
   buyerEmail: string | null;
@@ -392,6 +396,8 @@ describe("LicenseNotificationService", () => {
   });
 
   it("resends from a valid delivery artifact without returning the raw key", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T00:00:00.000Z"));
     const { service, emailQueue, deliverySecrets, artifacts } = createHarness();
     await service.storeDeliveryArtifact(
       "lic_1",
@@ -417,6 +423,8 @@ describe("LicenseNotificationService", () => {
   });
 
   it("skips whatsapp with reason channel_excluded when channel is email", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T00:00:00.000Z"));
     const { service, whatsapp, emailQueue } = createHarness();
     await service.storeDeliveryArtifact("lic_1", RAW_KEY, new Date("2026-08-19T00:00:00.000Z"));
 
@@ -430,6 +438,8 @@ describe("LicenseNotificationService", () => {
   });
 
   it("skips email with reason channel_excluded when channel is whatsapp", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T00:00:00.000Z"));
     const { service, whatsapp, emailQueue } = createHarness();
     whatsapp.isConfigured.mockReturnValue(true);
     await service.storeDeliveryArtifact("lic_1", RAW_KEY, new Date("2026-08-19T00:00:00.000Z"));

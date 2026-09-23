@@ -1,9 +1,13 @@
 import { Logger } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GuruLicenseWebhookService } from "../src/licensing/guru-license-webhook.service";
 
 const SECRET = "guru-test-secret";
 const RAW_KEY = "PALMUP-SHOULD-NOT-LEAK";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function daysFromNow(days: number, now = new Date()): Date {
   return new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
@@ -284,6 +288,8 @@ describe("GuruLicenseWebhookService", () => {
 
   it("extends expiresAt on renewal from the existing license interval", async () => {
     const now = new Date("2026-08-19T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
     const expiresAt = daysFromNow(30, now);
     const { service, prisma, licensingService, licenses } = createHarness();
     licenses.set("lic_1", {

@@ -7,6 +7,7 @@ export const transactionalEmailTemplateNames = [
   "client_owner_activation",
   "workspace_access_granted",
   "license_key_delivery",
+  "license_claim_code",
   "billing_trial_reminder",
 ] as const;
 
@@ -61,6 +62,13 @@ export type LicenseKeyDeliveryEmailData = {
   supportEmail?: string;
 };
 
+export type LicenseClaimCodeEmailData = {
+  code: string;
+  expiresAt: string;
+  productName: string;
+  supportEmail?: string;
+};
+
 export type BillingTrialReminderEmailData = {
   recipientName?: string;
   emailSubject: string;
@@ -101,12 +109,23 @@ export type TransactionalEmailEnvelope =
     }
   | {
       to: EmailRecipient;
+      template: "license_claim_code";
+      data: LicenseClaimCodeEmailData;
+    }
+  | {
+      to: EmailRecipient;
       template: "billing_trial_reminder";
       data: BillingTrialReminderEmailData;
     };
 
 export type EmailActionReference = {
-  type: "WorkspaceInvite" | "WorkspaceMember" | "AuthActionToken" | "License" | "BillingTrialReminder";
+  type:
+    | "WorkspaceInvite"
+    | "WorkspaceMember"
+    | "AuthActionToken"
+    | "License"
+    | "LicenseClaim"
+    | "BillingTrialReminder";
   id: string;
   version: string;
 };
