@@ -60,6 +60,7 @@ type ReportFilters = {
   delivery?: ReportDeliveryFilter;
   selectedEntityIds?: string[];
   whatsappClassification?: WhatsappClassificationFilter;
+  whatsappInstanceId?: string;
 };
 
 @Controller("reports")
@@ -93,6 +94,7 @@ export class ReportingController {
     @Query("delivery") delivery?: string | string[],
     @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("whatsappInstanceId") whatsappInstanceId?: string | string[],
     @Query("includeSummary") includeSummary?: string | string[],
     @Query("includeDaily") includeDaily?: string | string[],
     @Query("page") page?: string | string[],
@@ -118,6 +120,7 @@ export class ReportingController {
       delivery,
       selectedIds,
       whatsappClassification,
+      whatsappInstanceId,
     });
     const pagination = this.parseReportPagination(page, pageSize);
     const includeWorkspaceSummary = this.parseBooleanFlag(includeSummary);
@@ -645,6 +648,7 @@ export class ReportingController {
     delivery?: string | string[];
     selectedIds?: string | string[];
     whatsappClassification?: string | string[];
+    whatsappInstanceId?: string | string[];
   }): ReportFilters {
     const filters: ReportFilters = {};
     const businessId = this.trimOptional(input.businessId);
@@ -659,6 +663,9 @@ export class ReportingController {
     const selectedEntityIds = this.parseSelectedEntityIds(input.selectedIds);
     const whatsappClassification = this.parseWhatsappClassificationFilter(
       input.whatsappClassification,
+    );
+    const whatsappInstanceId = this.parseWhatsappInstanceId(
+      input.whatsappInstanceId,
     );
 
     if (businessId) {
@@ -702,6 +709,10 @@ export class ReportingController {
       filters.whatsappClassification = whatsappClassification;
     }
 
+    if (whatsappInstanceId) {
+      filters.whatsappInstanceId = whatsappInstanceId;
+    }
+
     return filters;
   }
 
@@ -713,6 +724,18 @@ export class ReportingController {
     const trimmed = value?.trim();
 
     return trimmed ? trimmed : undefined;
+  }
+
+  private parseWhatsappInstanceId(
+    value?: string | string[],
+  ): string | undefined {
+    const parsed = this.trimOptional(value);
+
+    if (value !== undefined && !parsed) {
+      throw new BadRequestException("Instancia WhatsApp invalida");
+    }
+
+    return parsed;
   }
 
   private isWhatsappClassificationFilter(

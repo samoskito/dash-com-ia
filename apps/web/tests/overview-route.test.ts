@@ -219,6 +219,22 @@ describe("overview route", () => {
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "instance_1",
+              name: "Comercial",
+              provider: "uazapi",
+              billingStatus: "active",
+              providerInstanceId: "5511999991234",
+              checkoutUrl: null,
+              createdAt: "2026-07-01T12:00:00.000Z",
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       );
 
     const element = await OverviewPage({
@@ -227,17 +243,23 @@ describe("overview route", () => {
         until: "2026-07-02",
         businessId: "business_1",
         adAccountId: "act_1",
+        whatsappInstanceId: "instance_1",
       }),
     });
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1",
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_1&whatsappInstanceId=instance_1",
       expect.objectContaining({ credentials: "include" }),
     );
     expect(html).toContain("Periodo e contas");
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta Principal");
+    expect(html).toContain("Instancia WhatsApp");
+    expect(html).toContain("Comercial - •••• 1234");
+    expect(html).toContain(
+      "Investimento e Conversas Meta sao da conta de anuncios (nao do chip).",
+    );
     expect(html).toContain("Meta x conversas reais");
     expect(html).toContain("4 conversas a mais na Meta");
     expect(html).toContain("daily-comparison-chart");

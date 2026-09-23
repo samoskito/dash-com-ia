@@ -105,6 +105,7 @@ type ReportFilterInput = {
   delivery?: ReportDeliveryFilter;
   selectedEntityIds?: string[];
   whatsappClassification?: WhatsappClassificationFilter;
+  whatsappInstanceId?: string;
   page?: number;
   pageSize?: number;
 };
@@ -320,6 +321,11 @@ type LeadEvidenceMaps = {
   campaigns: Set<string>;
   adSets: Set<string>;
   ads: Set<string>;
+};
+
+type WhatsappInstanceRecord = {
+  id: string;
+  name: string;
 };
 
 type CampaignMetricOverride = {
@@ -1529,6 +1535,7 @@ export class MetaReportingService {
     } & ReportFilterInput,
   ): Promise<ReportOverviewDto> {
     const startedAt = Date.now();
+    const whatsappInstance = await this.resolveWhatsappInstance(input);
     const campaignWhere = await this.metaSnapshotWhere(input);
     const usesWhatsappDefault =
       (input.whatsappClassification ?? "whatsapp") === "whatsapp";
@@ -1576,18 +1583,8 @@ export class MetaReportingService {
     );
     const summaryScope = this.summaryMetricScope(input, campaignIds);
     const needsWorkspaceMetrics = input.includeSummary || input.includeDaily;
-    const [
-      conversionLogs,
-      leads,
-      workspaceConversionLogs,
-      workspaceLeads,
-      dailyInsights,
-    ] = await Promise.all([
-      this.getMetricConversionEvents(input, { campaignIds }),
+    const [leads, workspaceLeads, dailyInsights] = await Promise.all([
       this.getLeads(input, { campaignIds }),
-      needsWorkspaceMetrics
-        ? this.getMetricConversionEvents(input, summaryScope)
-        : Promise.resolve([]),
       needsWorkspaceMetrics
         ? this.getLeads(input, summaryScope)
         : Promise.resolve([]),
@@ -1606,6 +1603,20 @@ export class MetaReportingService {
             },
           }) as Promise<MetaCampaignDailyInsightRecord[]>)
         : Promise.resolve([] as MetaCampaignDailyInsightRecord[]),
+    ]);
+    const [conversionLogs, workspaceConversionLogs] = await Promise.all([
+      this.getMetricConversionEvents(
+        input,
+        { campaignIds },
+        leads.map((lead) => lead.id),
+      ),
+      needsWorkspaceMetrics
+        ? this.getMetricConversionEvents(
+            input,
+            summaryScope,
+            workspaceLeads.map((lead) => lead.id),
+          )
+        : Promise.resolve([]),
     ]);
     const conversionLogsByCampaign = this.groupByOptionalKey(
       conversionLogs,
@@ -1717,6 +1728,15 @@ export class MetaReportingService {
       ...(dailyComparison ? { dailyComparison } : {}),
       ...(input.includeDaily ? { dailyComparisonAvailable } : {}),
       ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
+      ...(whatsappInstance
+        ? {
+            filters: {
+              whatsappInstanceId: whatsappInstance.id,
+              whatsappInstanceName: whatsappInstance.name,
+            },
+            metaMetricsScope: "ad_account" as const,
+          }
+        : {}),
     };
   }
 
@@ -2538,8 +2558,7 @@ export class MetaReportingService {
     );
     const paginated = this.paginateRecords(filteredAdSets, input);
     const adSetIds = filteredAdSets.map((adSet) => adSet.adSetId);
-    const [conversionLogs, leads, dailyInsights] = await Promise.all([
-      this.getMetricConversionEvents(input, { adSetIds }),
+    const [leads, dailyInsights] = await Promise.all([
       this.getLeads(input, { adSetIds }),
       input.since && input.until && adSetIds.length
         ? (this.prisma.metaAdSetDailyInsight.findMany({
@@ -2557,6 +2576,11 @@ export class MetaReportingService {
           }) as Promise<MetaAdSetDailyInsightRecord[]>)
         : Promise.resolve([] as MetaAdSetDailyInsightRecord[]),
     ]);
+    const conversionLogs = await this.getMetricConversionEvents(
+      input,
+      { adSetIds },
+      leads.map((lead) => lead.id),
+    );
     const conversionLogsByAdSet = this.groupByOptionalKey(
       conversionLogs,
       "adSetId",
@@ -2673,8 +2697,7 @@ export class MetaReportingService {
     );
     const paginated = this.paginateRecords(filteredAds, input);
     const adIds = filteredAds.map((ad) => ad.adId);
-    const [conversionLogs, leads, dailyInsights] = await Promise.all([
-      this.getMetricConversionEvents(input, { adIds }),
+    const [leads, dailyInsights] = await Promise.all([
       this.getLeads(input, { adIds }),
       input.since && input.until && adIds.length
         ? (this.prisma.metaAdDailyInsight.findMany({
@@ -2692,6 +2715,11 @@ export class MetaReportingService {
           }) as Promise<MetaAdDailyInsightRecord[]>)
         : Promise.resolve([] as MetaAdDailyInsightRecord[]),
     ]);
+    const conversionLogs = await this.getMetricConversionEvents(
+      input,
+      { adIds },
+      leads.map((lead) => lead.id),
+    );
     const conversionLogsByAd = this.groupByOptionalKey(conversionLogs, "adId");
     const leadsByAd = this.groupByOptionalKey(leads, "adId");
     const dailyMetricByAd = this.completeDailyEntityMetrics({
@@ -3614,8 +3642,10 @@ export class MetaReportingService {
       workspaceId: string;
       since?: string;
       until?: string;
+      whatsappInstanceId?: string;
     },
     scope: ReportMetricScopeFilter = {},
+    leadIds?: string[],
   ): Promise<ConversionEventRecord[]> {
     if (this.isEmptyMetricScope(scope)) {
       return Promise.resolve([]);
@@ -3627,6 +3657,7 @@ export class MetaReportingService {
         status: { not: "skipped" },
         ...this.metricScopeWhere(scope),
         ...this.eventPeriodWhere(input),
+        ...(input.whatsappInstanceId ? { leadId: { in: leadIds ?? [] } } : {}),
       },
       select: {
         id: true,
@@ -3664,6 +3695,7 @@ export class MetaReportingService {
       workspaceId: string;
       since?: string;
       until?: string;
+      whatsappInstanceId?: string;
     },
     scope: ReportMetricScopeFilter = {},
   ): Promise<LeadRecord[]> {
@@ -3674,6 +3706,9 @@ export class MetaReportingService {
     return this.prisma.lead.findMany({
       where: {
         workspaceId: input.workspaceId,
+        ...(input.whatsappInstanceId
+          ? { whatsappInstanceId: input.whatsappInstanceId }
+          : {}),
         ...this.metricScopeWhere(scope),
         ...this.leadPeriodWhere(input),
       },
@@ -3688,6 +3723,29 @@ export class MetaReportingService {
         createdAt: true,
       },
     }) as Promise<LeadRecord[]>;
+  }
+
+  private async resolveWhatsappInstance(input: {
+    workspaceId: string;
+    whatsappInstanceId?: string;
+  }): Promise<WhatsappInstanceRecord | null> {
+    if (!input.whatsappInstanceId) {
+      return null;
+    }
+
+    const instance = (await this.prisma.whatsappInstance.findFirst({
+      where: {
+        id: input.whatsappInstanceId,
+        workspaceId: input.workspaceId,
+      },
+      select: { id: true, name: true },
+    })) as WhatsappInstanceRecord | null;
+
+    if (!instance) {
+      throw new NotFoundException("Instancia WhatsApp nao encontrada");
+    }
+
+    return instance;
   }
 
   private metricScopeWhere(scope: ReportMetricScopeFilter) {
