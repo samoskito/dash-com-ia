@@ -329,4 +329,68 @@ describe("inbound webhook channel readiness", () => {
     expect(prisma.inboundWebhookEvent.findMany).not.toHaveBeenCalled();
     expect(prisma.inboundWebhookDelivery.findMany).not.toHaveBeenCalled();
   });
+
+  it("does not leave a UAZAPI channel waiting when its bridged instance has materialized CTWA leads", async () => {
+    const uazapiChannel = {
+      ...channel("channel_uazapi", []),
+      whatsappInstanceId: "instance_a",
+      connection: {
+        id: "connection_current",
+        workspaceId: "workspace_current",
+        provider: "uazapi",
+        status: "observation",
+        removedAt: null,
+      },
+    };
+    const prisma = {
+      inboundWebhookConnection: {
+        findFirst: vi.fn(async () => ({ id: "connection_current" })),
+      },
+      inboundWebhookChannel: {
+        findMany: vi.fn(async () => [uazapiChannel]),
+      },
+      inboundWebhookEvent: {
+        findMany: vi.fn(),
+      },
+      inboundWebhookDelivery: {
+        findMany: vi.fn(),
+      },
+      lead: {
+        groupBy: vi.fn(async () => [
+          { whatsappInstanceId: "instance_a", _count: { _all: 3 } },
+        ]),
+      },
+    };
+    const service = new InboundWebhookChannelRoutesService(
+      prisma as unknown as PrismaService,
+      {
+        previewRoute: vi.fn(),
+      } as unknown as InboundWebhookMetaRouteReaderService,
+    );
+
+    const [result] = await service.listChannels(
+      "workspace_current",
+      "connection_current",
+    );
+
+    expect(result.readiness).toMatchObject({
+      state: "complete",
+      totalCtwa: 3,
+      routedCtwa: 3,
+      alreadyMaterializedCtwa: 3,
+    });
+    expect(result.readiness.blockers).not.toContain("ctwa_not_observed");
+    expect(prisma.lead.groupBy).toHaveBeenCalledWith({
+      by: ["whatsappInstanceId"],
+      where: {
+        workspaceId: "workspace_current",
+        whatsappInstanceId: { in: ["instance_a"] },
+        source: "uazapi",
+        ctwaClid: { not: null },
+      },
+      _count: { _all: true },
+    });
+    expect(prisma.inboundWebhookEvent.findMany).not.toHaveBeenCalled();
+    expect(prisma.inboundWebhookDelivery.findMany).not.toHaveBeenCalled();
+  });
 });

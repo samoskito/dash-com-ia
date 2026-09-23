@@ -1063,8 +1063,36 @@ export class InboundWebhookChannelRoutesService {
   ): Promise<Map<string, InboundWebhookChannelReadinessDto>> {
     const channelIds = channels.map((channel) => channel.id);
     const now = new Date();
+    const isUazapiConnection = channels[0]?.connection.provider === "uazapi";
+    const whatsappInstanceIds = isUazapiConnection
+      ? channels.flatMap((channel) =>
+          channel.whatsappInstanceId ? [channel.whatsappInstanceId] : [],
+        )
+      : [];
+    const uazapiLeadCounts =
+      whatsappInstanceIds.length === 0
+        ? []
+        : await this.prisma.lead.groupBy({
+            by: ["whatsappInstanceId"],
+            where: {
+              workspaceId,
+              whatsappInstanceId: { in: whatsappInstanceIds },
+              source: "uazapi",
+              ctwaClid: { not: null },
+            },
+            _count: {
+              _all: true,
+            },
+          });
+    const materializedCtwaByInstance = new Map(
+      uazapiLeadCounts.flatMap((row) =>
+        row.whatsappInstanceId === null
+          ? []
+          : [[row.whatsappInstanceId, row._count._all] as const],
+      ),
+    );
     const events =
-      channelIds.length === 0
+      channelIds.length === 0 || isUazapiConnection
         ? []
         : await this.prisma.inboundWebhookEvent.findMany({
             where: {
@@ -1127,6 +1155,7 @@ export class InboundWebhookChannelRoutesService {
           eventsByChannel.get(channel.id) ?? [],
           now,
           availableDeliveryIds,
+          materializedCtwaByInstance.get(channel.whatsappInstanceId ?? "") ?? 0,
         ),
       ]),
     );
@@ -1137,6 +1166,7 @@ export class InboundWebhookChannelRoutesService {
     events: ChannelReadinessEvent[],
     now: Date,
     availableDeliveryIds: ReadonlySet<string>,
+    materializedUazapiCtwa = 0,
   ): InboundWebhookChannelReadinessDto {
     const routeCount = channel.routes.length;
     const validRouteCount = channel.routes.filter(
@@ -1178,6 +1208,10 @@ export class InboundWebhookChannelRoutesService {
     const nextPayloadExpiresAt = retainedEvents
       .map((event) => event.delivery.payloadExpiresAt)
       .sort((left, right) => left.getTime() - right.getTime())[0];
+    const alreadyMaterializedCtwa =
+      alreadyMaterializedEvents.length + materializedUazapiCtwa;
+    const totalCtwa = events.length + materializedUazapiCtwa;
+    const routedCtwa = routedEvents.length + materializedUazapiCtwa;
     const blockers: InboundWebhookChannelReadinessBlockerDto[] = [];
 
     if (channel.connection.status === "paused") {
@@ -1191,7 +1225,7 @@ export class InboundWebhookChannelRoutesService {
     } else if (validRouteCount !== routeCount) {
       blockers.push("route_not_valid");
     }
-    if (events.length === 0) {
+    if (totalCtwa === 0) {
       blockers.push("ctwa_not_observed");
     }
     if (unresolvedEvents.length > 0) {
@@ -1213,9 +1247,9 @@ export class InboundWebhookChannelRoutesService {
       routeCount === 0 ||
       validRouteCount === 0;
     const state =
-      events.length === 0
+      totalCtwa === 0
         ? "waiting"
-        : alreadyMaterializedEvents.length === events.length
+        : alreadyMaterializedCtwa === totalCtwa
           ? "complete"
           : hardBlocked || retainedRoutedEvents.length === 0
             ? "blocked"
@@ -1228,13 +1262,13 @@ export class InboundWebhookChannelRoutesService {
       blockers,
       routeCount,
       validRouteCount,
-      totalCtwa: events.length,
-      routedCtwa: routedEvents.length,
+      totalCtwa,
+      routedCtwa,
       unresolvedCtwa: unresolvedEvents.length,
       retainedCtwa: retainedEvents.length,
       retainedRoutedCtwa: retainedRoutedEvents.length,
       payloadUnavailableCtwa: openEvents.length - retainedEvents.length,
-      alreadyMaterializedCtwa: alreadyMaterializedEvents.length,
+      alreadyMaterializedCtwa,
       nextPayloadExpiresAt: nextPayloadExpiresAt?.toISOString() ?? null,
     };
   }
