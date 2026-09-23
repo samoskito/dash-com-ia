@@ -137,6 +137,23 @@ function createHarness() {
     integrationLogs: [] as Array<Record<string, unknown>>,
     diagnosticEvents: [] as Array<Record<string, unknown>>,
     externalIngestionRecords: [] as Array<Record<string, unknown>>,
+    whatsappInstances: [
+      {
+        id: "instance_a",
+        workspaceId: "workspace_1",
+        name: "Chip comercial",
+      },
+      {
+        id: "instance_b",
+        workspaceId: "workspace_1",
+        name: "Chip pos-venda",
+      },
+      {
+        id: "instance_other_workspace",
+        workspaceId: "workspace_other",
+        name: "Chip externo",
+      },
+    ] as Array<Record<string, unknown>>,
     conversionRules: [
       {
         workspaceId: "workspace_1",
@@ -195,6 +212,7 @@ function createHarness() {
       campaignId: string | null;
       adSetId: string | null;
       adId: string | null;
+      whatsappInstanceId?: string | null;
       firstMessageAt: Date | null;
       createdAt: Date;
     }>,
@@ -250,6 +268,14 @@ function createHarness() {
     ] as Array<Record<string, unknown>>,
   };
   const prisma = {
+    whatsappInstance: {
+      findFirst: vi.fn(
+        async (args?: { where?: Record<string, unknown> }) =>
+          db.whatsappInstances.find((instance) =>
+            matchesWhere(instance, args?.where),
+          ) ?? null,
+      ),
+    },
     metaIntegration: {
       findUnique: vi.fn(async () => db.metaIntegration),
     },
@@ -3017,6 +3043,106 @@ describe("meta reporting service", () => {
       qualifiedLead: 1,
       purchases: 1,
     });
+  });
+
+  it("filters lead-derived overview metrics by the selected WhatsApp instance", async () => {
+    const { db, prisma, service } = createHarness();
+
+    db.leads[0]!.whatsappInstanceId = "instance_a";
+    db.leads[1]!.whatsappInstanceId = "instance_b";
+    db.conversionLogs.forEach((event) => {
+      event.leadId = "lead_1";
+    });
+    db.conversionLogs.push({
+      id: "event_lead_submitted_b",
+      workspaceId: "workspace_1",
+      leadId: "lead_2",
+      phoneHash: "phone_b",
+      customerIdentityKey: "phone_b",
+      businessSource: "paid",
+      campaignId: "cmp_1",
+      adSetId: "adset_1",
+      adId: "ad_1",
+      eventName: "LeadSubmitted",
+      eventOccurredAt: new Date("2026-07-02T12:05:00.000Z"),
+      status: "sent",
+      valueCents: null,
+      currency: null,
+      purchaseKind: null,
+    });
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const [instanceA, instanceB] = await Promise.all([
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias",
+        includeSummary: true,
+        whatsappInstanceId: "instance_a",
+      }),
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias",
+        includeSummary: true,
+        whatsappInstanceId: "instance_b",
+      }),
+    ]);
+
+    expect(instanceA.summary).toMatchObject({
+      realConversations: 1,
+      qualifiedLead: 1,
+      purchases: 1,
+    });
+    expect(instanceB.summary).toMatchObject({
+      realConversations: 1,
+      qualifiedLead: 0,
+      purchases: 0,
+    });
+    expect(instanceA.campaigns[0]).toMatchObject({
+      spendCents: 60000,
+      metaConversationsStarted: 80,
+      realConversations: 1,
+    });
+    expect(instanceA).toMatchObject({
+      filters: {
+        whatsappInstanceId: "instance_a",
+        whatsappInstanceName: "Chip comercial",
+      },
+      metaMetricsScope: "ad_account",
+    });
+    expect(prisma.conversionEventLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ leadId: { in: ["lead_1"] } }),
+      }),
+    );
+  });
+
+  it("rejects an unknown WhatsApp instance from overview metrics", async () => {
+    const { service } = createHarness();
+
+    await expect(
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias",
+        whatsappInstanceId: "missing_instance",
+      }),
+    ).rejects.toThrow("Instancia WhatsApp nao encontrada");
+  });
+
+  it("rejects a WhatsApp instance from another workspace", async () => {
+    const { service } = createHarness();
+
+    await expect(
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias",
+        whatsappInstanceId: "instance_other_workspace",
+      }),
+    ).rejects.toThrow("Instancia WhatsApp nao encontrada");
   });
 
   it("returns workspace conversation totals before Meta campaigns are synchronized", async () => {

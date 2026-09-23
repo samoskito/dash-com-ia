@@ -597,6 +597,37 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("passes one WhatsApp instance filter to campaign reports", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?whatsappInstanceId=instance_123")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith(
+      expect.objectContaining({ whatsappInstanceId: "instance_123" }),
+    );
+
+    await app.close();
+  });
+
+  it("rejects an empty WhatsApp instance filter", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?whatsappInstanceId=%20%20")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.message).toBe("Instancia WhatsApp invalida");
+      });
+
+    expect(reportingService.getCampaignReportOverview).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("passes name scope and status filters to all report levels", async () => {
     const { app, reportingService } = await createApp();
     const query =

@@ -137,6 +137,13 @@ export const reportOverviewSchema = z.object({
   dailyComparison: z.array(reportDailyComparisonPointSchema).optional(),
   dailyComparisonAvailable: z.boolean().optional(),
   pagination: reportPaginationSchema.optional(),
+  filters: z
+    .object({
+      whatsappInstanceId: z.string().min(1).nullable().optional(),
+      whatsappInstanceName: z.string().min(1).nullable().optional(),
+    })
+    .optional(),
+  metaMetricsScope: z.enum(["ad_account", "instance_unavailable"]).optional(),
 });
 
 const reportMetricShape = campaignReportRowSchema.omit({

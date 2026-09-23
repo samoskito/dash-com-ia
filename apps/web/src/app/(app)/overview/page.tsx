@@ -5,6 +5,7 @@ import {
   type ReportDailyComparisonPointDto,
   type ReportFunnelStepDto,
   type ReportOverviewDto,
+  type WhatsappInstanceSummaryDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
 import { Fragment, type CSSProperties } from "react";
@@ -18,6 +19,7 @@ type OverviewFiltersInput = {
   businessId?: string;
   since?: string;
   until?: string;
+  whatsappInstanceId?: string;
 };
 
 type OverviewFetchState = "real" | "empty" | "error";
@@ -59,6 +61,10 @@ async function getOverviewReport(
       params.set("adAccountId", filters.adAccountId);
     }
 
+    if (filters.whatsappInstanceId) {
+      params.set("whatsappInstanceId", filters.whatsappInstanceId);
+    }
+
     const report = await serverApiFetch<ReportOverviewDto>(
       `/reports/campaigns?${params.toString()}`,
     );
@@ -87,6 +93,16 @@ async function getMetaAssets(): Promise<MetaAssetsDto | null> {
     return await serverApiFetch<MetaAssetsDto>("/integrations/meta/assets");
   } catch {
     return null;
+  }
+}
+
+async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
+  try {
+    return await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+      "/integrations/whatsapp/instances",
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -357,9 +373,7 @@ function funnelStageCostLabel(stage: ReportFunnelStepDto): string {
     return curated.caption;
   }
 
-  return normalized.length > 0
-    ? `Custo por ${normalized}`
-    : "Custo por etapa";
+  return normalized.length > 0 ? `Custo por ${normalized}` : "Custo por etapa";
 }
 
 /**
@@ -450,11 +464,14 @@ export default async function OverviewPage({
     until: asStringParam(resolvedSearchParams.until),
     businessId: asStringParam(resolvedSearchParams.businessId),
     adAccountId: asStringParam(resolvedSearchParams.adAccountId),
+    whatsappInstanceId: asStringParam(resolvedSearchParams.whatsappInstanceId),
   };
-  const [{ report, state: reportState }, metaAssets] = await Promise.all([
-    getOverviewReport(filters),
-    getMetaAssets(),
-  ]);
+  const [{ report, state: reportState }, metaAssets, whatsappInstances] =
+    await Promise.all([
+      getOverviewReport(filters),
+      getMetaAssets(),
+      getWhatsappInstances(),
+    ]);
   const reportingAccounts = (metaAssets?.reportingAccounts ?? []).filter(
     (account) => account.active,
   );
@@ -529,7 +546,15 @@ export default async function OverviewPage({
         reportingAccounts={reportingAccounts}
         since={report.since ?? filters.since}
         until={report.until ?? filters.until}
+        whatsappInstanceId={filters.whatsappInstanceId}
+        whatsappInstances={whatsappInstances}
       />
+
+      {filters.whatsappInstanceId ? (
+        <p className="muted" role="note">
+          Investimento e Conversas Meta sao da conta de anuncios (nao do chip).
+        </p>
+      ) : null}
 
       <div className="metric-grid overview-primary-metrics">
         <Metric

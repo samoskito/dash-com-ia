@@ -1,6 +1,9 @@
 "use client";
 
-import type { MetaReportingAccountDto } from "@wpptrack/shared";
+import type {
+  MetaReportingAccountDto,
+  WhatsappInstanceSummaryDto,
+} from "@wpptrack/shared";
 import { Filter, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -13,6 +16,8 @@ type OverviewFiltersProps = {
   reportingAccounts: MetaReportingAccountDto[];
   since?: string;
   until?: string;
+  whatsappInstanceId?: string;
+  whatsappInstances: WhatsappInstanceSummaryDto[];
 };
 
 function businessesFromAccounts(accounts: MetaReportingAccountDto[]) {
@@ -32,6 +37,8 @@ export function OverviewFilters({
   reportingAccounts,
   since,
   until,
+  whatsappInstanceId,
+  whatsappInstances,
 }: OverviewFiltersProps) {
   const businesses = useMemo(
     () => businessesFromAccounts(reportingAccounts),
@@ -43,6 +50,9 @@ export function OverviewFilters({
   );
   const [selectedAdAccountId, setSelectedAdAccountId] = useState(
     adAccountId ?? "",
+  );
+  const [selectedWhatsappInstanceId, setSelectedWhatsappInstanceId] = useState(
+    whatsappInstanceId ?? "",
   );
   const accounts = useMemo(
     () =>
@@ -57,7 +67,8 @@ export function OverviewFilters({
   useEffect(() => {
     setSelectedBusinessId(businessId ?? "");
     setSelectedAdAccountId(adAccountId ?? "");
-  }, [adAccountId, businessId]);
+    setSelectedWhatsappInstanceId(whatsappInstanceId ?? "");
+  }, [adAccountId, businessId, whatsappInstanceId]);
 
   function handleBusinessChange(nextBusinessId: string) {
     setSelectedBusinessId(nextBusinessId);
@@ -151,6 +162,37 @@ export function OverviewFilters({
         </label>
       ) : null}
 
+      <label className="filter-field overview-scope-filter">
+        <span>Instancia WhatsApp</span>
+        {presentationMode ? (
+          <>
+            <input
+              type="hidden"
+              name="whatsappInstanceId"
+              value={selectedWhatsappInstanceId}
+            />
+            <span className="presentation-filter-placeholder">
+              Instancia oculta
+            </span>
+          </>
+        ) : (
+          <select
+            name="whatsappInstanceId"
+            value={selectedWhatsappInstanceId}
+            onChange={(event) =>
+              setSelectedWhatsappInstanceId(event.currentTarget.value)
+            }
+          >
+            <option value="">Todas as instancias</option>
+            {whatsappInstances.map((instance) => (
+              <option key={instance.id} value={instance.id}>
+                {instanceLabel(instance)}
+              </option>
+            ))}
+          </select>
+        )}
+      </label>
+
       <div className="overview-filter-actions">
         <button className="button primary" type="submit">
           <Filter size={15} aria-hidden="true" />
@@ -169,4 +211,20 @@ export function OverviewFilters({
       </div>
     </form>
   );
+}
+
+function instanceLabel(instance: WhatsappInstanceSummaryDto): string {
+  const phoneOrProviderId = instance.providerInstanceId?.trim();
+
+  if (!phoneOrProviderId) {
+    return instance.name;
+  }
+
+  return `${instance.name} - ${maskInstanceIdentifier(phoneOrProviderId)}`;
+}
+
+function maskInstanceIdentifier(identifier: string): string {
+  const visibleSuffix = identifier.slice(-4);
+
+  return identifier.length <= 4 ? visibleSuffix : `•••• ${visibleSuffix}`;
 }
