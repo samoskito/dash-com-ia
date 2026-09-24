@@ -25,10 +25,14 @@ export class EmailMessageRenderer {
   render(envelope: TransactionalEmailEnvelope): RenderedEmailMessage {
     const smtp = this.configuration.getSmtpConfig();
     const rendered = this.renderTemplate(envelope);
+    const isLicenseBrandEmail =
+      envelope.template === "license_claim_code" ||
+      envelope.template === "license_key_delivery";
 
     return {
       from: {
-        name: smtp.fromName,
+        // Claim/key delivery must not inherit the global WppTrack SMTP display name.
+        name: isLicenseBrandEmail ? "Equipe RastrackDash" : smtp.fromName,
         address: smtp.fromAddress,
       },
       replyTo: smtp.replyTo,

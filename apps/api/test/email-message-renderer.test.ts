@@ -144,6 +144,10 @@ describe("EmailMessageRenderer", () => {
       },
     });
 
+    expect(message.from).toEqual({
+      name: "Equipe RastrackDash",
+      address: "noreply@rastrack.app",
+    });
     expect(message.subject).toBe("Sua chave RastrackDash");
     expect(message.subject).not.toContain("PALMUP-ABCD-EFGH-IJKL-MNOP");
     expect(message.html).toContain("PALMUP-ABCD-EFGH-IJKL-MNOP");
@@ -176,6 +180,10 @@ describe("EmailMessageRenderer", () => {
       },
     });
 
+    expect(message.from).toEqual({
+      name: "Equipe RastrackDash",
+      address: "noreply@rastrack.app",
+    });
     expect(message.subject).toBe(
       "Seu código para resgatar sua licença do RastrackDash",
     );
