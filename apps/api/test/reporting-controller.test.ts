@@ -83,6 +83,18 @@ async function createApp(
   } = {},
 ) {
   const reportingService = {
+    getCampaignOptions: vi.fn(async () => ({
+      campaigns: [
+        {
+          id: "cmp_1",
+          name: "Black Friday WhatsApp",
+          status: "active",
+          businessId: "business_1",
+          adAccountId: "act_123",
+          leadsByInstance: { instance_123: 2 },
+        },
+      ],
+    })),
     getCampaignReportOverview: vi.fn(async () => ({
       workspaceId: "workspace_1",
       rangeLabel: "Ultimos 7 dias",
@@ -345,6 +357,33 @@ describe("reporting controller", () => {
       since: "2026-07-04",
       until: "2026-07-10",
       rangeLabel: "Ultimos 7 dias",
+    });
+
+    await app.close();
+  });
+
+  it("returns campaign options for the current workspace and requested scope", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get(
+        "/reports/campaign-options?since=2026-07-01&until=2026-07-02&businessId=business_1&adAccountId=act_123",
+      )
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.campaigns[0]).toMatchObject({
+          id: "cmp_1",
+          leadsByInstance: { instance_123: 2 },
+        });
+      });
+
+    expect(reportingService.getCampaignOptions).toHaveBeenCalledWith({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      businessId: "business_1",
+      adAccountId: "act_123",
     });
 
     await app.close();

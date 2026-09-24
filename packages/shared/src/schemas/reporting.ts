@@ -126,6 +126,19 @@ export const reportDailyComparisonPointSchema = z.object({
   realConversations: nonnegativeIntSchema,
 });
 
+export const campaignOptionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  status: z.enum(["active", "paused", "unknown"]),
+  businessId: z.string().min(1),
+  adAccountId: z.string().min(1),
+  leadsByInstance: z.record(z.string().min(1), nonnegativeIntSchema),
+});
+
+export const campaignOptionsResponseSchema = z.object({
+  campaigns: z.array(campaignOptionSchema),
+});
+
 export const reportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
@@ -141,9 +154,28 @@ export const reportOverviewSchema = z.object({
     .object({
       whatsappInstanceId: z.string().min(1).nullable().optional(),
       whatsappInstanceName: z.string().min(1).nullable().optional(),
+      campaignId: z.string().min(1).nullable().optional(),
+      campaignName: z.string().min(1).nullable().optional(),
     })
     .optional(),
-  metaMetricsScope: z.enum(["ad_account", "instance_unavailable"]).optional(),
+  campaignInstanceLeads: z
+    .array(
+      z.object({
+        instanceId: z.string().min(1),
+        instanceName: z.string().min(1),
+        leads: nonnegativeIntSchema,
+      }),
+    )
+    .optional(),
+  metaMetricsScope: z
+    .enum([
+      "ad_account",
+      "instance_unavailable",
+      "campaign",
+      "campaign_shared",
+      "campaign_unsynced",
+    ])
+    .optional(),
 });
 
 const reportMetricShape = campaignReportRowSchema.omit({
@@ -354,6 +386,10 @@ export type CampaignReportRowDto = z.infer<typeof campaignReportRowSchema>;
 export type ReportTotalsDto = z.infer<typeof reportTotalsSchema>;
 export type ReportDailyComparisonPointDto = z.infer<
   typeof reportDailyComparisonPointSchema
+>;
+export type CampaignOptionDto = z.infer<typeof campaignOptionSchema>;
+export type CampaignOptionsResponseDto = z.infer<
+  typeof campaignOptionsResponseSchema
 >;
 export type ReportOverviewDto = z.infer<typeof reportOverviewSchema>;
 export type AdSetReportRowDto = z.infer<typeof adSetReportRowSchema>;
