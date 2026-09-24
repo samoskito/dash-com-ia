@@ -98,9 +98,14 @@ async function getMetaAssets(): Promise<MetaAssetsDto | null> {
 
 async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
   try {
-    return await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+    const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
       "/integrations/whatsapp/instances",
     );
+
+    // Connections are soft-deleted by changing their billing status. The
+    // overview only offers chips that can currently receive conversations;
+    // report URLs with an old instance id remain valid for historical data.
+    return instances.filter((instance) => instance.billingStatus === "active");
   } catch {
     return [];
   }
@@ -478,19 +483,22 @@ export default async function OverviewPage({
   const campaigns = report.campaigns;
   const campaign = report.summary ?? sumCampaigns(campaigns);
   const dataAvailable = reportState !== "error";
+  const hasWhatsappInstanceFilter = Boolean(filters.whatsappInstanceId);
   const trackedRate =
     dataAvailable && campaign.trackingRate !== null
       ? ratePercent(campaign.trackingRate)
       : null;
-  const funnelStages: ReportFunnelStepDto[] = [
-    {
-      key: "meta_conversations",
-      label: "Conversas Meta",
-      value: campaign.metaConversationsStarted,
-      costCents: campaign.costPerMetaConversationCents,
-    },
-    ...campaign.funnelSteps,
-  ];
+  const funnelStages: ReportFunnelStepDto[] = hasWhatsappInstanceFilter
+    ? campaign.funnelSteps.map((stage) => ({ ...stage, costCents: null }))
+    : [
+        {
+          key: "meta_conversations",
+          label: "Conversas Meta",
+          value: campaign.metaConversationsStarted,
+          costCents: campaign.costPerMetaConversationCents,
+        },
+        ...campaign.funnelSteps,
+      ];
   const kpiStages = configuredKpiStages(campaign.funnelSteps);
   const selectedBusiness = reportingAccounts.find(
     (account) => account.businessId === filters.businessId,
@@ -504,11 +512,13 @@ export default async function OverviewPage({
     "Todas as contas";
   const detailHref = reportsHref(filters);
   const funnelSummary = dataAvailable
-    ? funnelOutcomeSummary(
-        report.rangeLabel,
-        campaign.metaConversationsStarted,
-        campaign,
-      )
+    ? hasWhatsappInstanceFilter
+      ? `${report.rangeLabel}: ${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa real" : "conversas reais"} no chip selecionado.`
+      : funnelOutcomeSummary(
+          report.rangeLabel,
+          campaign.metaConversationsStarted,
+          campaign,
+        )
     : "A jornada sera exibida quando a API concluir a inicializacao.";
 
   return (
@@ -550,34 +560,48 @@ export default async function OverviewPage({
         whatsappInstances={whatsappInstances}
       />
 
-      {filters.whatsappInstanceId ? (
+      {hasWhatsappInstanceFilter ? (
         <p className="muted" role="note">
-          Investimento e Conversas Meta sao da conta de anuncios (nao do chip).
+          Investimento e Conversas Meta sao da conta de anuncios e nao podem ser
+          filtrados por chip. As metricas de leads, compras e receita usam a
+          instancia selecionada.
         </p>
       ) : null}
 
       <div className="metric-grid overview-primary-metrics">
         <Metric
           label="Investimento"
-          value={dataAvailable ? money(campaign.spendCents) : "-"}
+          value={
+            dataAvailable && !hasWhatsappInstanceFilter
+              ? money(campaign.spendCents)
+              : "-"
+          }
           delta={
             !dataAvailable
               ? "Aguardando resposta da API"
-              : reportState === "empty"
-                ? "Nenhuma campanha sincronizada"
-                : report.rangeLabel
+              : hasWhatsappInstanceFilter
+                ? "Conta de anuncios (nao filtravel por chip)"
+                : reportState === "empty"
+                  ? "Nenhuma campanha sincronizada"
+                  : report.rangeLabel
           }
-          unavailable={!dataAvailable}
+          unavailable={!dataAvailable || hasWhatsappInstanceFilter}
         />
         <Metric
           label="Conversas Meta"
           value={
-            dataAvailable ? String(campaign.metaConversationsStarted) : "-"
+            dataAvailable && !hasWhatsappInstanceFilter
+              ? String(campaign.metaConversationsStarted)
+              : "-"
           }
           delta={
-            dataAvailable ? report.rangeLabel : "Aguardando resposta da API"
+            !dataAvailable
+              ? "Aguardando resposta da API"
+              : hasWhatsappInstanceFilter
+                ? "Conta de anuncios (nao filtravel por chip)"
+                : report.rangeLabel
           }
-          unavailable={!dataAvailable}
+          unavailable={!dataAvailable || hasWhatsappInstanceFilter}
         />
         <Metric
           label="Conversas reais"
@@ -613,9 +637,11 @@ export default async function OverviewPage({
                   dataAvailable ? money(campaign.trafficRevenueCents) : "-"
                 }
                 delta={
-                  dataAvailable
-                    ? `ROAS ${ratioLabel(campaign.roasAcquisition)}`
-                    : "Aguardando resposta da API"
+                  !dataAvailable
+                    ? "Aguardando resposta da API"
+                    : hasWhatsappInstanceFilter
+                      ? "Receita do chip; ROAS indisponivel"
+                      : `ROAS ${ratioLabel(campaign.roasAcquisition)}`
                 }
                 unavailable={!dataAvailable}
               />
@@ -626,9 +652,11 @@ export default async function OverviewPage({
               label={stage.label}
               value={dataAvailable ? String(stage.value) : "-"}
               delta={
-                dataAvailable
-                  ? stageCardDelta(stage, report.rangeLabel)
-                  : "Aguardando resposta da API"
+                !dataAvailable
+                  ? "Aguardando resposta da API"
+                  : hasWhatsappInstanceFilter
+                    ? "Eventos do chip selecionado"
+                    : stageCardDelta(stage, report.rangeLabel)
               }
               unavailable={!dataAvailable}
             />

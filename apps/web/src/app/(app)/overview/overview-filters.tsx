@@ -63,6 +63,18 @@ export function OverviewFilters({
         : reportingAccounts,
     [reportingAccounts, selectedBusinessId],
   );
+  const activeWhatsappInstances = useMemo(
+    () =>
+      whatsappInstances.filter(
+        (instance) => instance.billingStatus === "active",
+      ),
+    [whatsappInstances],
+  );
+  const selectedInstanceWasRemoved =
+    Boolean(selectedWhatsappInstanceId) &&
+    !activeWhatsappInstances.some(
+      (instance) => instance.id === selectedWhatsappInstanceId,
+    );
 
   useEffect(() => {
     setSelectedBusinessId(businessId ?? "");
@@ -184,7 +196,12 @@ export function OverviewFilters({
             }
           >
             <option value="">Todas as instancias</option>
-            {whatsappInstances.map((instance) => (
+            {selectedInstanceWasRemoved ? (
+              <option value={selectedWhatsappInstanceId}>
+                Instancia removida (removida)
+              </option>
+            ) : null}
+            {activeWhatsappInstances.map((instance) => (
               <option key={instance.id} value={instance.id}>
                 {instanceLabel(instance)}
               </option>
