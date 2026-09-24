@@ -6,6 +6,7 @@ import type {
 } from "./email.types";
 
 type EmailBody = {
+  brandName?: string;
   preheader: string;
   heading: string;
   paragraphs: string[];
@@ -136,6 +137,7 @@ export class EmailMessageRenderer {
       return {
         subject: `Sua chave ${productName}`,
         body: {
+          brandName: "RastrackDash",
           preheader: `Sua chave de acesso ${productName} chegou. Guarde com segurança.`,
           heading: this.personalizedHeading(
             envelope.data.recipientName,
@@ -157,16 +159,17 @@ export class EmailMessageRenderer {
     }
 
     if (envelope.template === "license_claim_code") {
-      const productName = envelope.data.productName;
       const support =
         envelope.data.supportEmail?.trim() || "suporte@rastrack.app";
       return {
-        subject: `Seu código para resgatar ${productName}`,
+        subject: "Seu código para resgatar sua licença do RastrackDash",
         body: {
-          preheader: `Use este código para resgatar sua licença ${productName}.`,
+          brandName: "RastrackDash",
+          preheader:
+            "Use este código para resgatar sua licença do RastrackDash.",
           heading: "Confirme seu email",
           paragraphs: [
-            `Use o código abaixo para continuar o resgate da sua licença ${productName}.`,
+            "Use o código abaixo para continuar o resgate da sua licença do RastrackDash.",
             "O código expira em 15 minutos. Se você não pediu, ignore este email.",
             `Dúvidas: ${support}.`,
           ],
@@ -219,7 +222,7 @@ export class EmailMessageRenderer {
 
   private renderText(body: EmailBody): string {
     return [
-      "WppTrack",
+      body.brandName ?? "WppTrack",
       "",
       body.heading,
       "",
@@ -261,7 +264,7 @@ export class EmailMessageRenderer {
     <tr>
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" class="email-shell" style="width:600px;max-width:600px;background:#ffffff;border:1px solid #dbe5e3;border-radius:8px;overflow:hidden;">
-          <tr><td style="padding:22px 32px;background:#0f2926;color:#ffffff;font-size:20px;font-weight:700;">WppTrack</td></tr>
+          <tr><td style="padding:22px 32px;background:#0f2926;color:#ffffff;font-size:20px;font-weight:700;">${this.escapeHtml(body.brandName ?? "WppTrack")}</td></tr>
           <tr>
             <td class="email-content" style="padding:40px 40px 32px;">
               <h1 style="margin:0 0 20px;color:#102a27;font-size:26px;line-height:1.25;letter-spacing:0;">${this.escapeHtml(body.heading)}</h1>

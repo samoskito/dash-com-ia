@@ -23,6 +23,7 @@ import {
 import { LicensingService } from "./licensing.service";
 import { StudentBaseMysqlAdapter } from "./student-base-mysql.adapter";
 
+const LICENSE_PRODUCT_NAME = "RastrackDash";
 const CODE_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
 export type ClaimRequestResult =
@@ -204,7 +205,7 @@ export class LicenseClaimService {
             data: {
               code,
               expiresAt: codeExpiresAt.toISOString(),
-              productName: lookup.productName,
+              productName: LICENSE_PRODUCT_NAME,
               ...(supportEmail ? { supportEmail } : {}),
             },
           },

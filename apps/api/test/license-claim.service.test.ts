@@ -512,7 +512,10 @@ describe("LicenseClaimService plan matrix C1-C16", () => {
         envelope: expect.objectContaining({
           to: { address: EMAIL },
           template: "license_claim_code",
-          data: expect.objectContaining({ code: CODE, productName: PRODUCT }),
+          data: expect.objectContaining({
+            code: CODE,
+            productName: "RastrackDash",
+          }),
         }),
       }),
     );

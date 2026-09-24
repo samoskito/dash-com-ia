@@ -156,9 +156,13 @@ describe("EmailMessageRenderer", () => {
       "https://github.com/samoskito/nod-rastrackdash-wpp",
     );
     expect(message.html).toContain("suporte@palmup.com.br");
+    expect(message.html).toContain(">RastrackDash</td>");
+    expect(message.text).toMatch(/^RastrackDash\n/);
+    expect(message.html).not.toContain(">WppTrack</td>");
+    expect(message.text).not.toMatch(/^WppTrack\n/);
   });
 
-  it("renders a license claim code without exposing a license key", () => {
+  it("renders a RastrackDash license claim code without course branding or a license key", () => {
     const configuration = new EmailConfigurationService(smtpEnvironment());
     const renderer = new EmailMessageRenderer(configuration);
     const message = renderer.render({
@@ -167,12 +171,23 @@ describe("EmailMessageRenderer", () => {
       data: {
         code: "012345",
         expiresAt: "2026-09-23T21:20:00.000Z",
-        productName: "RastrackDash",
+        productName: "Comunidade A Nova Ordem do Digital",
         supportEmail: "suporte@palmup.com.br",
       },
     });
 
-    expect(message.subject).toBe("Seu código para resgatar RastrackDash");
+    expect(message.subject).toBe(
+      "Seu código para resgatar sua licença do RastrackDash",
+    );
+    expect(message.html).toContain("licença do RastrackDash");
+    expect(message.text).toContain("licença do RastrackDash");
+    expect(message.html).toContain(">RastrackDash</td>");
+    expect(message.text).toMatch(/^RastrackDash\n/);
+    expect(message.subject).not.toContain("Comunidade A Nova Ordem do Digital");
+    expect(message.html).not.toContain("Comunidade A Nova Ordem do Digital");
+    expect(message.text).not.toContain("Comunidade A Nova Ordem do Digital");
+    expect(message.html).not.toContain(">WppTrack</td>");
+    expect(message.text).not.toMatch(/^WppTrack\n/);
     expect(message.html).toContain("012345");
     expect(message.text).toContain("012345");
     expect(message.html).toContain("15 minutos");
