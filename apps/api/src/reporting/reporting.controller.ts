@@ -136,6 +136,32 @@ export class ReportingController {
     });
   }
 
+  @Get("campaign-options")
+  async getCampaignOptions(
+    @AuthToken() refreshToken: string,
+    @Query("since") since?: string,
+    @Query("until") until?: string,
+    @Query("businessId") businessId?: string | string[],
+    @Query("adAccountId") adAccountId?: string | string[],
+  ) {
+    const workspace = await this.getCurrentWorkspace(refreshToken);
+
+    if (!workspace.permissions.canExportReports) {
+      throw new ForbiddenException("Sem permissao para exportar relatorios");
+    }
+
+    const period = this.parseReportPeriod(since, until);
+    const filters = this.parseReportFilters({ businessId, adAccountId });
+
+    return this.metaReportingService.getCampaignOptions({
+      workspaceId: workspace.id,
+      since: period.since,
+      until: period.until,
+      ...(filters.businessId ? { businessId: filters.businessId } : {}),
+      ...(filters.adAccountId ? { adAccountId: filters.adAccountId } : {}),
+    });
+  }
+
   @Get("campaigns/export.csv")
   async exportCampaignReports(
     @AuthToken() refreshToken: string,

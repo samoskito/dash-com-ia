@@ -142,16 +142,19 @@ function createHarness() {
         id: "instance_a",
         workspaceId: "workspace_1",
         name: "Chip comercial",
+        status: "active",
       },
       {
         id: "instance_b",
         workspaceId: "workspace_1",
         name: "Chip pos-venda",
+        status: "active",
       },
       {
         id: "instance_other_workspace",
         workspaceId: "workspace_other",
         name: "Chip externo",
+        status: "active",
       },
     ] as Array<Record<string, unknown>>,
     conversionRules: [
@@ -274,6 +277,11 @@ function createHarness() {
           db.whatsappInstances.find((instance) =>
             matchesWhere(instance, args?.where),
           ) ?? null,
+      ),
+      findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
+        db.whatsappInstances.filter((instance) =>
+          matchesWhere(instance, args?.where),
+        ),
       ),
     },
     metaIntegration: {
@@ -648,6 +656,32 @@ function createHarness() {
     lead: {
       findMany: vi.fn(async (args?: { where?: Record<string, unknown> }) =>
         db.leads.filter((lead) => matchesWhere(lead, args?.where)),
+      ),
+      groupBy: vi.fn(
+        async (args?: { by?: string[]; where?: Record<string, unknown> }) => {
+          const groups = new Map<string, Record<string, unknown>>();
+          const keys = args?.by ?? [];
+
+          db.leads
+            .filter((lead) => matchesWhere(lead, args?.where))
+            .forEach((lead) => {
+              const group = Object.fromEntries(
+                keys.map((key) => [
+                  key,
+                  lead[key as keyof typeof lead] ?? null,
+                ]),
+              );
+              const groupKey = JSON.stringify(group);
+              const current = groups.get(groupKey) ?? {
+                ...group,
+                _count: { _all: 0 },
+              };
+              (current._count as { _all: number })._all += 1;
+              groups.set(groupKey, current);
+            });
+
+          return [...groups.values()];
+        },
       ),
       updateMany: vi.fn(
         async ({
@@ -2299,7 +2333,6 @@ describe("meta reporting service", () => {
       since: "2026-07-01",
       until: "2026-07-02",
     });
-
     expect(db.adDestinationAssignments).toEqual([
       expect.objectContaining({
         adId: "ad_1",
@@ -3127,6 +3160,268 @@ describe("meta reporting service", () => {
         where: expect.objectContaining({ leadId: { in: ["lead_1"] } }),
       }),
     );
+  });
+
+  it("scopes the overview summary to campaignId when no account filter is set", async () => {
+    const { service } = createHarness();
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      includeSummary: true,
+      campaignId: "cmp_1",
+    });
+
+    expect(report.summary?.realConversations).toBe(2);
+    expect(report.summary?.trafficRevenueCents).toBe(100000);
+  });
+
+  it("uses campaign Meta metrics for an exclusive campaign and instance", async () => {
+    const { db, service } = createHarness();
+    db.leads[0]!.whatsappInstanceId = "instance_a";
+    db.leads[1]!.whatsappInstanceId = "instance_a";
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      includeSummary: true,
+      campaignId: "cmp_1",
+      whatsappInstanceId: "instance_a",
+    });
+
+    expect(report.summary).toMatchObject({
+      spendCents: 60000,
+      metaConversationsStarted: 80,
+      realConversations: 2,
+    });
+    expect(report).toMatchObject({
+      filters: {
+        campaignId: "cmp_1",
+        campaignName: "Black Friday WhatsApp",
+        whatsappInstanceId: "instance_a",
+      },
+      metaMetricsScope: "campaign",
+      campaignInstanceLeads: [
+        {
+          instanceId: "instance_a",
+          instanceName: "Chip comercial",
+          leads: 2,
+        },
+      ],
+    });
+  });
+
+  it("marks a campaign shared when its period leads include another instance", async () => {
+    const { db, service } = createHarness();
+    db.leads[0]!.whatsappInstanceId = "instance_a";
+    db.leads[1]!.whatsappInstanceId = "instance_b";
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      includeSummary: true,
+      campaignId: "cmp_1",
+      whatsappInstanceId: "instance_a",
+    });
+
+    expect(report.summary?.realConversations).toBe(1);
+    expect(report.metaMetricsScope).toBe("campaign_shared");
+  });
+
+  it("marks a selected campaign unsynced when the period has no Meta insights", async () => {
+    const { db, service } = createHarness();
+    db.campaigns.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_unsynced",
+      name: "Campanha sem sync",
+      status: "ACTIVE",
+      businessId: "business_1",
+      adAccountId: "act_123",
+      whatsappClassification: "manual_include",
+      spendCents: 0,
+      metaConversationsStarted: 0,
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      campaignId: "cmp_unsynced",
+    });
+
+    expect(report.metaMetricsScope).toBe("campaign_unsynced");
+  });
+
+  it("marks a campaign shared when the selected instance has no campaign leads", async () => {
+    const { db, service } = createHarness();
+    db.leads[0]!.whatsappInstanceId = "instance_b";
+    db.leads[1]!.whatsappInstanceId = "instance_b";
+
+    await service.syncWorkspaceMetaStructure({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    const report = await service.getCampaignReportOverview({
+      workspaceId: "workspace_1",
+      rangeLabel: "Ultimos 2 dias",
+      since: "2026-07-01",
+      until: "2026-07-02",
+      campaignId: "cmp_1",
+      whatsappInstanceId: "instance_a",
+    });
+
+    expect(report.totals?.realConversations).toBe(0);
+    expect(report.metaMetricsScope).toBe("campaign_shared");
+  });
+
+  it("rejects campaigns outside the workspace or active reporting account scope", async () => {
+    const { db, service } = createHarness();
+    db.campaigns.push(
+      {
+        workspaceId: "workspace_other",
+        campaignId: "cmp_other_workspace",
+        name: "Outra workspace",
+        adAccountId: "act_123",
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_inactive_account",
+        name: "Conta inativa",
+        adAccountId: "act_inactive",
+      },
+    );
+
+    await expect(
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias",
+        campaignId: "cmp_other_workspace",
+      }),
+    ).rejects.toThrow("Campanha nao encontrada");
+    await expect(
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias",
+        campaignId: "cmp_inactive_account",
+      }),
+    ).rejects.toThrow("Campanha nao encontrada");
+    await expect(
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias",
+        campaignId: "missing_campaign",
+      }),
+    ).rejects.toThrow("Campanha nao encontrada");
+  });
+
+  it("lists WhatsApp campaign options with delivery or period leads only", async () => {
+    const { db, service } = createHarness();
+    db.leads[0]!.whatsappInstanceId = "instance_a";
+    db.campaigns.push(
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_leads_only",
+        name: "Campanha com leads",
+        status: "PAUSED",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_include",
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_dead",
+        name: "Campanha morta",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_include",
+      },
+      {
+        workspaceId: "workspace_1",
+        campaignId: "cmp_delivery",
+        name: "Campanha com entrega",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_include",
+      },
+      {
+        workspaceId: "workspace_other",
+        campaignId: "cmp_other_workspace",
+        name: "Campanha externa",
+        status: "ACTIVE",
+        businessId: "business_1",
+        adAccountId: "act_123",
+        whatsappClassification: "manual_include",
+      },
+    );
+    db.leads.push({
+      ...db.leads[0]!,
+      id: "lead_leads_only",
+      phoneHash: "phone_leads_only",
+      campaignId: "cmp_leads_only",
+      whatsappInstanceId: "instance_b",
+    });
+    db.dailyInsights.push({
+      workspaceId: "workspace_1",
+      campaignId: "cmp_delivery",
+      localDate: "2026-07-01",
+      impressions: 1,
+    });
+
+    const options = await service.getCampaignOptions({
+      workspaceId: "workspace_1",
+      since: "2026-07-01",
+      until: "2026-07-02",
+    });
+
+    expect(options).toEqual({
+      campaigns: [
+        {
+          id: "cmp_delivery",
+          name: "Campanha com entrega",
+          status: "active",
+          businessId: "business_1",
+          adAccountId: "act_123",
+          leadsByInstance: {},
+        },
+        {
+          id: "cmp_leads_only",
+          name: "Campanha com leads",
+          status: "paused",
+          businessId: "business_1",
+          adAccountId: "act_123",
+          leadsByInstance: { instance_b: 1 },
+        },
+      ],
+    });
   });
 
   it("rejects an unknown WhatsApp instance from overview metrics", async () => {
