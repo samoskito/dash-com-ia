@@ -41,7 +41,7 @@ describe("student base MySQL adapter", () => {
       [
         {
           nome_comprador: "Ana",
-          telefone_comprados: "11999998888",
+          telefone_comprador: "11999998888",
           nome_produto: "Comunidade A Nova Ordem do Digital"
         }
       ],
@@ -66,6 +66,7 @@ describe("student base MySQL adapter", () => {
       timeout: number;
     };
     expect(input.sql).toMatch(/^\s*SELECT\b/i);
+    expect(input.sql).toContain("telefone_comprador");
     expect(input.sql).toMatch(/FROM Transacoes/);
     expect(input.sql).toMatch(/status = 'Paga'/);
     expect(input.sql).not.toContain("ana@x.com");
