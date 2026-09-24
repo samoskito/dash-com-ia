@@ -1,5 +1,7 @@
 import {
   funnelMetricLabels,
+  type CampaignOptionDto,
+  type CampaignOptionsResponseDto,
   type CampaignReportRowDto,
   type MetaAssetsDto,
   type ReportDailyComparisonPointDto,
@@ -10,8 +12,9 @@ import {
 import Link from "next/link";
 import { Fragment, type CSSProperties } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
-import { serverApiFetch } from "../../../lib/server-api";
+import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { OverviewFilters } from "./overview-filters";
+import { instanceLabel } from "./overview-labels";
 
 type OverviewSearchParams = Record<string, string | string[] | undefined>;
 type OverviewFiltersInput = {
@@ -20,9 +23,15 @@ type OverviewFiltersInput = {
   since?: string;
   until?: string;
   whatsappInstanceId?: string;
+  campaignId?: string;
 };
 
-type OverviewFetchState = "real" | "empty" | "error";
+/**
+ * `invalid_filter`: the API rejected `campaignId` (removed campaign, inactive
+ * account or another workspace). Never rendered as zeros.
+ */
+type OverviewFetchState = "real" | "empty" | "error" | "invalid_filter";
+type MetaMetricsScope = NonNullable<ReportOverviewDto["metaMetricsScope"]>;
 type OverviewReportResult = {
   report: ReportOverviewDto;
   state: OverviewFetchState;
@@ -65,6 +74,10 @@ async function getOverviewReport(
       params.set("whatsappInstanceId", filters.whatsappInstanceId);
     }
 
+    if (filters.campaignId) {
+      params.set("campaignId", filters.campaignId);
+    }
+
     const report = await serverApiFetch<ReportOverviewDto>(
       `/reports/campaigns?${params.toString()}`,
     );
@@ -76,15 +89,58 @@ async function getOverviewReport(
           ? "real"
           : "empty",
     };
-  } catch {
+  } catch (error) {
+    const invalidFilter =
+      Boolean(filters.campaignId) &&
+      isApiRequestError(error) &&
+      error.status === 404;
+
     return {
       report: {
         workspaceId: "unavailable",
-        rangeLabel: "API indisponivel",
+        rangeLabel: invalidFilter ? "Filtro invalido" : "API indisponivel",
         campaigns: [],
       },
-      state: "error",
+      state: invalidFilter ? "invalid_filter" : "error",
     };
+  }
+}
+
+/**
+ * Campaign options come from their own endpoint: once `campaignId` is applied,
+ * `report.campaigns` shrinks to that row and cannot feed the dropdown.
+ * `null` disables the field without blocking the report.
+ */
+async function getCampaignOptions(
+  filters: OverviewFiltersInput,
+): Promise<CampaignOptionDto[] | null> {
+  const params = new URLSearchParams();
+
+  if (filters.since && filters.until) {
+    params.set("since", filters.since);
+    params.set("until", filters.until);
+  }
+
+  if (filters.businessId) {
+    params.set("businessId", filters.businessId);
+  }
+
+  if (filters.adAccountId) {
+    params.set("adAccountId", filters.adAccountId);
+  }
+
+  const query = params.toString();
+
+  try {
+    const response = await serverApiFetch<CampaignOptionsResponseDto>(
+      query
+        ? `/reports/campaign-options?${query}`
+        : "/reports/campaign-options",
+    );
+
+    return Array.isArray(response?.campaigns) ? response.campaigns : null;
+  } catch {
+    return null;
   }
 }
 
@@ -445,7 +501,7 @@ function funnelOutcomeSummary(
   return `${intro} no periodo.`;
 }
 
-function reportsHref(filters: OverviewFiltersInput): string {
+function filtersQuery(filters: OverviewFiltersInput): string {
   const params = new URLSearchParams();
 
   for (const [key, value] of Object.entries(filters)) {
@@ -454,8 +510,21 @@ function reportsHref(filters: OverviewFiltersInput): string {
     }
   }
 
-  const query = params.toString();
+  return params.toString();
+}
+
+function reportsHref(filters: OverviewFiltersInput): string {
+  const query = filtersQuery(filters);
   return query ? `/reports?${query}` : "/reports";
+}
+
+function overviewHref(filters: OverviewFiltersInput): string {
+  const query = filtersQuery(filters);
+  return query ? `/overview?${query}` : "/overview";
+}
+
+function conversationCount(count: number): string {
+  return `${count} ${count === 1 ? "conversa real" : "conversas reais"}`;
 }
 
 export default async function OverviewPage({
@@ -470,35 +539,72 @@ export default async function OverviewPage({
     businessId: asStringParam(resolvedSearchParams.businessId),
     adAccountId: asStringParam(resolvedSearchParams.adAccountId),
     whatsappInstanceId: asStringParam(resolvedSearchParams.whatsappInstanceId),
+    campaignId: asStringParam(resolvedSearchParams.campaignId),
   };
-  const [{ report, state: reportState }, metaAssets, whatsappInstances] =
-    await Promise.all([
-      getOverviewReport(filters),
-      getMetaAssets(),
-      getWhatsappInstances(),
-    ]);
+  const [
+    { report, state: reportState },
+    metaAssets,
+    whatsappInstances,
+    campaignOptions,
+  ] = await Promise.all([
+    getOverviewReport(filters),
+    getMetaAssets(),
+    getWhatsappInstances(),
+    getCampaignOptions(filters),
+  ]);
   const reportingAccounts = (metaAssets?.reportingAccounts ?? []).filter(
     (account) => account.active,
   );
   const campaigns = report.campaigns;
   const campaign = report.summary ?? sumCampaigns(campaigns);
-  const dataAvailable = reportState !== "error";
+  const invalidFilter = reportState === "invalid_filter";
+  const dataAvailable = reportState !== "error" && !invalidFilter;
   const hasWhatsappInstanceFilter = Boolean(filters.whatsappInstanceId);
+  const hasCampaignFilter = Boolean(filters.campaignId);
+  // The API decides how honest Meta metrics can be for this cut (D8). Older
+  // payloads without the field keep the #110 rule for an instance filter.
+  const metaScope: MetaMetricsScope | undefined =
+    report.metaMetricsScope ??
+    (hasWhatsappInstanceFilter ? "ad_account" : undefined);
+  // S2: Meta spend exists per account/campaign, never per number.
+  const metaByAccount =
+    metaScope === "ad_account" || metaScope === "instance_unavailable";
+  // S8: campaign selected but Meta insights not synced for the period.
+  const metaUnsynced = metaScope === "campaign_unsynced";
+  // S5/S6: whole-campaign Meta values next to one number's outcomes.
+  const metaPartial = metaScope === "campaign_shared";
+  const metaHidden = metaByAccount || metaUnsynced;
+  const costsHidden = metaHidden || metaPartial;
+  const campaignInstanceLeads = (report.campaignInstanceLeads ?? []).filter(
+    (entry) => entry.leads > 0,
+  );
+  const noLeadsOnSelectedNumber =
+    metaPartial &&
+    !campaignInstanceLeads.some(
+      (entry) => entry.instanceId === filters.whatsappInstanceId,
+    );
+  // S7: a real zero, not "-", but there is no spend base for ROAS.
+  const campaignWithoutDelivery =
+    metaScope === "campaign" && campaign.spendCents === 0;
+  const campaignName =
+    report.filters?.campaignName ??
+    campaignOptions?.find((option) => option.id === filters.campaignId)?.name;
   const trackedRate =
     dataAvailable && campaign.trackingRate !== null
       ? ratePercent(campaign.trackingRate)
       : null;
-  const funnelStages: ReportFunnelStepDto[] = hasWhatsappInstanceFilter
+  const metaConversationStage: ReportFunnelStepDto = {
+    key: "meta_conversations",
+    label: "Conversas Meta",
+    value: campaign.metaConversationsStarted,
+    costCents: costsHidden ? null : campaign.costPerMetaConversationCents,
+  };
+  const scopedFunnelSteps = costsHidden
     ? campaign.funnelSteps.map((stage) => ({ ...stage, costCents: null }))
-    : [
-        {
-          key: "meta_conversations",
-          label: "Conversas Meta",
-          value: campaign.metaConversationsStarted,
-          costCents: campaign.costPerMetaConversationCents,
-        },
-        ...campaign.funnelSteps,
-      ];
+    : campaign.funnelSteps;
+  const funnelStages: ReportFunnelStepDto[] = metaHidden
+    ? scopedFunnelSteps
+    : [metaConversationStage, ...scopedFunnelSteps];
   const kpiStages = configuredKpiStages(campaign.funnelSteps);
   const selectedBusiness = reportingAccounts.find(
     (account) => account.businessId === filters.businessId,
@@ -507,19 +613,56 @@ export default async function OverviewPage({
     (account) => account.adAccountId === filters.adAccountId,
   );
   const scopeLabel =
-    selectedAccount?.adAccountName ??
-    selectedBusiness?.businessName ??
-    "Todas as contas";
+    hasCampaignFilter && campaignName
+      ? campaignName
+      : (selectedAccount?.adAccountName ??
+        selectedBusiness?.businessName ??
+        "Todas as contas");
+  const scopePlaceholder =
+    hasCampaignFilter && campaignName
+      ? "Campanha oculta"
+      : "Conta de anuncios oculta";
   const detailHref = reportsHref(filters);
+  const clearCampaignHref = overviewHref({
+    ...filters,
+    campaignId: undefined,
+  });
   const funnelSummary = dataAvailable
-    ? hasWhatsappInstanceFilter
-      ? `${report.rangeLabel}: ${campaign.realConversations} ${campaign.realConversations === 1 ? "conversa real" : "conversas reais"} no chip selecionado.`
-      : funnelOutcomeSummary(
-          report.rangeLabel,
-          campaign.metaConversationsStarted,
-          campaign,
-        )
+    ? metaPartial
+      ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} neste numero vindas da campanha selecionada.`
+      : metaByAccount
+        ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} no chip selecionado.`
+        : metaUnsynced
+          ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} vindas da campanha selecionada.`
+          : funnelOutcomeSummary(
+              report.rangeLabel,
+              campaign.metaConversationsStarted,
+              campaign,
+            )
     : "A jornada sera exibida quando a API concluir a inicializacao.";
+  const metaDelta = (fallback: string) =>
+    !dataAvailable
+      ? "Aguardando resposta da API"
+      : metaByAccount
+        ? "Conta de anuncios (nao filtravel por chip)"
+        : metaUnsynced
+          ? "Aguardando sincronizacao da Meta"
+          : metaPartial
+            ? noLeadsOnSelectedNumber
+              ? "Campanha inteira · nenhuma conversa neste numero"
+              : "Campanha inteira · inclui outro numero"
+            : campaignWithoutDelivery
+              ? "Sem veiculacao no periodo"
+              : fallback;
+  const revenueDelta = !dataAvailable
+    ? "Aguardando resposta da API"
+    : metaByAccount
+      ? "Receita do chip; ROAS indisponivel"
+      : metaPartial
+        ? "Receita do numero; ROAS indisponivel"
+        : metaUnsynced || campaignWithoutDelivery
+          ? "ROAS indisponivel"
+          : `ROAS ${ratioLabel(campaign.roasAcquisition)}`;
 
   return (
     <section className="page-stack page-wide overview-page">
@@ -535,10 +678,16 @@ export default async function OverviewPage({
         <div className="header-actions" aria-label="Filtros ativos">
           {reportState === "error" ? (
             <span className="status-chip warn">API indisponivel</span>
+          ) : invalidFilter ? (
+            <span className="status-chip warn">Filtro invalido</span>
           ) : (
             <>
               <span className="tag">{report.rangeLabel}</span>
-              <span className="tag">{campaigns.length} campanhas</span>
+              <span className="tag">
+                {hasCampaignFilter
+                  ? "1 campanha"
+                  : `${campaigns.length} campanhas`}
+              </span>
               <span className="tag">
                 {trackedRate === null
                   ? "Aguardando conversas"
@@ -552,6 +701,9 @@ export default async function OverviewPage({
       <OverviewFilters
         adAccountId={filters.adAccountId}
         businessId={filters.businessId}
+        campaignId={filters.campaignId}
+        campaignName={campaignName}
+        campaignOptions={campaignOptions}
         hasActiveFilter={Object.values(filters).some(Boolean)}
         reportingAccounts={reportingAccounts}
         since={report.since ?? filters.since}
@@ -560,146 +712,245 @@ export default async function OverviewPage({
         whatsappInstances={whatsappInstances}
       />
 
-      {hasWhatsappInstanceFilter ? (
-        <p className="muted" role="note">
-          Investimento e Conversas Meta sao da conta de anuncios e nao podem ser
-          filtrados por chip. As metricas de leads, compras e receita usam a
-          instancia selecionada.
-        </p>
-      ) : null}
+      {invalidFilter ? (
+        <div
+          className="overview-unavailable overview-invalid-filter"
+          role="status"
+        >
+          <span className="status-dot" aria-hidden="true" />
+          <div>
+            <strong>Campanha nao encontrada</strong>
+            <span>
+              Ela pode ter sido removida ou pertencer a outra conta de anuncio.
+            </span>
+          </div>
+          <Link className="button ghost" href={clearCampaignHref}>
+            Limpar campanha
+          </Link>
+        </div>
+      ) : (
+        <>
+          {dataAvailable ? (
+            <OverviewScopeNote
+              campaignInstanceLeads={campaignInstanceLeads}
+              filters={filters}
+              metaByAccount={metaByAccount}
+              metaPartial={metaPartial}
+              noLeadsOnSelectedNumber={noLeadsOnSelectedNumber}
+              whatsappInstances={whatsappInstances}
+            />
+          ) : null}
 
-      <div className="metric-grid overview-primary-metrics">
-        <Metric
-          label="Investimento"
-          value={
-            dataAvailable && !hasWhatsappInstanceFilter
-              ? money(campaign.spendCents)
-              : "-"
-          }
-          delta={
-            !dataAvailable
-              ? "Aguardando resposta da API"
-              : hasWhatsappInstanceFilter
-                ? "Conta de anuncios (nao filtravel por chip)"
-                : reportState === "empty"
-                  ? "Nenhuma campanha sincronizada"
-                  : report.rangeLabel
-          }
-          unavailable={!dataAvailable || hasWhatsappInstanceFilter}
-        />
-        <Metric
-          label="Conversas Meta"
-          value={
-            dataAvailable && !hasWhatsappInstanceFilter
-              ? String(campaign.metaConversationsStarted)
-              : "-"
-          }
-          delta={
-            !dataAvailable
-              ? "Aguardando resposta da API"
-              : hasWhatsappInstanceFilter
-                ? "Conta de anuncios (nao filtravel por chip)"
-                : report.rangeLabel
-          }
-          unavailable={!dataAvailable || hasWhatsappInstanceFilter}
-        />
-        <Metric
-          label="Conversas reais"
-          value={dataAvailable ? String(campaign.realConversations) : "-"}
-          delta={
-            !dataAvailable
-              ? "Aguardando resposta da API"
-              : trackedRate === null
-                ? "Aguardando conversas"
-                : `${trackedRate}% rastreadas`
-          }
-          unavailable={!dataAvailable}
-        />
-        {kpiStages.map((stage) =>
-          stage.key === "purchase" ? (
-            <Fragment key={stage.key}>
-              <Metric
-                label={stage.label}
-                value={dataAvailable ? String(stage.value) : "-"}
-                delta={
-                  dataAvailable
-                    ? purchaseBreakdownLabel(
-                        campaign.firstPurchases,
-                        campaign.repurchases,
-                      )
-                    : "Aguardando resposta da API"
-                }
-                unavailable={!dataAvailable}
-              />
-              <Metric
-                label="Receita trafego"
-                value={
-                  dataAvailable ? money(campaign.trafficRevenueCents) : "-"
-                }
-                delta={
-                  !dataAvailable
-                    ? "Aguardando resposta da API"
-                    : hasWhatsappInstanceFilter
-                      ? "Receita do chip; ROAS indisponivel"
-                      : `ROAS ${ratioLabel(campaign.roasAcquisition)}`
-                }
-                unavailable={!dataAvailable}
-              />
-            </Fragment>
-          ) : (
+          <div className="metric-grid overview-primary-metrics">
             <Metric
-              key={stage.key}
-              label={stage.label}
-              value={dataAvailable ? String(stage.value) : "-"}
+              label="Investimento"
+              value={
+                dataAvailable && !metaHidden ? money(campaign.spendCents) : "-"
+              }
+              delta={metaDelta(
+                reportState === "empty" && !hasCampaignFilter
+                  ? "Nenhuma campanha sincronizada"
+                  : report.rangeLabel,
+              )}
+              partial={dataAvailable && metaPartial}
+              unavailable={!dataAvailable || metaHidden}
+            />
+            <Metric
+              label="Conversas Meta"
+              value={
+                dataAvailable && !metaHidden
+                  ? String(campaign.metaConversationsStarted)
+                  : "-"
+              }
+              delta={metaDelta(
+                metaScope === "campaign"
+                  ? stageCardDelta(metaConversationStage, report.rangeLabel)
+                  : report.rangeLabel,
+              )}
+              partial={dataAvailable && metaPartial}
+              unavailable={!dataAvailable || metaHidden}
+            />
+            <Metric
+              label="Conversas reais"
+              value={dataAvailable ? String(campaign.realConversations) : "-"}
               delta={
                 !dataAvailable
                   ? "Aguardando resposta da API"
-                  : hasWhatsappInstanceFilter
-                    ? "Eventos do chip selecionado"
-                    : stageCardDelta(stage, report.rangeLabel)
+                  : trackedRate === null
+                    ? "Aguardando conversas"
+                    : `${trackedRate}% rastreadas`
               }
               unavailable={!dataAvailable}
             />
-          ),
-        )}
-      </div>
+            {kpiStages.map((stage) =>
+              stage.key === "purchase" ? (
+                <Fragment key={stage.key}>
+                  <Metric
+                    label={stage.label}
+                    value={dataAvailable ? String(stage.value) : "-"}
+                    delta={
+                      dataAvailable
+                        ? purchaseBreakdownLabel(
+                            campaign.firstPurchases,
+                            campaign.repurchases,
+                          )
+                        : "Aguardando resposta da API"
+                    }
+                    unavailable={!dataAvailable}
+                  />
+                  <Metric
+                    label="Receita trafego"
+                    value={
+                      dataAvailable ? money(campaign.trafficRevenueCents) : "-"
+                    }
+                    delta={revenueDelta}
+                    unavailable={!dataAvailable}
+                  />
+                </Fragment>
+              ) : (
+                <Metric
+                  key={stage.key}
+                  label={stage.label}
+                  value={dataAvailable ? String(stage.value) : "-"}
+                  delta={
+                    !dataAvailable
+                      ? "Aguardando resposta da API"
+                      : metaByAccount
+                        ? "Eventos do chip selecionado"
+                        : costsHidden
+                          ? report.rangeLabel
+                          : stageCardDelta(stage, report.rangeLabel)
+                  }
+                  unavailable={!dataAvailable}
+                />
+              ),
+            )}
+          </div>
 
-      <section
-        className="surface-panel overview-funnel-panel"
-        aria-label="Funil integrado"
-      >
-        {dataAvailable ? (
-          <ConversionFunnel description={funnelSummary} stages={funnelStages} />
-        ) : (
-          <>
-            <div className="overview-section-heading">
-              <div>
-                <span className="eyebrow">Funil integrado</span>
-                <h2>Conversao por etapas</h2>
-                <p>{funnelSummary}</p>
-              </div>
-            </div>
-            <div className="overview-unavailable" role="status">
-              <span className="status-dot" aria-hidden="true" />
-              <div>
-                <strong>Dados temporariamente indisponiveis</strong>
-                <span>
-                  Tente novamente quando a API concluir a inicializacao.
-                </span>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
+          <section
+            className="surface-panel overview-funnel-panel"
+            aria-label="Funil integrado"
+          >
+            {dataAvailable ? (
+              <ConversionFunnel
+                description={funnelSummary}
+                stages={funnelStages}
+              />
+            ) : (
+              <>
+                <div className="overview-section-heading">
+                  <div>
+                    <span className="eyebrow">Funil integrado</span>
+                    <h2>Conversao por etapas</h2>
+                    <p>{funnelSummary}</p>
+                  </div>
+                </div>
+                <div className="overview-unavailable" role="status">
+                  <span className="status-dot" aria-hidden="true" />
+                  <div>
+                    <strong>Dados temporariamente indisponiveis</strong>
+                    <span>
+                      Tente novamente quando a API concluir a inicializacao.
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
+          </section>
 
-      <DailyConversationComparison
-        available={report.dailyComparisonAvailable === true}
-        detailHref={detailHref}
-        points={report.dailyComparison ?? []}
-        reportState={reportState}
-        scopeLabel={scopeLabel}
-      />
+          <DailyConversationComparison
+            available={report.dailyComparisonAvailable === true}
+            detailHref={detailHref}
+            points={report.dailyComparison ?? []}
+            reportState={reportState}
+            scopeLabel={scopeLabel}
+            scopePlaceholder={scopePlaceholder}
+          />
+        </>
+      )}
     </section>
+  );
+}
+
+/**
+ * One `role="note"` line under the filter bar (§6.2). Campaign -> number is a
+ * hint with a one-click link, never an automatic filter (D4).
+ */
+function OverviewScopeNote({
+  campaignInstanceLeads,
+  filters,
+  metaByAccount,
+  metaPartial,
+  noLeadsOnSelectedNumber,
+  whatsappInstances,
+}: {
+  campaignInstanceLeads: NonNullable<
+    ReportOverviewDto["campaignInstanceLeads"]
+  >;
+  filters: OverviewFiltersInput;
+  metaByAccount: boolean;
+  metaPartial: boolean;
+  noLeadsOnSelectedNumber: boolean;
+  whatsappInstances: WhatsappInstanceSummaryDto[];
+}) {
+  if (metaByAccount) {
+    return (
+      <p className="muted" role="note">
+        Investimento e Conversas Meta existem por campanha, nao por numero.
+        Escolha uma campanha para ver o investimento que trouxe conversas para
+        este numero.
+      </p>
+    );
+  }
+
+  if (metaPartial) {
+    return (
+      <p className="muted" role="note">
+        {noLeadsOnSelectedNumber
+          ? "Esta campanha nao gerou conversas neste numero no periodo. Investimento e Conversas Meta mostram a campanha inteira."
+          : "Esta campanha tambem gerou conversas em outro numero. Investimento e Conversas Meta mostram a campanha inteira; custos por etapa e ROAS ficam ocultos para nao distorcer o resultado."}
+      </p>
+    );
+  }
+
+  if (
+    !filters.campaignId ||
+    filters.whatsappInstanceId ||
+    campaignInstanceLeads.length === 0
+  ) {
+    return null;
+  }
+
+  if (campaignInstanceLeads.length > 1) {
+    return (
+      <p className="muted" role="note">
+        Esta campanha gerou conversas em {campaignInstanceLeads.length} numeros.
+        Selecione um numero para ver o resultado de cada um.
+      </p>
+    );
+  }
+
+  const [entry] = campaignInstanceLeads;
+  const instance = whatsappInstances.find(
+    (candidate) => candidate.id === entry!.instanceId,
+  );
+
+  return (
+    <p className="muted overview-scope-hint" role="note">
+      Esta campanha leva conversas para{" "}
+      <PresentationMask placeholder="Numero oculto">
+        {instance ? instanceLabel(instance) : entry!.instanceName}
+      </PresentationMask>
+      .{" "}
+      <Link
+        href={overviewHref({
+          ...filters,
+          whatsappInstanceId: entry!.instanceId,
+        })}
+      >
+        Filtrar este numero
+      </Link>
+    </p>
   );
 }
 
@@ -709,12 +960,14 @@ function DailyConversationComparison({
   points,
   reportState,
   scopeLabel,
+  scopePlaceholder,
 }: {
   available: boolean;
   detailHref: string;
   points: ReportDailyComparisonPointDto[];
   reportState: OverviewFetchState;
   scopeLabel: string;
+  scopePlaceholder: string;
 }) {
   const metaTotal = points.reduce(
     (total, point) => total + point.metaConversationsStarted,
@@ -774,7 +1027,7 @@ function DailyConversationComparison({
           aria-label="Resumo do comparativo"
         >
           <span>
-            <PresentationMask placeholder="Conta de anuncios oculta">
+            <PresentationMask placeholder={scopePlaceholder}>
               {scopeLabel}
             </PresentationMask>
           </span>
@@ -885,15 +1138,20 @@ function Metric({
   label,
   value,
   delta,
+  partial = false,
   unavailable = false,
 }: {
   label: string;
   value: string;
   delta: string;
+  /** Real value with a wider scope than the page (whole campaign). */
+  partial?: boolean;
   unavailable?: boolean;
 }) {
   return (
-    <div className={`metric-card${unavailable ? " unavailable" : ""}`}>
+    <div
+      className={`metric-card${unavailable ? " unavailable" : ""}${partial ? " partial" : ""}`}
+    >
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{delta}</small>
