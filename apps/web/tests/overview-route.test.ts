@@ -80,7 +80,7 @@ function metricCards(html: string): MetricCard[] {
   return cards;
 }
 
-function overviewResponse(body: Record<string, unknown>) {
+function overviewResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -258,7 +258,7 @@ describe("overview route", () => {
     expect(html).toContain("Instancia WhatsApp");
     expect(html).toContain("Comercial - •••• 1234");
     expect(html).toContain(
-      "Investimento e Conversas Meta sao da conta de anuncios (nao do chip).",
+      "Investimento e Conversas Meta sao da conta de anuncios e nao podem",
     );
     expect(html).toContain("Meta x conversas reais");
     expect(html).toContain("4 conversas a mais na Meta");
@@ -571,6 +571,85 @@ describe("overview route", () => {
     expect(html).not.toContain("Qualidade do rastreamento");
     expect(html).not.toContain("0% conciliadas");
     expect(html).not.toContain("Black Friday WhatsApp");
+  });
+
+  it("only offers active WhatsApp instances and marks Meta KPIs unavailable for an instance filter", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        overviewResponse({
+          workspaceId: "workspace_1",
+          rangeLabel: "Ultimos 7 dias",
+          campaigns: [
+            {
+              id: "cmp_1",
+              name: "Campanha Real",
+              status: "active",
+              ...reportMetrics(),
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        overviewResponse({
+          workspaceId: "workspace_1",
+          status: "connected",
+          businesses: [],
+          adAccounts: [],
+          pixels: [],
+          reportingAccounts: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        overviewResponse([
+          {
+            id: "instance_active",
+            name: "Comercial ativo",
+            provider: "uazapi",
+            billingStatus: "active",
+            providerInstanceId: "5511999991234",
+            checkoutUrl: null,
+            createdAt: "2026-07-01T12:00:00.000Z",
+          },
+          {
+            id: "instance_removed",
+            name: "Comercial antigo",
+            provider: "uazapi",
+            billingStatus: "disconnected",
+            providerInstanceId: "5511999995678",
+            checkoutUrl: null,
+            createdAt: "2026-06-01T12:00:00.000Z",
+          },
+        ]),
+      );
+
+    const element = await OverviewPage({
+      searchParams: Promise.resolve({
+        whatsappInstanceId: "instance_active",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+    const cards = metricCards(html);
+
+    expect(html).toContain("Comercial ativo - •••• 1234");
+    expect(html).not.toContain("Comercial antigo");
+    expect(cards.find((card) => card.label === "Investimento")).toEqual({
+      label: "Investimento",
+      value: "-",
+      delta: "Conta de anuncios (nao filtravel por chip)",
+    });
+    expect(cards.find((card) => card.label === "Conversas Meta")).toEqual({
+      label: "Conversas Meta",
+      value: "-",
+      delta: "Conta de anuncios (nao filtravel por chip)",
+    });
+    expect(cards.find((card) => card.label === "Conversas reais")?.value).toBe(
+      "6",
+    );
+    expect(cards.find((card) => card.label === "Receita trafego")).toEqual({
+      label: "Receita trafego",
+      value: "R$ 300,00",
+      delta: "Receita do chip; ROAS indisponivel",
+    });
   });
 });
 

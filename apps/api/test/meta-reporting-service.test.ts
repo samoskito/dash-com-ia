@@ -3077,7 +3077,12 @@ describe("meta reporting service", () => {
       until: "2026-07-02",
     });
 
-    const [instanceA, instanceB] = await Promise.all([
+    const [unfiltered, instanceA, instanceB] = await Promise.all([
+      service.getCampaignReportOverview({
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 2 dias",
+        includeSummary: true,
+      }),
       service.getCampaignReportOverview({
         workspaceId: "workspace_1",
         rangeLabel: "Ultimos 2 dias",
@@ -3092,15 +3097,18 @@ describe("meta reporting service", () => {
       }),
     ]);
 
+    expect(unfiltered.summary?.realConversations).toBe(3);
     expect(instanceA.summary).toMatchObject({
       realConversations: 1,
       qualifiedLead: 1,
       purchases: 1,
+      trafficRevenueCents: 100000,
     });
     expect(instanceB.summary).toMatchObject({
       realConversations: 1,
       qualifiedLead: 0,
       purchases: 0,
+      trafficRevenueCents: 0,
     });
     expect(instanceA.campaigns[0]).toMatchObject({
       spendCents: 60000,
