@@ -255,10 +255,10 @@ describe("overview route", () => {
     expect(html).toContain("Periodo e contas");
     expect(html).toContain("BM Principal");
     expect(html).toContain("Conta Principal");
-    expect(html).toContain("Instancia WhatsApp");
+    expect(html).toContain("Numero WhatsApp");
     expect(html).toContain("Comercial - •••• 1234");
     expect(html).toContain(
-      "Investimento e Conversas Meta sao da conta de anuncios e nao podem",
+      "Investimento e Conversas Meta existem por campanha, nao por numero. Escolha uma campanha para ver o investimento que trouxe conversas para este numero.",
     );
     expect(html).toContain("Meta x conversas reais");
     expect(html).toContain("4 conversas a mais na Meta");
@@ -918,5 +918,561 @@ describe("overview configurable KPI cards", () => {
     expect(html).not.toContain(">Compras<");
     // Purchase breakdown keeps its own caption.
     expect(html).toContain("Custo por primeira compra");
+  });
+});
+
+type FetchRoutes = {
+  report?: Record<string, unknown> | Response;
+  metaAssets?: Record<string, unknown>;
+  instances?: unknown[];
+  campaignOptions?: Record<string, unknown> | Response;
+};
+
+/** Routes fetch by path so the parallel page requests stay deterministic. */
+function mockOverviewApi(routes: FetchRoutes) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    const respond = (body: unknown) =>
+      body instanceof Response ? body : overviewResponse(body);
+
+    if (url.includes("/reports/campaign-options")) {
+      return routes.campaignOptions
+        ? respond(routes.campaignOptions)
+        : new Response("offline", { status: 503 });
+    }
+
+    if (url.includes("/reports/campaigns")) {
+      return respond(routes.report ?? { campaigns: [] });
+    }
+
+    if (url.includes("/integrations/meta/assets")) {
+      return routes.metaAssets
+        ? respond(routes.metaAssets)
+        : new Response("offline", { status: 503 });
+    }
+
+    if (url.includes("/integrations/whatsapp/instances")) {
+      return respond(routes.instances ?? []);
+    }
+
+    return new Response("not found", { status: 404 });
+  });
+}
+
+async function renderOverviewWith(
+  routes: FetchRoutes,
+  searchParams: Record<string, string> = {},
+) {
+  mockOverviewApi(routes);
+  const element = await OverviewPage({
+    searchParams: Promise.resolve(searchParams),
+  });
+  return renderToStaticMarkup(createElement("div", null, element));
+}
+
+const campaignInstances = [
+  {
+    id: "instance_centro",
+    name: "Loja Centro",
+    provider: "uazapi",
+    billingStatus: "active",
+    providerInstanceId: "5511999991234",
+    checkoutUrl: null,
+    createdAt: "2026-07-01T12:00:00.000Z",
+  },
+  {
+    id: "instance_norte",
+    name: "Loja Norte",
+    provider: "uazapi",
+    billingStatus: "active",
+    providerInstanceId: "5511999995678",
+    checkoutUrl: null,
+    createdAt: "2026-07-01T12:00:00.000Z",
+  },
+];
+
+const campaignOptionsBody = {
+  campaigns: [
+    {
+      id: "cmp_promo",
+      name: "Promo Setembro",
+      status: "active",
+      businessId: "business_1",
+      adAccountId: "act_1",
+      leadsByInstance: { instance_centro: 6 },
+    },
+    {
+      id: "cmp_outra",
+      name: "Outra campanha",
+      status: "paused",
+      businessId: "business_1",
+      adAccountId: "act_1",
+      leadsByInstance: {},
+    },
+  ],
+};
+
+function campaignReport(overrides: Record<string, unknown> = {}) {
+  return {
+    workspaceId: "workspace_1",
+    rangeLabel: "Ultimos 7 dias",
+    since: "2026-09-17",
+    until: "2026-09-24",
+    campaigns: [
+      {
+        id: "cmp_promo",
+        name: "Promo Setembro",
+        status: "active",
+        ...reportMetrics(),
+      },
+    ],
+    summary: {
+      id: "workspace_summary",
+      name: "Resumo",
+      status: "active",
+      ...reportMetrics(),
+    },
+    dailyComparisonAvailable: true,
+    dailyComparison: [
+      {
+        date: "2026-09-24",
+        metaConversationsStarted: 10,
+        realConversations: 6,
+      },
+    ],
+    filters: { campaignId: "cmp_promo", campaignName: "Promo Setembro" },
+    campaignInstanceLeads: [
+      { instanceId: "instance_centro", instanceName: "Loja Centro", leads: 6 },
+    ],
+    metaMetricsScope: "campaign",
+    ...overrides,
+  };
+}
+
+function funnelCosts(html: string): string[] {
+  const grid = html.slice(
+    html.indexOf("conversion-funnel-stage-grid"),
+    html.indexOf("conversion-funnel-chart"),
+  );
+
+  return Array.from(
+    grid.matchAll(
+      /<div class="conversion-funnel-stage-cost"><span>(.*?)<\/span><strong>(.*?)<\/strong>/g,
+    ),
+    (match) => `${match[1]}: ${match[2]}`,
+  );
+}
+
+describe("overview campaign x WhatsApp number cross-filter", () => {
+  // §9 test 8
+  it("sends campaignId to the report and scopes the option list to the period and account", async () => {
+    const fetchSpy = mockOverviewApi({
+      report: campaignReport(),
+      campaignOptions: campaignOptionsBody,
+      instances: campaignInstances,
+    });
+    const element = await OverviewPage({
+      searchParams: Promise.resolve({
+        since: "2026-09-17",
+        until: "2026-09-24",
+        adAccountId: "act_1",
+        campaignId: "cmp_promo",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+    const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+
+    expect(urls).toContain(
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&since=2026-09-17&until=2026-09-24&adAccountId=act_1&campaignId=cmp_promo",
+    );
+    expect(urls).toContain(
+      "http://localhost:3333/reports/campaign-options?since=2026-09-17&until=2026-09-24&adAccountId=act_1",
+    );
+    expect(html).toContain('<select name="campaignId">');
+    expect(html).toContain(
+      '<option value="cmp_promo" title="Promo Setembro" selected="">Promo Setembro</option>',
+    );
+    expect(html).toContain("Outra campanha · Pausada");
+    expect(html).toContain('<span class="tag">1 campanha</span>');
+    expect(html).not.toContain("1 campanhas");
+  });
+
+  it("carries campaignId into Abrir relatorios", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({ dailyComparisonAvailable: false }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignId: "cmp_promo", whatsappInstanceId: "instance_centro" },
+    );
+
+    expect(html).toContain(
+      'href="/reports?whatsappInstanceId=instance_centro&amp;campaignId=cmp_promo">Abrir relatorios',
+    );
+  });
+
+  // §9 test 11 (S4)
+  it("S4: exclusive campaign on the number renders real Meta metrics, costs and ROAS", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport(),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      { campaignId: "cmp_promo", whatsappInstanceId: "instance_centro" },
+    );
+    const cards = metricCards(html);
+
+    expect(cards.find((card) => card.label === "Investimento")).toEqual({
+      label: "Investimento",
+      value: "R$\u00a0100,00",
+      delta: "Ultimos 7 dias",
+    });
+    expect(cards.find((card) => card.label === "Conversas Meta")).toEqual({
+      label: "Conversas Meta",
+      value: "10",
+      delta: "Custo por conversa Meta R$\u00a010,00",
+    });
+    expect(cards.find((card) => card.label === "Receita trafego")?.delta).toBe(
+      "ROAS 3.00x",
+    );
+    expect(cards.find((card) => card.label === "Lead qualificado")?.delta).toBe(
+      "Custo por lead qualificado R$\u00a0100,00",
+    );
+    expect(html).not.toContain("metric-card partial");
+    expect(html).not.toContain('role="note"');
+    expect(funnelCosts(html)[0]).toBe("Custo por conversa Meta: R$\u00a010,00");
+    expect(html).toContain("10 conversas registradas pela Meta");
+  });
+
+  // §9 test 11 (S5)
+  it("S5: shared campaign renders partial Meta cards without ROAS or funnel costs", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({
+          metaMetricsScope: "campaign_shared",
+          campaignInstanceLeads: [
+            {
+              instanceId: "instance_centro",
+              instanceName: "Loja Centro",
+              leads: 6,
+            },
+            {
+              instanceId: "instance_norte",
+              instanceName: "Loja Norte",
+              leads: 2,
+            },
+          ],
+        }),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      { campaignId: "cmp_promo", whatsappInstanceId: "instance_centro" },
+    );
+    const cards = metricCards(html);
+
+    expect(html).toContain(
+      '<div class="metric-card partial"><span>Investimento</span><strong>R$\u00a0100,00</strong><small>Campanha inteira · inclui outro numero</small></div>',
+    );
+    expect(html).toContain(
+      '<div class="metric-card partial"><span>Conversas Meta</span><strong>10</strong><small>Campanha inteira · inclui outro numero</small></div>',
+    );
+    expect(cards.find((card) => card.label === "Receita trafego")?.delta).toBe(
+      "Receita do numero; ROAS indisponivel",
+    );
+    expect(cards.find((card) => card.label === "Lead qualificado")?.delta).toBe(
+      "Ultimos 7 dias",
+    );
+    expect(html).not.toContain("ROAS 3.00x");
+    expect(html).not.toContain("metric-card partial unavailable");
+    const costs = funnelCosts(html);
+    expect(costs[0]).toBe("Custo por conversa Meta: -");
+    expect(costs.every((cost) => cost.endsWith(": -"))).toBe(true);
+    expect(html).toContain(
+      "Esta campanha tambem gerou conversas em outro numero. Investimento e Conversas Meta mostram a campanha inteira; custos por etapa e ROAS ficam ocultos para nao distorcer o resultado.",
+    );
+    expect(html).toContain(
+      "Ultimos 7 dias: 6 conversas reais neste numero vindas da campanha selecionada.",
+    );
+  });
+
+  it("S6: campaign with no conversations on the number shows the S6 note", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({
+          metaMetricsScope: "campaign_shared",
+          summary: {
+            id: "workspace_summary",
+            name: "Resumo",
+            status: "active",
+            ...reportMetrics({ realConversations: 0 }),
+          },
+          campaignInstanceLeads: [
+            {
+              instanceId: "instance_norte",
+              instanceName: "Loja Norte",
+              leads: 2,
+            },
+          ],
+        }),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      { campaignId: "cmp_promo", whatsappInstanceId: "instance_centro" },
+    );
+    const cards = metricCards(html);
+
+    expect(html).toContain(
+      "Esta campanha nao gerou conversas neste numero no periodo. Investimento e Conversas Meta mostram a campanha inteira.",
+    );
+    expect(cards.find((card) => card.label === "Investimento")?.delta).toBe(
+      "Campanha inteira · nenhuma conversa neste numero",
+    );
+    expect(html).toContain("metric-card partial");
+  });
+
+  it("S7: campaign without delivery shows a real zero and no ROAS", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({
+          summary: {
+            id: "workspace_summary",
+            name: "Resumo",
+            status: "active",
+            ...reportMetrics({
+              spendCents: 0,
+              metaConversationsStarted: 0,
+              costPerMetaConversationCents: null,
+              roasAcquisition: null,
+            }),
+          },
+        }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignId: "cmp_promo" },
+    );
+    const cards = metricCards(html);
+
+    expect(cards.find((card) => card.label === "Investimento")).toEqual({
+      label: "Investimento",
+      value: "R$\u00a00,00",
+      delta: "Sem veiculacao no periodo",
+    });
+    expect(cards.find((card) => card.label === "Receita trafego")?.delta).toBe(
+      "ROAS indisponivel",
+    );
+  });
+
+  it("S8: unsynced campaign keeps Meta metrics unavailable", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({ metaMetricsScope: "campaign_unsynced" }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignId: "cmp_promo" },
+    );
+    const cards = metricCards(html);
+
+    expect(cards.find((card) => card.label === "Investimento")).toEqual({
+      label: "Investimento",
+      value: "-",
+      delta: "Aguardando sincronizacao da Meta",
+    });
+    expect(cards.find((card) => card.label === "Conversas Meta")?.delta).toBe(
+      "Aguardando sincronizacao da Meta",
+    );
+    expect(cards.find((card) => card.label === "Receita trafego")?.delta).toBe(
+      "ROAS indisponivel",
+    );
+    expect(funnelCosts(html)[0]).not.toContain("Custo por conversa Meta");
+  });
+
+  // §9 test 12
+  it("S2: number without campaign keeps #110 dashes and points to the campaign filter", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({
+          filters: { whatsappInstanceId: "instance_centro" },
+          campaignInstanceLeads: undefined,
+          metaMetricsScope: "ad_account",
+        }),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      { whatsappInstanceId: "instance_centro" },
+    );
+    const cards = metricCards(html);
+
+    expect(cards.find((card) => card.label === "Investimento")).toEqual({
+      label: "Investimento",
+      value: "-",
+      delta: "Conta de anuncios (nao filtravel por chip)",
+    });
+    expect(html).toContain(
+      '<p class="muted" role="note">Investimento e Conversas Meta existem por campanha, nao por numero. Escolha uma campanha para ver o investimento que trouxe conversas para este numero.</p>',
+    );
+    expect(html).not.toContain("sao da conta de anuncios e nao podem");
+    expect(html).toContain('<select name="campaignId">');
+    expect(html).toContain('<optgroup label="Com conversas neste numero">');
+  });
+
+  it("hints the campaign's only number with a one-click filter link", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport(),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      { campaignId: "cmp_promo", adAccountId: "act_1" },
+    );
+
+    expect(html).toContain("Esta campanha leva conversas para ");
+    expect(html).toContain(
+      '<span class="presentation-mask-value">Loja Centro - •••• 1234</span><span class="presentation-mask-placeholder">Numero oculto</span>',
+    );
+    expect(html).toContain(
+      'href="/overview?adAccountId=act_1&amp;whatsappInstanceId=instance_centro&amp;campaignId=cmp_promo">Filtrar este numero</a>',
+    );
+  });
+
+  it("hints when the campaign spreads across several numbers", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({
+          campaignInstanceLeads: [
+            {
+              instanceId: "instance_centro",
+              instanceName: "Loja Centro",
+              leads: 6,
+            },
+            {
+              instanceId: "instance_norte",
+              instanceName: "Loja Norte",
+              leads: 3,
+            },
+            {
+              instanceId: "instance_zero",
+              instanceName: "Sem leads",
+              leads: 0,
+            },
+          ],
+        }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignId: "cmp_promo" },
+    );
+
+    expect(html).toContain(
+      "Esta campanha gerou conversas em 2 numeros. Selecione um numero para ver o resultado de cada um.",
+    );
+    expect(html).not.toContain("Filtrar este numero");
+  });
+
+  it("shows no hint when the campaign has no conversations", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport({ campaignInstanceLeads: [] }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignId: "cmp_promo" },
+    );
+
+    expect(html).not.toContain('role="note"');
+  });
+
+  // §9 test 10 (page side)
+  it("masks the campaign name in the daily comparison scope", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: campaignReport(),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignId: "cmp_promo" },
+    );
+    const header = html.slice(0, html.indexOf("overview-filter-bar"));
+
+    expect(html).toContain(
+      '<span class="presentation-mask-value">Promo Setembro</span><span class="presentation-mask-placeholder">Campanha oculta</span>',
+    );
+    expect(header).not.toContain("Promo Setembro");
+    // Outside the filter select, the name only appears inside a mask.
+    const withoutSelect = html.replace(
+      /<select name="campaignId">.*?<\/select>/,
+      "",
+    );
+    expect(
+      withoutSelect.replaceAll(
+        '<span class="presentation-mask-value">Promo Setembro</span>',
+        "",
+      ),
+    ).not.toContain("Promo Setembro");
+  });
+
+  // §9 test 13
+  it("renders the invalid-filter state for a 404 campaign", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: new Response(
+          JSON.stringify({ message: "Campanha nao encontrada" }),
+          { status: 404, headers: { "Content-Type": "application/json" } },
+        ),
+        campaignOptions: campaignOptionsBody,
+      },
+      {
+        since: "2026-09-17",
+        until: "2026-09-24",
+        whatsappInstanceId: "instance_centro",
+        campaignId: "cmp_foreign",
+      },
+    );
+
+    expect(html).toContain("Campanha nao encontrada");
+    expect(html).toContain(
+      "Ela pode ter sido removida ou pertencer a outra conta de anuncio.",
+    );
+    expect(html).toContain(
+      '<a class="button ghost" href="/overview?since=2026-09-17&amp;until=2026-09-24&amp;whatsappInstanceId=instance_centro">Limpar campanha</a>',
+    );
+    expect(html).not.toContain("overview-primary-metrics");
+    expect(html).not.toContain("overview-funnel-panel");
+    expect(html).not.toContain("daily-comparison");
+    expect(html).not.toContain("API indisponivel");
+    expect(html).not.toContain("R$\u00a00,00");
+  });
+
+  it("keeps a 404 without campaignId as the generic error state", async () => {
+    const html = await renderOverviewWith({
+      report: new Response("missing", { status: 404 }),
+    });
+
+    expect(html).toContain("API indisponivel");
+    expect(html).not.toContain("Limpar campanha");
+  });
+
+  // §9 test 14
+  it("still renders the report when the campaign options endpoint fails", async () => {
+    const html = await renderOverviewWith({
+      report: {
+        workspaceId: "workspace_1",
+        rangeLabel: "Ultimos 7 dias",
+        campaigns: [
+          {
+            id: "cmp_1",
+            name: "Campanha Real",
+            status: "active",
+            ...reportMetrics(),
+          },
+        ],
+      },
+      campaignOptions: new Response("offline", { status: 503 }),
+    });
+    const cards = metricCards(html);
+
+    expect(html).toContain(
+      '<select disabled=""><option value="" selected="">Campanhas indisponiveis</option></select>',
+    );
+    expect(cards.find((card) => card.label === "Investimento")?.value).toBe(
+      "R$\u00a0100,00",
+    );
   });
 });

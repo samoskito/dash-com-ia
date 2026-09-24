@@ -1378,11 +1378,62 @@ html[data-presentation-mode="active"]
 
 .overview-filter-bar {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) repeat(4, minmax(140px, 1fr)) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 12px;
   padding: 14px 0;
   border-block: 1px solid var(--border);
+}
+
+/* Periodo e contas | Numero e campanha (two rows on desktop). */
+.overview-filter-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  align-items: end;
+  gap: 12px;
+  min-width: 0;
+}
+
+.overview-filter-group-cut {
+  grid-template-columns: minmax(200px, 1fr) minmax(260px, 1.4fr) auto;
+}
+
+.overview-filter-group-label {
+  grid-column: 1 / -1;
+  color: var(--ink-muted);
+}
+
+/* One DOM for BM/Conta: a plain row above 620px, collapsible below. */
+.overview-filter-accounts {
+  display: contents;
+}
+
+.overview-filter-accounts::details-content {
+  display: contents;
+  content-visibility: visible;
+}
+
+.overview-filter-accounts > summary {
+  display: none;
+}
+
+/* Single account: no BM/Conta, so both groups share one row. */
+.overview-filter-bar.single-row {
+  grid-template-columns:
+    repeat(2, minmax(130px, 0.8fr)) minmax(200px, 1fr)
+    minmax(260px, 1.4fr) auto;
+}
+
+.overview-filter-bar.single-row .overview-filter-heading {
+  grid-column: 1 / -1;
+}
+
+.overview-filter-bar.single-row .overview-filter-group {
+  display: contents;
+}
+
+.overview-filter-bar.single-row .overview-filter-group-label {
+  display: none;
 }
 
 .overview-filter-heading {
@@ -1481,6 +1532,32 @@ html[data-presentation-mode="active"]
   width: 40px;
   min-width: 40px;
   padding: 9px;
+}
+
+.overview-scope-hint a {
+  color: var(--mint);
+  font-weight: 800;
+}
+
+.overview-unavailable.overview-invalid-filter {
+  margin-top: 0;
+}
+
+.overview-invalid-filter .button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+@media (max-width: 1099px) {
+  .overview-filter-group,
+  .overview-filter-group-cut,
+  .overview-filter-bar.single-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-filter-actions {
+    grid-column: 1 / -1;
+  }
 }
 
 .daily-comparison {
@@ -1768,6 +1845,22 @@ html[data-presentation-mode="active"]
 .metric-card.unavailable strong,
 .metric-card.unavailable small {
   color: var(--ink-muted);
+}
+
+/* Real value, wider scope than the page (whole campaign): keep full ink. */
+.metric-card.partial small {
+  align-items: center;
+  gap: 6px;
+  color: var(--amber);
+}
+
+.metric-card.partial small::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--amber);
 }
 
 .overview-unavailable {
@@ -7384,10 +7477,6 @@ th {
     flex-direction: column;
   }
 
-  .overview-filter-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .overview-filter-heading,
   .overview-filter-actions {
     grid-column: 1 / -1;
@@ -7399,13 +7488,64 @@ th {
 }
 
 @media (max-width: 620px) {
-  .overview-filter-bar {
+  .overview-filter-group-cut,
+  .overview-filter-bar.single-row {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .overview-filter-heading,
+  .overview-filter-bar.single-row .overview-filter-heading,
   .overview-filter-actions {
-    grid-column: auto;
+    grid-column: 1 / -1;
+  }
+
+  .overview-filter-group-label {
+    display: none;
+  }
+
+  .overview-filter-accounts {
+    display: grid;
+    grid-column: 1 / -1;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .overview-filter-accounts::details-content {
+    display: revert;
+    content-visibility: revert;
+  }
+
+  .overview-filter-accounts[open] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .overview-filter-accounts > summary {
+    display: flex;
+    min-height: 40px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    font-family: var(--font-display);
+    font-size: 12px;
+    font-weight: 800;
+    list-style: none;
+  }
+
+  .overview-filter-accounts > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .overview-filter-accounts[open] > summary {
+    border-color: rgba(66, 240, 168, 0.34);
+    background: rgba(18, 184, 132, 0.04);
+  }
+
+  .overview-invalid-filter {
+    flex-wrap: wrap;
   }
 
   .overview-filter-actions .button.primary {
