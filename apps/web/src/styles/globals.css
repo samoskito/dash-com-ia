@@ -15177,235 +15177,686 @@ button.meta-manual-entry[aria-expanded="true"] {
   font-size: 0.75rem;
 }
 
-/* Public /licenca claim flow: same shell as login/forgot, with a compact form
-   column that never stretches to the intro height. */
-.license-claim-panel {
-  align-items: start;
+
+/*
+ * Public /licenca claim flow. A standalone page with its own scoped tokens:
+ * graphite ground, one mint accent, hairline borders, and the brand faces
+ * self-hosted from src/app/licenca/fonts. Family names are prefixed so no
+ * other route starts downloading these files.
+ */
+@font-face {
+  font-family: "RD Hanken Grotesk";
+  src: url("../app/licenca/fonts/hanken-grotesk-400.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
-.license-claim-panel:has(.license-claim-reveal) {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 500px);
+@font-face {
+  font-family: "RD Hanken Grotesk";
+  src: url("../app/licenca/fonts/hanken-grotesk-500.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
 }
 
-.license-claim-intro > p:not(.eyebrow) {
-  max-width: 46ch;
-  margin: 10px 0 0;
-  color: rgba(191, 208, 202, 0.72);
-  line-height: 1.55;
+@font-face {
+  font-family: "RD Hanken Grotesk";
+  src: url("../app/licenca/fonts/hanken-grotesk-600.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
 }
 
-.license-claim-intro > p.license-claim-lead {
-  margin-top: 14px;
-  color: var(--ink-soft);
-  font-size: 16px;
+@font-face {
+  font-family: "RD Space Grotesk";
+  src: url("../app/licenca/fonts/space-grotesk-500.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
 }
 
-.license-claim-form {
-  align-content: start;
-  gap: 14px;
-  padding: 18px;
+@font-face {
+  font-family: "RD JetBrains Mono";
+  src: url("../app/licenca/fonts/jetbrains-mono-500.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
 }
 
-.license-claim-form h2 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 20px;
-  line-height: 1.2;
-  letter-spacing: 0;
-}
+.licenca-page {
+  --lc-ground: #050807;
+  --lc-card: #0a1210;
+  --lc-well: #050a08;
+  --lc-line: rgba(214, 240, 230, 0.08);
+  --lc-line-strong: rgba(214, 240, 230, 0.14);
+  --lc-line-hover: rgba(214, 240, 230, 0.24);
+  --lc-ink: #f2f7f5;
+  --lc-ink-2: #b7c6c0;
+  --lc-ink-3: #82928c;
+  --lc-mint: #42f0a8;
+  --lc-mint-hover: #6af4bb;
+  --lc-on-mint: #03110d;
+  --lc-ring: 0 0 0 3px rgba(66, 240, 168, 0.18);
+  --lc-danger: #ffb0a8;
+  --lc-sans: "RD Hanken Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif;
+  --lc-display: "RD Space Grotesk", var(--lc-sans);
+  --lc-mono: "RD JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --lc-ease: cubic-bezier(0.16, 1, 0.3, 1);
 
-.license-claim-form h3 {
-  margin: 0 0 8px;
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 850;
-}
-
-.license-claim-form p {
-  margin: 0;
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: clamp(40px, 11vh, 104px) 20px 56px;
+  background: var(--lc-ground);
+  color: var(--lc-ink);
+  font-family: var(--lc-sans);
+  font-size: 15px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.license-claim-form .license-claim-lead {
-  color: var(--ink-soft);
-  font-size: 14px;
+/* The product grid, dissolving away from the card instead of tiling edge to edge. */
+.licenca-page::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(90deg, rgba(214, 240, 230, 0.045) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(214, 240, 230, 0.045) 1px, transparent 1px);
+  background-position: center top;
+  background-size: 40px 40px;
+  content: "";
+  -webkit-mask-image: radial-gradient(ellipse 56% 48% at 50% 22%, #000 20%, transparent 100%);
+  mask-image: radial-gradient(ellipse 56% 48% at 50% 22%, #000 20%, transparent 100%);
+  pointer-events: none;
 }
 
-.license-claim-form .license-claim-lead strong {
-  color: var(--ink);
+.licenca-page ::selection {
+  background: rgba(66, 240, 168, 0.26);
+  color: var(--lc-ink);
+}
+
+.licenca-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Brand lockup */
+.licenca-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.licenca-brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--lc-mint);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  color: var(--lc-on-mint);
+  font-family: var(--lc-display);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.licenca-brand-name {
+  color: var(--lc-ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.licenca-brand-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--lc-line-strong);
+}
+
+.licenca-brand-owner {
+  color: var(--lc-ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* Shell + card */
+.licenca-shell {
+  display: grid;
+  gap: 20px;
+  width: min(100%, 440px);
+}
+
+.licenca-shell[data-step="revealed"] {
+  width: min(100%, 560px);
+}
+
+.licenca-card {
+  padding: 32px;
+  border: 1px solid var(--lc-line);
+  border-radius: 14px;
+  background: var(--lc-card);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 2px 4px rgba(0, 0, 0, 0.28),
+    0 28px 64px -28px rgba(0, 0, 0, 0.8);
+}
+
+.licenca-body {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  margin: 0;
+  animation: licenca-step-in 360ms var(--lc-ease) both;
+}
+
+@keyframes licenca-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.licenca-intro {
+  display: grid;
+  gap: 8px;
+}
+
+.licenca-title {
+  margin: 0;
+  color: var(--lc-ink);
+  font-family: var(--lc-display);
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.licenca-title:focus {
+  outline: none;
+}
+
+.licenca-lead {
+  margin: 0;
+  color: var(--lc-ink-2);
+  font-size: 14.5px;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.licenca-lead strong {
+  color: var(--lc-ink);
+  font-weight: 600;
   overflow-wrap: anywhere;
 }
 
-.license-claim-form input:focus-visible,
-.license-claim-form button:focus-visible,
-.license-claim-form a:focus-visible {
-  outline: 2px solid rgba(66, 240, 168, 0.45);
-  outline-offset: 2px;
+.licenca-subtitle {
+  margin: 0;
+  color: var(--lc-ink);
+  font-family: var(--lc-sans);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
 }
 
-.license-claim-form input:focus-visible {
-  border-color: var(--border-strong);
-  outline-offset: 0;
-}
-
-.license-claim-form input::placeholder {
-  color: rgba(191, 208, 202, 0.38);
-}
-
-.license-claim-progress {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin: 0 0 2px;
+/* Stepper */
+.licenca-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
   padding: 0;
   list-style: none;
 }
 
-.license-claim-progress li {
-  padding-top: 8px;
-  border-top: 2px solid var(--graphite-600);
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
+.licenca-steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--lc-ink-3);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.licenca-steps li + li::before {
+  width: 20px;
+  height: 1px;
+  background: var(--lc-line-strong);
+  content: "";
+}
+
+.licenca-steps li[data-state="done"] + li::before {
+  background: rgba(66, 240, 168, 0.4);
+}
+
+.licenca-step-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--lc-line-strong);
+  border-radius: 999px;
+  font-family: var(--lc-mono);
   font-size: 10px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.license-claim-progress li[data-state="done"] {
-  border-top-color: rgba(66, 240, 168, 0.4);
-  color: var(--ink-soft);
-}
-
-.license-claim-progress li[data-state="current"] {
-  border-top-color: var(--mint);
-  color: var(--mint);
-}
-
-.license-claim-form .license-claim-code-input {
-  justify-self: start;
-  width: min(100%, 13ch);
-  min-height: 48px;
-  padding: 8px 12px;
-  color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  text-align: center;
-  text-indent: 0.3em;
   font-variant-numeric: tabular-nums;
 }
 
-.license-claim-secondary-actions {
+.licenca-steps li[data-state="current"] {
+  color: var(--lc-ink);
+}
+
+.licenca-steps li[data-state="current"] .licenca-step-dot {
+  border-color: var(--lc-mint);
+  background: var(--lc-mint);
+  color: var(--lc-on-mint);
+}
+
+.licenca-steps li[data-state="done"] {
+  color: var(--lc-ink-2);
+}
+
+.licenca-steps li[data-state="done"] .licenca-step-dot {
+  border-color: rgba(66, 240, 168, 0.35);
+  background: rgba(66, 240, 168, 0.1);
+  color: var(--lc-mint);
+}
+
+/* Fields */
+.licenca-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.licenca-field label {
+  color: var(--lc-ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.licenca-input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid var(--lc-line-strong);
+  border-radius: 8px;
+  background: var(--lc-well);
+  color: var(--lc-ink);
+  caret-color: var(--lc-mint);
+  font-family: var(--lc-sans);
+  font-size: 15px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.licenca-input::placeholder {
+  color: var(--lc-ink-3);
+  opacity: 1;
+}
+
+.licenca-input:hover {
+  border-color: var(--lc-line-hover);
+}
+
+.licenca-input:focus {
+  border-color: rgba(66, 240, 168, 0.72);
+  outline: none;
+  box-shadow: var(--lc-ring);
+}
+
+.licenca-input[aria-invalid="true"] {
+  border-color: rgba(255, 107, 95, 0.72);
+}
+
+.licenca-input[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(255, 107, 95, 0.16);
+}
+
+.licenca-input:-webkit-autofill {
+  -webkit-text-fill-color: var(--lc-ink);
+  box-shadow: 0 0 0 1000px #0c1b16 inset;
+  caret-color: var(--lc-mint);
+}
+
+.licenca-code-input {
+  width: 232px;
+  max-width: 100%;
+  height: 52px;
+  padding: 0;
+  font-family: var(--lc-mono);
+  font-size: 22px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.42em;
+  text-align: center;
+  /* Balance the trailing tracking so six digits sit optically centered. */
+  text-indent: 0.42em;
+}
+
+.licenca-code-input::placeholder {
+  color: rgba(214, 240, 230, 0.2);
+}
+
+.licenca-captcha {
+  min-height: 65px;
+}
+
+/* Buttons */
+.licenca-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 44px;
+  margin-top: 4px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--lc-mint);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  color: var(--lc-on-mint);
+  font-family: var(--lc-sans);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  transition:
+    background-color 150ms ease,
+    transform 120ms ease;
+}
+
+.licenca-primary:hover:not(:disabled) {
+  background: var(--lc-mint-hover);
+}
+
+.licenca-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.licenca-primary:focus-visible {
+  outline: 2px solid var(--lc-mint);
+  outline-offset: 2px;
+}
+
+.licenca-primary:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.licenca-primary[data-pending="true"]::after {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  content: "";
+  animation: button-spin 0.75s linear infinite;
+}
+
+.licenca-text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lc-ink-2);
+  font-family: var(--lc-sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.licenca-text-button:hover:not(:disabled) {
+  background: rgba(214, 240, 230, 0.05);
+  color: var(--lc-ink);
+}
+
+.licenca-text-button:disabled {
+  color: var(--lc-ink-3);
+  cursor: not-allowed;
+}
+
+.licenca-text-button:focus-visible,
+.licenca-copy:focus-visible,
+.licenca-link:focus-visible,
+.licenca-support:focus-visible {
+  outline: 2px solid var(--lc-mint);
+  outline-offset: 2px;
+}
+
+.licenca-body > .licenca-text-button {
+  justify-self: start;
+}
+
+.licenca-secondary {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: 4px 16px;
+  margin-top: -6px;
 }
 
-.license-claim-form .link-button {
-  min-height: 38px;
-  padding: 0 2px;
-  font-weight: 850;
-}
-
-.license-claim-form .link-button:hover {
+.licenca-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 3px;
+  color: var(--lc-mint);
+  font-weight: 500;
   text-decoration: underline;
+  text-decoration-color: rgba(66, 240, 168, 0.36);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
+  transition: text-decoration-color 150ms ease;
 }
 
-.license-claim-form .form-success {
-  margin: 0;
-  color: var(--mint);
-  font-size: 12px;
-  font-weight: 800;
+.licenca-link:hover {
+  text-decoration-color: currentColor;
 }
 
-.license-claim-callout {
-  padding: 10px 12px;
-  border: 1px solid rgba(242, 193, 78, 0.28);
-  border-radius: 8px;
-  background: rgba(242, 193, 78, 0.07);
-  color: #f3dfae;
-  font-size: 13px;
-}
-
-.license-env-line {
+/* Messages */
+.licenca-alert,
+.licenca-callout {
   display: grid;
-  gap: 6px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
-.license-env-head {
+.licenca-alert svg,
+.licenca-callout svg {
+  margin-top: 1px;
+}
+
+.licenca-alert[data-tone="error"] {
+  border-color: rgba(255, 107, 95, 0.26);
+  background: rgba(255, 107, 95, 0.08);
+  color: var(--lc-danger);
+}
+
+.licenca-alert[data-tone="success"] {
+  border-color: rgba(66, 240, 168, 0.22);
+  background: rgba(66, 240, 168, 0.07);
+  color: #a9f3d2;
+}
+
+.licenca-callout {
+  border-color: rgba(242, 193, 78, 0.24);
+  background: rgba(242, 193, 78, 0.07);
+  color: #f0dca6;
+  font-weight: 400;
+}
+
+.licenca-callout svg {
+  color: var(--amber);
+}
+
+/* Reveal */
+.licenca-envs {
+  display: grid;
+  gap: 10px;
+}
+
+.licenca-envs-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-height: 28px;
 }
 
-.license-env-head .micro-label {
-  color: var(--ink-muted);
+.licenca-env {
+  min-width: 0;
+  border: 1px solid var(--lc-line);
+  border-radius: 10px;
+  background: var(--lc-well);
+  overflow: hidden;
 }
 
-.license-claim-form .license-copy-button {
-  min-height: 30px;
-  padding: 4px 12px;
-  font-size: 12px;
+.licenca-env-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 14px;
+  border-bottom: 1px solid var(--lc-line);
 }
 
-.license-claim-form .license-copy-button[data-copied="true"] {
-  border-color: var(--border-strong);
-  color: var(--mint);
-}
-
-.license-env-line code {
-  display: block;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: rgba(5, 8, 7, 0.76);
-  color: var(--ink);
-  font-family: var(--font-mono);
+.licenca-env-label {
+  color: var(--lc-ink-3);
   font-size: 12.5px;
-  line-height: 1.55;
+  font-weight: 500;
+}
+
+.licenca-env-value {
+  display: block;
+  padding: 12px 14px 13px;
+  color: var(--lc-ink);
+  font-family: var(--lc-mono);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
   overflow-wrap: anywhere;
   user-select: all;
 }
 
-.license-env-line code::selection {
-  background: rgba(66, 240, 168, 0.28);
+.licenca-env-failed {
+  margin: 0;
+  padding: 0 14px 12px;
+  color: var(--lc-danger);
+  font-size: 12.5px;
 }
 
-.license-claim-meta {
-  color: rgba(191, 208, 202, 0.72);
+.licenca-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--lc-line-strong);
+  border-radius: 6px;
+  background: rgba(214, 240, 230, 0.03);
+  color: var(--lc-ink-2);
+  font-family: var(--lc-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.licenca-copy:hover {
+  border-color: var(--lc-line-hover);
+  background: rgba(214, 240, 230, 0.06);
+  color: var(--lc-ink);
+}
+
+.licenca-copy[data-copied="true"] {
+  border-color: rgba(66, 240, 168, 0.4);
+  background: rgba(66, 240, 168, 0.08);
+  color: var(--lc-mint);
+}
+
+.licenca-meta {
+  margin: 0;
+  color: var(--lc-ink-3);
   font-size: 13px;
+  line-height: 1.5;
 }
 
-.license-claim-next {
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
-
-.license-claim-steps {
+.licenca-howto {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--lc-line);
+}
+
+.licenca-howto-list {
+  display: grid;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
-  counter-reset: license-step;
+  counter-reset: licenca-howto;
 }
 
-.license-claim-steps li {
+.licenca-howto-list li {
   position: relative;
   min-height: 22px;
-  padding-left: 32px;
-  color: var(--ink-soft);
-  font-size: 13px;
-  line-height: 1.5;
-  counter-increment: license-step;
+  padding-left: 34px;
+  color: var(--lc-ink-2);
+  font-size: 14px;
+  line-height: 1.55;
+  counter-increment: licenca-howto;
 }
 
-.license-claim-steps li::before {
+.licenca-howto-list li::before {
   position: absolute;
   top: 0;
   left: 0;
@@ -15413,37 +15864,113 @@ button.meta-manual-entry[aria-expanded="true"] {
   place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--lc-line-strong);
   border-radius: 999px;
-  color: var(--mint);
-  content: counter(license-step);
-  font-family: var(--font-mono);
+  color: var(--lc-ink-2);
+  content: counter(licenca-howto);
+  font-family: var(--lc-mono);
   font-size: 11px;
-  font-weight: 900;
+  line-height: 1;
 }
 
-.license-claim-steps code {
-  padding: 1px 5px;
+.licenca-howto-list code {
+  padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  background: rgba(214, 240, 230, 0.07);
+  color: var(--lc-ink);
+  font-family: var(--lc-mono);
+  font-size: 12.5px;
 }
 
-@media (max-width: 1120px) {
-  .license-claim-panel,
-  .license-claim-panel:has(.license-claim-reveal) {
-    grid-template-columns: 1fr;
-    width: min(560px, 100%);
+.licenca-install {
+  margin-top: -4px;
+}
+
+/* Support */
+.licenca-support {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--lc-line-strong);
+  border-radius: 10px;
+  background: rgba(214, 240, 230, 0.02);
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.licenca-support:hover {
+  border-color: rgba(66, 240, 168, 0.4);
+  background: rgba(66, 240, 168, 0.04);
+}
+
+.licenca-support > svg:first-child {
+  color: var(--lc-mint);
+}
+
+.licenca-support > svg:last-child {
+  color: var(--lc-ink-3);
+}
+
+.licenca-support-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.licenca-support-label {
+  color: var(--lc-ink-3);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.licenca-support-email {
+  color: var(--lc-ink);
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.licenca-footnote {
+  margin: 0;
+  color: var(--lc-ink-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .licenca-page {
+    gap: 24px;
+    padding: 32px 16px 40px;
+  }
+
+  .licenca-card {
+    padding: 24px 20px;
+    border-radius: 12px;
+  }
+
+  .licenca-title {
+    font-size: 22px;
+  }
+
+  .licenca-env-value {
+    padding-inline: 12px;
+    font-size: 12px;
+  }
+
+  .licenca-env-head {
+    padding-left: 12px;
   }
 }
 
-@media (max-width: 620px) {
-  .license-claim-form {
-    padding: 14px;
+@media (prefers-reduced-motion: reduce) {
+  .licenca-body {
+    animation: none;
   }
 
-  .license-claim-secondary-actions .secondary-button {
-    flex: 1 1 auto;
+  .licenca-primary[data-pending="true"]::after {
+    animation-duration: 1.6s;
   }
 }

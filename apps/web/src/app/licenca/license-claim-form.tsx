@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  ArrowUpRight,
+  Check,
+  CircleAlert,
+  CircleCheck,
+  Copy,
+  Mail,
+  RotateCw,
+  TriangleAlert,
+} from "lucide-react";
 import { formatDateTime } from "../../lib/date-time";
 import {
   confirmClaimCode,
@@ -11,6 +21,7 @@ import {
 
 const RESEND_COOLDOWN_MS = 60_000;
 const IN_PROGRESS_RETRY_DELAY_MS = 2_000;
+const COPY_FEEDBACK_MS = 2_000;
 const TURNSTILE_SCRIPT_URL =
   "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,6 +59,13 @@ const errorMessages: Record<ClaimErrorCode, string> = {
     "O resgate de licença está indisponível no momento. Tente novamente mais tarde.",
   network:
     "Não foi possível falar com o servidor. Verifique sua conexão e tente novamente.",
+};
+
+const stepAnnouncements: Record<Step["name"], string> = {
+  email: "Etapa 1 de 3: informe o email da compra.",
+  code: "Etapa 2 de 3: digite o código enviado por email.",
+  revealed: "Etapa 3 de 3: sua licença está pronta.",
+  support: "Licença já emitida. Fale com o suporte.",
 };
 
 function wait(ms: number): Promise<void> {
@@ -98,43 +116,112 @@ function TurnstileWidget({
   return (
     <>
       <script src={TURNSTILE_SCRIPT_URL} async defer />
-      <div ref={containerRef} className="cf-turnstile" data-sitekey={siteKey} />
+      <div ref={containerRef} className="cf-turnstile licenca-captcha" data-sitekey={siteKey} />
     </>
   );
 }
 
-function EnvLine({ label, name, value }: { label: string; name: string; value: string }) {
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const line = `${name}=${value}`;
+function useCopy(text: string) {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+
+  useEffect(() => {
+    if (state !== "copied") {
+      return;
+    }
+    const timer = setTimeout(() => setState("idle"), COPY_FEEDBACK_MS);
+    return () => clearTimeout(timer);
+  }, [state]);
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(line);
-      setCopyState("copied");
+      await navigator.clipboard.writeText(text);
+      setState("copied");
     } catch {
-      setCopyState("failed");
+      setState("failed");
     }
   }
 
+  return { state, copy };
+}
+
+function CopyButton({
+  label,
+  idleText,
+  state,
+  onCopy,
+}: {
+  label: string;
+  idleText: string;
+  state: "idle" | "copied" | "failed";
+  onCopy: () => void;
+}) {
+  const copied = state === "copied";
   return (
-    <div className="license-env-line">
-      <div className="license-env-head">
-        <span className="micro-label">{label}</span>
-        <button
-          type="button"
-          className="secondary-button license-copy-button"
-          data-copied={copyState === "copied" ? "true" : undefined}
-          aria-label={`Copiar ${name}`}
-          onClick={copy}
-        >
-          {copyState === "copied" ? "Copiado" : "Copiar"}
-        </button>
+    <button
+      type="button"
+      className="licenca-copy"
+      data-copied={copied ? "true" : undefined}
+      aria-label={label}
+      onClick={onCopy}
+    >
+      {copied ? (
+        <Check aria-hidden="true" size={14} strokeWidth={2.25} />
+      ) : (
+        <Copy aria-hidden="true" size={14} strokeWidth={2} />
+      )}
+      <span>{copied ? "Copiado" : idleText}</span>
+    </button>
+  );
+}
+
+function EnvLine({ label, name, value }: { label: string; name: string; value: string }) {
+  const line = `${name}=${value}`;
+  const { state, copy } = useCopy(line);
+
+  return (
+    <div className="licenca-env">
+      <div className="licenca-env-head">
+        <span className="licenca-env-label">{label}</span>
+        <CopyButton label={`Copiar ${name}`} idleText="Copiar" state={state} onCopy={copy} />
       </div>
-      <code>{line}</code>
-      {copyState === "failed" ? (
-        <p className="form-error">Não foi possível copiar. Selecione o texto e copie manualmente.</p>
+      {/* Break after "=" first so name and value each stay on one line. */}
+      <code className="licenca-env-value">
+        {name}=<wbr />
+        {value}
+      </code>
+      {state === "failed" ? (
+        <p className="licenca-env-failed">
+          Não foi possível copiar. Selecione o texto e copie manualmente.
+        </p>
       ) : null}
     </div>
+  );
+}
+
+function CopyAllButton({ text }: { text: string }) {
+  const { state, copy } = useCopy(text);
+  return (
+    <CopyButton
+      label="Copiar as duas linhas"
+      idleText="Copiar as duas"
+      state={state}
+      onCopy={copy}
+    />
+  );
+}
+
+function Alert({ tone, id, children }: { tone: "error" | "success"; id?: string; children: ReactNode }) {
+  const Icon = tone === "error" ? CircleAlert : CircleCheck;
+  return (
+    <p
+      id={id}
+      className="licenca-alert"
+      data-tone={tone}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      <Icon aria-hidden="true" size={16} strokeWidth={2} />
+      {children}
+    </p>
   );
 }
 
@@ -142,7 +229,7 @@ const claimSteps = ["Email", "Código", "Chave"] as const;
 
 function ClaimProgress({ current }: { current: 1 | 2 | 3 }) {
   return (
-    <ol className="license-claim-progress" aria-label={`Etapa ${current} de ${claimSteps.length}`}>
+    <ol className="licenca-steps" aria-label={`Etapa ${current} de ${claimSteps.length}`}>
       {claimSteps.map((label, index) => {
         const position = index + 1;
         const state = position < current ? "done" : position === current ? "current" : "todo";
@@ -152,7 +239,10 @@ function ClaimProgress({ current }: { current: 1 | 2 | 3 }) {
             data-state={state}
             aria-current={state === "current" ? "step" : undefined}
           >
-            {label}
+            <span className="licenca-step-dot" aria-hidden="true">
+              {state === "done" ? <Check size={11} strokeWidth={3} /> : position}
+            </span>
+            <span className="licenca-step-label">{label}</span>
           </li>
         );
       })}
@@ -176,6 +266,8 @@ export function LicenseClaimForm({
   const [submittedEmail, setSubmittedEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Only input-validation errors mark the field invalid; server errors do not.
+  const [fieldInvalid, setFieldInvalid] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
@@ -183,6 +275,9 @@ export function LicenseClaimForm({
   const [captchaNonce, setCaptchaNonce] = useState(0);
   const [resendAvailableAt, setResendAvailableAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const previousStep = useRef<Step["name"]>(step.name);
 
   const resendSecondsLeft =
     resendAvailableAt === null
@@ -203,9 +298,34 @@ export function LicenseClaimForm({
     return () => clearInterval(interval);
   }, [resendAvailableAt]);
 
+  // Move focus with the step so keyboard and screen-reader users land on the
+  // new content. The code step focuses its input via autoFocus instead.
+  useEffect(() => {
+    if (previousStep.current === step.name) {
+      return;
+    }
+    previousStep.current = step.name;
+    if (step.name === "email") {
+      emailInputRef.current?.focus();
+    } else if (step.name !== "code") {
+      headingRef.current?.focus();
+    }
+  }, [step.name]);
+
   function resetCaptcha() {
     setCaptchaToken(null);
     setCaptchaNonce((value) => value + 1);
+  }
+
+  function clearMessages() {
+    setError(null);
+    setFieldInvalid(false);
+    setNotice(null);
+  }
+
+  function showFieldError(message: string) {
+    setError(message);
+    setFieldInvalid(true);
   }
 
   async function sendCode(targetEmail: string): Promise<boolean> {
@@ -234,12 +354,11 @@ export function LicenseClaimForm({
 
   async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setNotice(null);
+    clearMessages();
 
     const normalized = email.trim().toLowerCase();
     if (!EMAIL_PATTERN.test(normalized) || normalized.length > 320) {
-      setError("Informe um email válido.");
+      showFieldError("Informe um email válido.");
       return;
     }
 
@@ -251,8 +370,7 @@ export function LicenseClaimForm({
   }
 
   async function handleResend() {
-    setError(null);
-    setNotice(null);
+    clearMessages();
     if (await sendCode(submittedEmail)) {
       setNotice("Se o email for elegível, enviamos um novo código.");
     }
@@ -260,11 +378,10 @@ export function LicenseClaimForm({
 
   async function handleCodeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setNotice(null);
+    clearMessages();
 
     if (!/^\d{6}$/.test(code)) {
-      setError("Digite os 6 dígitos do código.");
+      showFieldError("Digite os 6 dígitos do código.");
       return;
     }
 
@@ -283,7 +400,11 @@ export function LicenseClaimForm({
     setLoading(false);
 
     if (!result.ok) {
-      setError(errorMessages[result.code]);
+      if (result.code === "code_invalid") {
+        showFieldError(errorMessages[result.code]);
+      } else {
+        setError(errorMessages[result.code]);
+      }
       return;
     }
 
@@ -296,8 +417,7 @@ export function LicenseClaimForm({
   }
 
   function handleChangeEmail() {
-    setError(null);
-    setNotice(null);
+    clearMessages();
     setCode("");
     setStep({ name: "email" });
   }
@@ -310,28 +430,78 @@ export function LicenseClaimForm({
     />
   ) : null;
 
+  const errorId = "licenca-error";
+  const errorAlert = error ? (
+    <Alert tone="error" id={errorId}>
+      {error}
+    </Alert>
+  ) : null;
+
+  function heading(text: string) {
+    return (
+      <h1 id="license-claim-title" ref={headingRef} tabIndex={-1} className="licenca-title">
+        {text}
+      </h1>
+    );
+  }
+
+  function submitButton(idle: string, pending: string) {
+    return (
+      <button
+        type="submit"
+        className="licenca-primary"
+        disabled={loading}
+        data-pending={loading ? "true" : undefined}
+      >
+        {loading ? pending : idle}
+      </button>
+    );
+  }
+
+  let body: ReactNode;
+
   if (step.name === "revealed") {
     const { license } = step;
-    return (
-      <div className="login-form license-claim-form license-claim-reveal" aria-live="polite">
+    const keyLine = `LICENSE_KEY=${license.licenseKey}`;
+    const identityLine = `LICENSE_ACCOUNT_IDENTITY=${license.accountIdentity}`;
+    body = (
+      <div key="revealed" className="licenca-body">
         <ClaimProgress current={3} />
-        <h2>Sua licença está pronta</h2>
-        <p className="license-claim-callout">
-          Esta chave aparece só agora. Uma cópia também foi enviada para seu email quando a
-          licença foi emitida. Não compartilhe.
+        <div className="licenca-intro">
+          {heading("Sua licença está pronta")}
+          <p className="licenca-lead">
+            Adicione as duas variáveis abaixo à sua instalação do RastrackDash.
+          </p>
+        </div>
+        <p className="licenca-callout">
+          <TriangleAlert aria-hidden="true" size={16} strokeWidth={2} />
+          <span>
+            Esta chave aparece só agora. Uma cópia também foi enviada para seu email quando a
+            licença foi emitida. Não compartilhe.
+          </span>
         </p>
-        <EnvLine label="Chave de licença" name="LICENSE_KEY" value={license.licenseKey} />
-        <EnvLine
-          label="Identidade da conta"
-          name="LICENSE_ACCOUNT_IDENTITY"
-          value={license.accountIdentity}
-        />
-        <p className="license-claim-meta">
-          Válida até {formatDateTime(license.expiresAt, { dateStyle: "long" })}.
-        </p>
-        <div className="license-claim-next">
-          <h3>Como ativar</h3>
-          <ol className="license-claim-steps">
+        <section className="licenca-envs" aria-labelledby="licenca-envs-title">
+          <div className="licenca-envs-head">
+            <h2 id="licenca-envs-title" className="licenca-subtitle">
+              Variáveis de ambiente
+            </h2>
+            <CopyAllButton text={`${keyLine}\n${identityLine}`} />
+          </div>
+          <EnvLine label="Chave de licença" name="LICENSE_KEY" value={license.licenseKey} />
+          <EnvLine
+            label="Identidade da conta"
+            name="LICENSE_ACCOUNT_IDENTITY"
+            value={license.accountIdentity}
+          />
+          <p className="licenca-meta">
+            Válida até {formatDateTime(license.expiresAt, { dateStyle: "long" })}.
+          </p>
+        </section>
+        <section className="licenca-howto" aria-labelledby="licenca-howto-title">
+          <h2 id="licenca-howto-title" className="licenca-subtitle">
+            Como ativar
+          </h2>
+          <ol className="licenca-howto-list">
             <li>
               Cole as duas linhas nas variáveis de ambiente da sua instalação do RastrackDash
               (painel do Dokploy ou arquivo <code>.env</code>).
@@ -339,50 +509,59 @@ export function LicenseClaimForm({
             <li>Salve e reinicie a aplicação.</li>
             <li>O RastrackDash ativa a licença automaticamente ao iniciar.</li>
           </ol>
-        </div>
+        </section>
         {repoUrl ? (
-          <p className="license-claim-meta">
+          <p className="licenca-meta licenca-install">
             Ainda não instalou?{" "}
-            <a href={repoUrl} target="_blank" rel="noreferrer">
+            <a className="licenca-link" href={repoUrl} target="_blank" rel="noreferrer">
               Veja o passo a passo de instalação
+              <ArrowUpRight aria-hidden="true" size={14} strokeWidth={2} />
             </a>
-            .
           </p>
         ) : null}
       </div>
     );
-  }
-
-  if (step.name === "support") {
-    return (
-      <div className="login-form license-claim-form" aria-live="polite">
-        <h2>Licença já emitida</h2>
-        <p className="license-claim-lead">
-          Você já tem uma licença emitida.{" "}
-          {supportEmail ? (
-            <>
-              Fale com o suporte: <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
-            </>
-          ) : (
-            "Fale com o suporte da PalmUP."
-          )}
-        </p>
+  } else if (step.name === "support") {
+    body = (
+      <div key="support" className="licenca-body">
+        <div className="licenca-intro">
+          {heading("Licença já emitida")}
+          <p className="licenca-lead">
+            Você já tem uma licença emitida para este email. Para recuperar a chave, fale com o
+            suporte{supportEmail ? "." : " da PalmUP."}
+          </p>
+        </div>
+        {supportEmail ? (
+          <a className="licenca-support" href={`mailto:${supportEmail}`}>
+            <Mail aria-hidden="true" size={18} strokeWidth={1.75} />
+            <span className="licenca-support-text">
+              <span className="licenca-support-label">Suporte PalmUP</span>
+              <span className="licenca-support-email">{supportEmail}</span>
+            </span>
+            <ArrowUpRight aria-hidden="true" size={16} strokeWidth={2} />
+          </a>
+        ) : null}
+        <button type="button" className="licenca-text-button" onClick={handleChangeEmail}>
+          Usar outro email
+        </button>
       </div>
     );
-  }
-
-  if (step.name === "code") {
-    return (
-      <form className="login-form license-claim-form" onSubmit={handleCodeSubmit} noValidate>
+  } else if (step.name === "code") {
+    body = (
+      <form key="code" className="licenca-body" onSubmit={handleCodeSubmit} noValidate>
         <ClaimProgress current={2} />
-        <p className="license-claim-lead">
-          Se o email for elegível, enviamos um código de 6 dígitos para{" "}
-          <strong>{submittedEmail}</strong>. Verifique também o spam.
-        </p>
-        <label>
-          Código
+        <div className="licenca-intro">
+          {heading("Confira seu email")}
+          <p className="licenca-lead">
+            Se o email for elegível, enviamos um código de 6 dígitos para{" "}
+            <strong>{submittedEmail}</strong>. Verifique também o spam.
+          </p>
+        </div>
+        <div className="licenca-field">
+          <label htmlFor="licenca-code">Código</label>
           <input
-            className="license-claim-code-input"
+            id="licenca-code"
+            className="licenca-input licenca-code-input"
             type="text"
             name="code"
             inputMode="numeric"
@@ -391,66 +570,84 @@ export function LicenseClaimForm({
             maxLength={6}
             placeholder="000000"
             value={code}
+            aria-invalid={fieldInvalid || undefined}
+            aria-describedby={error ? errorId : undefined}
             onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
             autoFocus
           />
-        </label>
+        </div>
         {captcha}
-        {notice ? (
-          <p className="form-success" aria-live="polite">
-            {notice}
-          </p>
-        ) : null}
-        {error ? (
-          <p className="form-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        <button type="submit" disabled={loading} data-pending={loading ? "true" : undefined}>
-          {loading ? "Confirmando..." : "Confirmar"}
-        </button>
-        <div className="license-claim-secondary-actions">
+        {notice ? <Alert tone="success">{notice}</Alert> : null}
+        {errorAlert}
+        {submitButton("Confirmar", "Confirmando...")}
+        <div className="licenca-secondary">
           <button
             type="button"
-            className="secondary-button"
+            className="licenca-text-button"
             onClick={handleResend}
             disabled={loading || resendSecondsLeft > 0}
           >
+            <RotateCw aria-hidden="true" size={14} strokeWidth={2} />
             {resendSecondsLeft > 0
               ? `Reenviar código (${resendSecondsLeft}s)`
               : "Reenviar código"}
           </button>
-          <button type="button" className="link-button" onClick={handleChangeEmail}>
+          <button type="button" className="licenca-text-button" onClick={handleChangeEmail}>
             Trocar email
           </button>
         </div>
       </form>
     );
+  } else {
+    body = (
+      <form key="email" className="licenca-body" onSubmit={handleEmailSubmit} noValidate>
+        <ClaimProgress current={1} />
+        <div className="licenca-intro">
+          {heading("Resgatar licença RastrackDash")}
+          <p className="licenca-lead">
+            Use o email da sua compra na PalmUP. Enviamos um código de verificação para ele e,
+            depois de confirmar, sua chave aparece aqui.
+          </p>
+        </div>
+        <div className="licenca-field">
+          <label htmlFor="licenca-email">Email</label>
+          <input
+            ref={emailInputRef}
+            id="licenca-email"
+            className="licenca-input"
+            type="email"
+            name="email"
+            autoComplete="email"
+            placeholder="voce@exemplo.com"
+            value={email}
+            aria-invalid={fieldInvalid || undefined}
+            aria-describedby={error ? errorId : undefined}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </div>
+        {captcha}
+        {errorAlert}
+        {submitButton("Enviar código", "Enviando...")}
+      </form>
+    );
   }
 
   return (
-    <form className="login-form license-claim-form" onSubmit={handleEmailSubmit} noValidate>
-      <ClaimProgress current={1} />
-      <label>
-        Email
-        <input
-          type="email"
-          name="email"
-          autoComplete="email"
-          placeholder="voce@exemplo.com"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-        />
-      </label>
-      {captcha}
-      {error ? (
-        <p className="form-error" role="alert">
-          {error}
+    <div className="licenca-shell" data-step={step.name}>
+      <p className="licenca-sr-only" aria-live="polite">
+        {stepAnnouncements[step.name]}
+      </p>
+      <section className="licenca-card" aria-labelledby="license-claim-title">
+        {body}
+      </section>
+      {supportEmail && step.name !== "support" ? (
+        <p className="licenca-footnote">
+          Precisa de ajuda?{" "}
+          <a className="licenca-link" href={`mailto:${supportEmail}`}>
+            {supportEmail}
+          </a>
         </p>
       ) : null}
-      <button type="submit" disabled={loading} data-pending={loading ? "true" : undefined}>
-        {loading ? "Enviando..." : "Enviar código"}
-      </button>
-    </form>
+    </div>
   );
 }
