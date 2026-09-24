@@ -15176,3 +15176,274 @@ button.meta-manual-entry[aria-expanded="true"] {
   color: var(--muted, #94a3b8);
   font-size: 0.75rem;
 }
+
+/* Public /licenca claim flow: same shell as login/forgot, with a compact form
+   column that never stretches to the intro height. */
+.license-claim-panel {
+  align-items: start;
+}
+
+.license-claim-panel:has(.license-claim-reveal) {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 500px);
+}
+
+.license-claim-intro > p:not(.eyebrow) {
+  max-width: 46ch;
+  margin: 10px 0 0;
+  color: rgba(191, 208, 202, 0.72);
+  line-height: 1.55;
+}
+
+.license-claim-intro > p.license-claim-lead {
+  margin-top: 14px;
+  color: var(--ink-soft);
+  font-size: 16px;
+}
+
+.license-claim-form {
+  align-content: start;
+  gap: 14px;
+  padding: 18px;
+}
+
+.license-claim-form h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.license-claim-form h3 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.license-claim-form p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.license-claim-form .license-claim-lead {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.license-claim-form .license-claim-lead strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.license-claim-form input:focus-visible,
+.license-claim-form button:focus-visible,
+.license-claim-form a:focus-visible {
+  outline: 2px solid rgba(66, 240, 168, 0.45);
+  outline-offset: 2px;
+}
+
+.license-claim-form input:focus-visible {
+  border-color: var(--border-strong);
+  outline-offset: 0;
+}
+
+.license-claim-form input::placeholder {
+  color: rgba(191, 208, 202, 0.38);
+}
+
+.license-claim-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.license-claim-progress li {
+  padding-top: 8px;
+  border-top: 2px solid var(--graphite-600);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.license-claim-progress li[data-state="done"] {
+  border-top-color: rgba(66, 240, 168, 0.4);
+  color: var(--ink-soft);
+}
+
+.license-claim-progress li[data-state="current"] {
+  border-top-color: var(--mint);
+  color: var(--mint);
+}
+
+.license-claim-form .license-claim-code-input {
+  justify-self: start;
+  width: min(100%, 13ch);
+  min-height: 48px;
+  padding: 8px 12px;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-align: center;
+  text-indent: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+
+.license-claim-secondary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.license-claim-form .link-button {
+  min-height: 38px;
+  padding: 0 2px;
+  font-weight: 850;
+}
+
+.license-claim-form .link-button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.license-claim-form .form-success {
+  margin: 0;
+  color: var(--mint);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.license-claim-callout {
+  padding: 10px 12px;
+  border: 1px solid rgba(242, 193, 78, 0.28);
+  border-radius: 8px;
+  background: rgba(242, 193, 78, 0.07);
+  color: #f3dfae;
+  font-size: 13px;
+}
+
+.license-env-line {
+  display: grid;
+  gap: 6px;
+}
+
+.license-env-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.license-env-head .micro-label {
+  color: var(--ink-muted);
+}
+
+.license-claim-form .license-copy-button {
+  min-height: 30px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.license-claim-form .license-copy-button[data-copied="true"] {
+  border-color: var(--border-strong);
+  color: var(--mint);
+}
+
+.license-env-line code {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(5, 8, 7, 0.76);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.license-env-line code::selection {
+  background: rgba(66, 240, 168, 0.28);
+}
+
+.license-claim-meta {
+  color: rgba(191, 208, 202, 0.72);
+  font-size: 13px;
+}
+
+.license-claim-next {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.license-claim-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: license-step;
+}
+
+.license-claim-steps li {
+  position: relative;
+  min-height: 22px;
+  padding-left: 32px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  counter-increment: license-step;
+}
+
+.license-claim-steps li::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--mint);
+  content: counter(license-step);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.license-claim-steps code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+@media (max-width: 1120px) {
+  .license-claim-panel,
+  .license-claim-panel:has(.license-claim-reveal) {
+    grid-template-columns: 1fr;
+    width: min(560px, 100%);
+  }
+}
+
+@media (max-width: 620px) {
+  .license-claim-form {
+    padding: 14px;
+  }
+
+  .license-claim-secondary-actions .secondary-button {
+    flex: 1 1 auto;
+  }
+}

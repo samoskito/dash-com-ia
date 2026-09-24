@@ -15,14 +15,17 @@ export default async function LicenseClaimPage() {
 
   return (
     <main className="standalone-page login-page">
-      <section className="login-panel" aria-labelledby="license-claim-title">
-        <div>
+      <section
+        className="login-panel license-claim-panel"
+        aria-labelledby="license-claim-title"
+      >
+        <div className="license-claim-intro">
           <span className="brand-mark" aria-hidden="true">
             R
           </span>
           <p className="eyebrow">Alunos PalmUP</p>
           <h1 id="license-claim-title">Resgatar licença RastrackDash</h1>
-          <p>Use o email da sua compra na PalmUP.</p>
+          <p className="license-claim-lead">Use o email da sua compra na PalmUP.</p>
           <p>
             Enviamos um código de verificação para esse email. Depois de confirmar o código, a
             sua chave de licença aparece nesta página.
