@@ -14,6 +14,7 @@ import { Fragment, type CSSProperties } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { OverviewFilters } from "./overview-filters";
+import { OverviewPendingProvider, OverviewResults } from "./overview-pending";
 import { instanceLabel } from "./overview-labels";
 
 type OverviewSearchParams = Record<string, string | string[] | undefined>;
@@ -666,208 +667,220 @@ export default async function OverviewPage({
 
   return (
     <section className="page-stack page-wide overview-page">
-      <header className="page-header">
-        <div>
-          <span className="eyebrow">Visao geral</span>
-          <h1>Cockpit da operacao</h1>
-          <p>
-            {report.rangeLabel} cruzando investimento, conversas reais e eventos
-            enviados ao Pixel.
-          </p>
-        </div>
-        <div className="header-actions" aria-label="Filtros ativos">
-          {reportState === "error" ? (
-            <span className="status-chip warn">API indisponivel</span>
-          ) : invalidFilter ? (
-            <span className="status-chip warn">Filtro invalido</span>
+      <OverviewPendingProvider>
+        <header className="page-header">
+          <div>
+            <span className="eyebrow">Visao geral</span>
+            <h1>Cockpit da operacao</h1>
+            <p>
+              {report.rangeLabel} cruzando investimento, conversas reais e
+              eventos enviados ao Pixel.
+            </p>
+          </div>
+          <div className="header-actions" aria-label="Filtros ativos">
+            {reportState === "error" ? (
+              <span className="status-chip warn">API indisponivel</span>
+            ) : invalidFilter ? (
+              <span className="status-chip warn">Filtro invalido</span>
+            ) : (
+              <>
+                <span className="tag">{report.rangeLabel}</span>
+                <span className="tag">
+                  {hasCampaignFilter
+                    ? "1 campanha"
+                    : `${campaigns.length} campanhas`}
+                </span>
+                <span className="tag">
+                  {trackedRate === null
+                    ? "Aguardando conversas"
+                    : `${trackedRate}% rastreadas`}
+                </span>
+              </>
+            )}
+          </div>
+        </header>
+
+        <OverviewFilters
+          adAccountId={filters.adAccountId}
+          businessId={filters.businessId}
+          campaignId={filters.campaignId}
+          campaignName={campaignName}
+          campaignOptions={campaignOptions}
+          hasActiveFilter={Object.values(filters).some(Boolean)}
+          reportingAccounts={reportingAccounts}
+          since={report.since ?? filters.since}
+          until={report.until ?? filters.until}
+          whatsappInstanceId={filters.whatsappInstanceId}
+          whatsappInstances={whatsappInstances}
+        />
+
+        {/* Previous numbers stay visible, marked as updating, while filters apply. */}
+        <OverviewResults>
+          {invalidFilter ? (
+            <div
+              className="overview-unavailable overview-invalid-filter"
+              role="status"
+            >
+              <span className="status-dot" aria-hidden="true" />
+              <div>
+                <strong>Campanha nao encontrada</strong>
+                <span>
+                  Ela pode ter sido removida ou pertencer a outra conta de
+                  anuncio.
+                </span>
+              </div>
+              <Link className="button ghost" href={clearCampaignHref}>
+                Limpar campanha
+              </Link>
+            </div>
           ) : (
             <>
-              <span className="tag">{report.rangeLabel}</span>
-              <span className="tag">
-                {hasCampaignFilter
-                  ? "1 campanha"
-                  : `${campaigns.length} campanhas`}
-              </span>
-              <span className="tag">
-                {trackedRate === null
-                  ? "Aguardando conversas"
-                  : `${trackedRate}% rastreadas`}
-              </span>
-            </>
-          )}
-        </div>
-      </header>
+              {dataAvailable ? (
+                <OverviewScopeNote
+                  campaignInstanceLeads={campaignInstanceLeads}
+                  filters={filters}
+                  metaByAccount={metaByAccount}
+                  metaPartial={metaPartial}
+                  noLeadsOnSelectedNumber={noLeadsOnSelectedNumber}
+                  whatsappInstances={whatsappInstances}
+                />
+              ) : null}
 
-      <OverviewFilters
-        adAccountId={filters.adAccountId}
-        businessId={filters.businessId}
-        campaignId={filters.campaignId}
-        campaignName={campaignName}
-        campaignOptions={campaignOptions}
-        hasActiveFilter={Object.values(filters).some(Boolean)}
-        reportingAccounts={reportingAccounts}
-        since={report.since ?? filters.since}
-        until={report.until ?? filters.until}
-        whatsappInstanceId={filters.whatsappInstanceId}
-        whatsappInstances={whatsappInstances}
-      />
-
-      {invalidFilter ? (
-        <div
-          className="overview-unavailable overview-invalid-filter"
-          role="status"
-        >
-          <span className="status-dot" aria-hidden="true" />
-          <div>
-            <strong>Campanha nao encontrada</strong>
-            <span>
-              Ela pode ter sido removida ou pertencer a outra conta de anuncio.
-            </span>
-          </div>
-          <Link className="button ghost" href={clearCampaignHref}>
-            Limpar campanha
-          </Link>
-        </div>
-      ) : (
-        <>
-          {dataAvailable ? (
-            <OverviewScopeNote
-              campaignInstanceLeads={campaignInstanceLeads}
-              filters={filters}
-              metaByAccount={metaByAccount}
-              metaPartial={metaPartial}
-              noLeadsOnSelectedNumber={noLeadsOnSelectedNumber}
-              whatsappInstances={whatsappInstances}
-            />
-          ) : null}
-
-          <div className="metric-grid overview-primary-metrics">
-            <Metric
-              label="Investimento"
-              value={
-                dataAvailable && !metaHidden ? money(campaign.spendCents) : "-"
-              }
-              delta={metaDelta(
-                reportState === "empty" && !hasCampaignFilter
-                  ? "Nenhuma campanha sincronizada"
-                  : report.rangeLabel,
-              )}
-              partial={dataAvailable && metaPartial}
-              unavailable={!dataAvailable || metaHidden}
-            />
-            <Metric
-              label="Conversas Meta"
-              value={
-                dataAvailable && !metaHidden
-                  ? String(campaign.metaConversationsStarted)
-                  : "-"
-              }
-              delta={metaDelta(
-                metaScope === "campaign"
-                  ? stageCardDelta(metaConversationStage, report.rangeLabel)
-                  : report.rangeLabel,
-              )}
-              partial={dataAvailable && metaPartial}
-              unavailable={!dataAvailable || metaHidden}
-            />
-            <Metric
-              label="Conversas reais"
-              value={dataAvailable ? String(campaign.realConversations) : "-"}
-              delta={
-                !dataAvailable
-                  ? "Aguardando resposta da API"
-                  : trackedRate === null
-                    ? "Aguardando conversas"
-                    : `${trackedRate}% rastreadas`
-              }
-              unavailable={!dataAvailable}
-            />
-            {kpiStages.map((stage) =>
-              stage.key === "purchase" ? (
-                <Fragment key={stage.key}>
-                  <Metric
-                    label={stage.label}
-                    value={dataAvailable ? String(stage.value) : "-"}
-                    delta={
-                      dataAvailable
-                        ? purchaseBreakdownLabel(
-                            campaign.firstPurchases,
-                            campaign.repurchases,
-                          )
-                        : "Aguardando resposta da API"
-                    }
-                    unavailable={!dataAvailable}
-                  />
-                  <Metric
-                    label="Receita trafego"
-                    value={
-                      dataAvailable ? money(campaign.trafficRevenueCents) : "-"
-                    }
-                    delta={revenueDelta}
-                    unavailable={!dataAvailable}
-                  />
-                </Fragment>
-              ) : (
+              <div className="metric-grid overview-primary-metrics">
                 <Metric
-                  key={stage.key}
-                  label={stage.label}
-                  value={dataAvailable ? String(stage.value) : "-"}
+                  label="Investimento"
+                  value={
+                    dataAvailable && !metaHidden
+                      ? money(campaign.spendCents)
+                      : "-"
+                  }
+                  delta={metaDelta(
+                    reportState === "empty" && !hasCampaignFilter
+                      ? "Nenhuma campanha sincronizada"
+                      : report.rangeLabel,
+                  )}
+                  partial={dataAvailable && metaPartial}
+                  unavailable={!dataAvailable || metaHidden}
+                />
+                <Metric
+                  label="Conversas Meta"
+                  value={
+                    dataAvailable && !metaHidden
+                      ? String(campaign.metaConversationsStarted)
+                      : "-"
+                  }
+                  delta={metaDelta(
+                    metaScope === "campaign"
+                      ? stageCardDelta(metaConversationStage, report.rangeLabel)
+                      : report.rangeLabel,
+                  )}
+                  partial={dataAvailable && metaPartial}
+                  unavailable={!dataAvailable || metaHidden}
+                />
+                <Metric
+                  label="Conversas reais"
+                  value={
+                    dataAvailable ? String(campaign.realConversations) : "-"
+                  }
                   delta={
                     !dataAvailable
                       ? "Aguardando resposta da API"
-                      : metaByAccount
-                        ? "Eventos do chip selecionado"
-                        : costsHidden
-                          ? report.rangeLabel
-                          : stageCardDelta(stage, report.rangeLabel)
+                      : trackedRate === null
+                        ? "Aguardando conversas"
+                        : `${trackedRate}% rastreadas`
                   }
                   unavailable={!dataAvailable}
                 />
-              ),
-            )}
-          </div>
+                {kpiStages.map((stage) =>
+                  stage.key === "purchase" ? (
+                    <Fragment key={stage.key}>
+                      <Metric
+                        label={stage.label}
+                        value={dataAvailable ? String(stage.value) : "-"}
+                        delta={
+                          dataAvailable
+                            ? purchaseBreakdownLabel(
+                                campaign.firstPurchases,
+                                campaign.repurchases,
+                              )
+                            : "Aguardando resposta da API"
+                        }
+                        unavailable={!dataAvailable}
+                      />
+                      <Metric
+                        label="Receita trafego"
+                        value={
+                          dataAvailable
+                            ? money(campaign.trafficRevenueCents)
+                            : "-"
+                        }
+                        delta={revenueDelta}
+                        unavailable={!dataAvailable}
+                      />
+                    </Fragment>
+                  ) : (
+                    <Metric
+                      key={stage.key}
+                      label={stage.label}
+                      value={dataAvailable ? String(stage.value) : "-"}
+                      delta={
+                        !dataAvailable
+                          ? "Aguardando resposta da API"
+                          : metaByAccount
+                            ? "Eventos do chip selecionado"
+                            : costsHidden
+                              ? report.rangeLabel
+                              : stageCardDelta(stage, report.rangeLabel)
+                      }
+                      unavailable={!dataAvailable}
+                    />
+                  ),
+                )}
+              </div>
 
-          <section
-            className="surface-panel overview-funnel-panel"
-            aria-label="Funil integrado"
-          >
-            {dataAvailable ? (
-              <ConversionFunnel
-                description={funnelSummary}
-                stages={funnelStages}
+              <section
+                className="surface-panel overview-funnel-panel"
+                aria-label="Funil integrado"
+              >
+                {dataAvailable ? (
+                  <ConversionFunnel
+                    description={funnelSummary}
+                    stages={funnelStages}
+                  />
+                ) : (
+                  <>
+                    <div className="overview-section-heading">
+                      <div>
+                        <span className="eyebrow">Funil integrado</span>
+                        <h2>Conversao por etapas</h2>
+                        <p>{funnelSummary}</p>
+                      </div>
+                    </div>
+                    <div className="overview-unavailable" role="status">
+                      <span className="status-dot" aria-hidden="true" />
+                      <div>
+                        <strong>Dados temporariamente indisponiveis</strong>
+                        <span>
+                          Tente novamente quando a API concluir a inicializacao.
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </section>
+
+              <DailyConversationComparison
+                available={report.dailyComparisonAvailable === true}
+                detailHref={detailHref}
+                points={report.dailyComparison ?? []}
+                reportState={reportState}
+                scopeLabel={scopeLabel}
+                scopePlaceholder={scopePlaceholder}
               />
-            ) : (
-              <>
-                <div className="overview-section-heading">
-                  <div>
-                    <span className="eyebrow">Funil integrado</span>
-                    <h2>Conversao por etapas</h2>
-                    <p>{funnelSummary}</p>
-                  </div>
-                </div>
-                <div className="overview-unavailable" role="status">
-                  <span className="status-dot" aria-hidden="true" />
-                  <div>
-                    <strong>Dados temporariamente indisponiveis</strong>
-                    <span>
-                      Tente novamente quando a API concluir a inicializacao.
-                    </span>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-
-          <DailyConversationComparison
-            available={report.dailyComparisonAvailable === true}
-            detailHref={detailHref}
-            points={report.dailyComparison ?? []}
-            reportState={reportState}
-            scopeLabel={scopeLabel}
-            scopePlaceholder={scopePlaceholder}
-          />
-        </>
-      )}
+            </>
+          )}
+        </OverviewResults>
+      </OverviewPendingProvider>
     </section>
   );
 }

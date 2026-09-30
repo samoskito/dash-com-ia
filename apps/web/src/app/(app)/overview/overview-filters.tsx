@@ -5,11 +5,26 @@ import type {
   MetaReportingAccountDto,
   WhatsappInstanceSummaryDto,
 } from "@wpptrack/shared";
-import { Filter, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import {
+  FilterCombobox,
+  type FilterComboboxCopy,
+  type FilterComboboxGroup,
+  type FilterComboboxOption,
+} from "../../../components/filter-combobox";
 import { usePresentationMode } from "../../../components/presentation-mode-toggle";
 import { instanceLabel } from "./overview-labels";
+import { useOverviewTransition } from "./overview-pending";
 
 type OverviewFiltersProps = {
   adAccountId?: string;
@@ -34,8 +49,83 @@ type CampaignOptionGroups =
       others: CampaignOptionDto[];
     };
 
+/** Every overview filter, in canonical URL order ("" = not set). */
+export type OverviewFilterValues = {
+  since: string;
+  until: string;
+  businessId: string;
+  adAccountId: string;
+  whatsappInstanceId: string;
+  campaignId: string;
+};
+
+const filterKeys = [
+  "since",
+  "until",
+  "businessId",
+  "adAccountId",
+  "whatsappInstanceId",
+  "campaignId",
+] as const satisfies readonly (keyof OverviewFilterValues)[];
+
 const campaignLabelMaxLength = 60;
 const accountsCollapseQuery = "(max-width: 620px)";
+/** Native date inputs emit intermediate years while typing (0002, 0020...). */
+const dateCommitDelayMs = 800;
+/** The product has no data before this year; lower years are half-typed. */
+const minFilterYear = 2020;
+
+const campaignComboboxCopy: FilterComboboxCopy = {
+  all: "Todas as campanhas",
+  searchPlaceholder: "Buscar campanha",
+  searchLabel: "Buscar campanha por nome ou ID",
+  count: (matches, total) => `${matches} de ${total} campanhas`,
+  found: (matches) =>
+    matches === 1
+      ? "1 campanha encontrada"
+      : `${matches} campanhas encontradas`,
+  noResults: (query) => `Nenhuma campanha com "${query}"`,
+  clearSearch: "Limpar busca",
+};
+
+const campaignComboboxGroups: FilterComboboxGroup[] = [
+  { key: "with_leads", label: "Com conversas neste numero" },
+  { key: "others", label: "Outras campanhas" },
+];
+
+/** Canonical, shareable href: fixed param order, empty params omitted. */
+export function overviewFiltersHref(filters: OverviewFilterValues): string {
+  const params = new URLSearchParams();
+
+  for (const key of filterKeys) {
+    if (filters[key]) {
+      params.set(key, filters[key]);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `/overview?${query}` : "/overview";
+}
+
+function isCommittableDate(value: string) {
+  const match = /^(\d{4})-\d{2}-\d{2}$/.exec(value);
+  return Boolean(match) && Number(match![1]) >= minFilterYear;
+}
+
+/**
+ * A period only commits when both ends are complete, plausible dates and the
+ * range is ordered. `"order"` is the only state worth telling the user about.
+ */
+export function dateRangeStatus(
+  since: string,
+  until: string,
+): "valid" | "incomplete" | "order" {
+  if (!isCommittableDate(since) || !isCommittableDate(until)) {
+    return "incomplete";
+  }
+
+  return until < since ? "order" : "valid";
+}
 
 function businessesFromAccounts(accounts: MetaReportingAccountDto[]) {
   const businesses = new Map<string, string>();
@@ -103,6 +193,28 @@ export function campaignOptionLabel(option: CampaignOptionDto): string {
   return option.status === "paused" ? `${name} · Pausada` : name;
 }
 
+function conversationsOnNumber(count: number) {
+  return `${count} ${count === 1 ? "conversa" : "conversas"} neste numero`;
+}
+
+function campaignComboboxOption(
+  option: CampaignOptionDto,
+  whatsappInstanceId: string,
+  group?: string,
+): FilterComboboxOption {
+  const leads = whatsappInstanceId
+    ? (option.leadsByInstance[whatsappInstanceId] ?? 0)
+    : 0;
+
+  return {
+    value: option.id,
+    label: campaignOptionLabel(option),
+    title: option.name,
+    description: leads > 0 ? conversationsOnNumber(leads) : undefined,
+    group,
+  };
+}
+
 export function OverviewFilters({
   adAccountId,
   businessId,
@@ -116,35 +228,44 @@ export function OverviewFilters({
   whatsappInstanceId,
   whatsappInstances,
 }: OverviewFiltersProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useOverviewTransition();
+  const dateErrorId = useId();
   const businesses = useMemo(
     () => businessesFromAccounts(reportingAccounts),
     [reportingAccounts],
   );
   const presentationMode = usePresentationMode();
-  const [selectedBusinessId, setSelectedBusinessId] = useState(
-    businessId ?? "",
-  );
-  const [selectedAdAccountId, setSelectedAdAccountId] = useState(
-    adAccountId ?? "",
-  );
-  const [selectedWhatsappInstanceId, setSelectedWhatsappInstanceId] = useState(
-    whatsappInstanceId ?? "",
-  );
-  const [selectedCampaignId, setSelectedCampaignId] = useState(
-    campaignId ?? "",
-  );
+  const applied: OverviewFilterValues = {
+    since: since ?? "",
+    until: until ?? "",
+    businessId: businessId ?? "",
+    adAccountId: adAccountId ?? "",
+    whatsappInstanceId: whatsappInstanceId ?? "",
+    campaignId: campaignId ?? "",
+  };
+  const appliedHref = overviewFiltersHref(applied);
+  // Local edits; the URL (props) is the source of truth once it lands.
+  const [fields, setFields] = useState<OverviewFilterValues>(applied);
+  const fieldsRef = useRef(fields);
+  fieldsRef.current = fields;
+  const lastSyncedRef = useRef(applied);
+  const lastCommittedHrefRef = useRef(appliedHref);
+  const dateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [statusMessage, setStatusMessage] = useState("");
+  const wasPendingRef = useRef(false);
   const accountFiltersActive = Boolean(businessId || adAccountId);
   // SSR renders the mobile layout (collapsed unless active). On wider screens
   // the details is `display: contents`, and the effect below keeps it open.
   const [accountsOpen, setAccountsOpen] = useState(accountFiltersActive);
   const accounts = useMemo(
     () =>
-      selectedBusinessId
+      fields.businessId
         ? reportingAccounts.filter(
-            (account) => account.businessId === selectedBusinessId,
+            (account) => account.businessId === fields.businessId,
           )
         : reportingAccounts,
-    [reportingAccounts, selectedBusinessId],
+    [reportingAccounts, fields.businessId],
   );
   const activeWhatsappInstances = useMemo(
     () =>
@@ -154,32 +275,89 @@ export function OverviewFilters({
     [whatsappInstances],
   );
   const selectedInstanceWasRemoved =
-    Boolean(selectedWhatsappInstanceId) &&
+    Boolean(fields.whatsappInstanceId) &&
     !activeWhatsappInstances.some(
-      (instance) => instance.id === selectedWhatsappInstanceId,
+      (instance) => instance.id === fields.whatsappInstanceId,
     );
   const scopedCampaignOptions = useMemo(
     () =>
       (campaignOptions ?? []).filter((option) =>
-        campaignInScope(option, selectedBusinessId, selectedAdAccountId),
+        campaignInScope(option, fields.businessId, fields.adAccountId),
       ),
-    [campaignOptions, selectedAdAccountId, selectedBusinessId],
-  );
-  const campaignGroups = useMemo(
-    () =>
-      groupCampaignOptions(scopedCampaignOptions, selectedWhatsappInstanceId),
-    [scopedCampaignOptions, selectedWhatsappInstanceId],
+    [campaignOptions, fields.adAccountId, fields.businessId],
   );
   const selectedCampaignMissing =
-    Boolean(selectedCampaignId) &&
-    !scopedCampaignOptions.some((option) => option.id === selectedCampaignId);
+    Boolean(fields.campaignId) &&
+    !scopedCampaignOptions.some((option) => option.id === fields.campaignId);
+  const missingCampaignLabel = `${campaignName ?? "Campanha selecionada"} (sem dados no periodo)`;
+  const comboboxOptions = useMemo(() => {
+    const groups = groupCampaignOptions(
+      scopedCampaignOptions,
+      fields.whatsappInstanceId,
+    );
+    const missing: FilterComboboxOption[] = selectedCampaignMissing
+      ? [{ value: fields.campaignId, label: missingCampaignLabel }]
+      : [];
+    const toOption = (option: CampaignOptionDto, group?: string) =>
+      campaignComboboxOption(option, fields.whatsappInstanceId, group);
+
+    return groups.kind === "flat"
+      ? [...missing, ...groups.options.map((option) => toOption(option))]
+      : [
+          ...missing,
+          ...groups.withLeads.map((option) => toOption(option, "with_leads")),
+          ...groups.others.map((option) => toOption(option, "others")),
+        ];
+  }, [
+    fields.campaignId,
+    fields.whatsappInstanceId,
+    missingCampaignLabel,
+    scopedCampaignOptions,
+    selectedCampaignMissing,
+  ]);
+  const dateStatus = dateRangeStatus(fields.since, fields.until);
+
+  // Sync from the URL only once nothing is in flight, and only the fields the
+  // URL actually changed: a late navigation must not overwrite a newer local
+  // edit (e.g. a date still being typed), while Back/Forward must still land.
+  useEffect(() => {
+    if (isPending) {
+      return;
+    }
+
+    const previous = lastSyncedRef.current;
+    const changed = filterKeys.filter((key) => previous[key] !== applied[key]);
+
+    lastCommittedHrefRef.current = appliedHref;
+
+    if (changed.length === 0) {
+      return;
+    }
+
+    lastSyncedRef.current = applied;
+    setFields((current) => {
+      const next = { ...current };
+
+      for (const key of changed) {
+        next[key] = applied[key];
+      }
+
+      return next;
+    });
+    // `applied` is rebuilt every render; its serialised form is the dependency.
+  }, [appliedHref, isPending]);
 
   useEffect(() => {
-    setSelectedBusinessId(businessId ?? "");
-    setSelectedAdAccountId(adAccountId ?? "");
-    setSelectedWhatsappInstanceId(whatsappInstanceId ?? "");
-    setSelectedCampaignId(campaignId ?? "");
-  }, [adAccountId, businessId, campaignId, whatsappInstanceId]);
+    if (isPending) {
+      wasPendingRef.current = true;
+      setStatusMessage("");
+    } else if (wasPendingRef.current) {
+      wasPendingRef.current = false;
+      setStatusMessage("Dados atualizados.");
+    }
+  }, [isPending]);
+
+  useEffect(() => () => clearDateTimer(), []);
 
   useEffect(() => {
     const media = window.matchMedia(accountsCollapseQuery);
@@ -191,54 +369,134 @@ export function OverviewFilters({
     return () => media.removeEventListener("change", sync);
   }, [accountFiltersActive]);
 
-  function findCampaign(id: string) {
-    return campaignOptions?.find((option) => option.id === id);
-  }
-
-  function clearCampaignOutsideScope(
-    nextBusinessId: string,
-    nextAdAccountId: string,
-  ) {
-    if (
-      selectedCampaignId &&
-      !campaignInScope(
-        findCampaign(selectedCampaignId),
-        nextBusinessId,
-        nextAdAccountId,
-      )
-    ) {
-      setSelectedCampaignId("");
+  function clearDateTimer() {
+    if (dateTimerRef.current) {
+      clearTimeout(dateTimerRef.current);
+      dateTimerRef.current = null;
     }
   }
 
+  /** Navigates to the filters; an incomplete period keeps the applied one. */
+  function commit(next: OverviewFilterValues) {
+    clearDateTimer();
+
+    const period =
+      dateRangeStatus(next.since, next.until) === "valid"
+        ? { since: next.since, until: next.until }
+        : { since: applied.since, until: applied.until };
+    const href = overviewFiltersHref({ ...next, ...period });
+
+    if (href === lastCommittedHrefRef.current) {
+      return;
+    }
+
+    lastCommittedHrefRef.current = href;
+    startTransition(() => {
+      router.push(href, { scroll: false });
+    });
+  }
+
+  function update(patch: Partial<OverviewFilterValues>) {
+    const next = { ...fieldsRef.current, ...patch };
+
+    fieldsRef.current = next;
+    setFields(next);
+    commit(next);
+  }
+
+  function campaignAfterScopeChange(
+    nextBusinessId: string,
+    nextAdAccountId: string,
+  ) {
+    const current = fieldsRef.current.campaignId;
+
+    return current &&
+      campaignInScope(
+        campaignOptions?.find((option) => option.id === current),
+        nextBusinessId,
+        nextAdAccountId,
+      )
+      ? current
+      : "";
+  }
+
   function handleBusinessChange(nextBusinessId: string) {
-    setSelectedBusinessId(nextBusinessId);
-    setSelectedAdAccountId("");
-    clearCampaignOutsideScope(nextBusinessId, "");
+    // One navigation for the BM and everything it invalidates.
+    update({
+      businessId: nextBusinessId,
+      adAccountId: "",
+      campaignId: campaignAfterScopeChange(nextBusinessId, ""),
+    });
   }
 
   function handleAccountChange(nextAdAccountId: string) {
-    setSelectedAdAccountId(nextAdAccountId);
-    clearCampaignOutsideScope(selectedBusinessId, nextAdAccountId);
+    update({
+      adAccountId: nextAdAccountId,
+      campaignId: campaignAfterScopeChange(
+        fieldsRef.current.businessId,
+        nextAdAccountId,
+      ),
+    });
+  }
+
+  function handleDateChange(key: "since" | "until", value: string) {
+    const next = { ...fieldsRef.current, [key]: value };
+
+    fieldsRef.current = next;
+    setFields(next);
+    clearDateTimer();
+
+    if (dateRangeStatus(next.since, next.until) === "valid") {
+      dateTimerRef.current = setTimeout(() => {
+        dateTimerRef.current = null;
+        commit(fieldsRef.current);
+      }, dateCommitDelayMs);
+    }
+  }
+
+  function flushDateCommit() {
+    if (dateTimerRef.current) {
+      commit(fieldsRef.current);
+    }
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    commit(fieldsRef.current);
   }
 
   const showBusinessFilter = businesses.length > 1;
   const showAccountFilter = reportingAccounts.length > 1;
   const showAccountGroup = showBusinessFilter || showAccountFilter;
   const accountFilterCount =
-    Number(Boolean(selectedBusinessId)) + Number(Boolean(selectedAdAccountId));
-  const campaignFieldDisabled =
-    campaignOptions === null || campaignOptions.length === 0;
-  const missingCampaignLabel = `${campaignName ?? "Campanha selecionada"} (sem dados no periodo)`;
+    Number(Boolean(fields.businessId)) + Number(Boolean(fields.adAccountId));
+  const campaignDisabledLabel =
+    campaignOptions === null
+      ? "Campanhas indisponiveis"
+      : campaignOptions.length === 0
+        ? "Nenhuma campanha no periodo"
+        : undefined;
+  const dateOrderInvalid = dateStatus === "order";
 
   return (
     <form
       action="/overview"
       className={`overview-filter-bar${showAccountGroup ? "" : " single-row"}`}
       aria-label="Filtros da visao geral"
+      onSubmit={handleSubmit}
     >
       <div className="overview-filter-heading">
         <span className="micro-label">Recorte da analise</span>
+        {hasActiveFilter ? (
+          <Link
+            className="button ghost icon-button"
+            href="/overview"
+            aria-label="Limpar filtros"
+            title="Limpar filtros"
+          >
+            <RotateCcw size={15} aria-hidden="true" />
+          </Link>
+        ) : null}
       </div>
 
       <div
@@ -251,11 +509,34 @@ export function OverviewFilters({
         </span>
         <label className="filter-field">
           <span>Inicio</span>
-          <input type="date" name="since" defaultValue={since} />
+          <input
+            type="date"
+            name="since"
+            value={fields.since}
+            onChange={(event) =>
+              handleDateChange("since", event.currentTarget.value)
+            }
+            onBlur={flushDateCommit}
+          />
         </label>
-        <label className="filter-field">
+        <label className="filter-field overview-date-end">
           <span>Fim</span>
-          <input type="date" name="until" defaultValue={until} />
+          <input
+            type="date"
+            name="until"
+            value={fields.until}
+            aria-invalid={dateOrderInvalid ? "true" : undefined}
+            aria-describedby={dateOrderInvalid ? dateErrorId : undefined}
+            onChange={(event) =>
+              handleDateChange("until", event.currentTarget.value)
+            }
+            onBlur={flushDateCommit}
+          />
+          {dateOrderInvalid ? (
+            <span className="overview-filter-error" id={dateErrorId}>
+              Fim antes do inicio
+            </span>
+          ) : null}
         </label>
 
         {showAccountGroup ? (
@@ -279,7 +560,7 @@ export function OverviewFilters({
                     <input
                       type="hidden"
                       name="businessId"
-                      value={selectedBusinessId}
+                      value={fields.businessId}
                     />
                     <span className="presentation-filter-placeholder">
                       BM oculto
@@ -288,7 +569,7 @@ export function OverviewFilters({
                 ) : (
                   <select
                     name="businessId"
-                    value={selectedBusinessId}
+                    value={fields.businessId}
                     onChange={(event) =>
                       handleBusinessChange(event.currentTarget.value)
                     }
@@ -312,7 +593,7 @@ export function OverviewFilters({
                     <input
                       type="hidden"
                       name="adAccountId"
-                      value={selectedAdAccountId}
+                      value={fields.adAccountId}
                     />
                     <span className="presentation-filter-placeholder">
                       Conta oculta
@@ -321,7 +602,7 @@ export function OverviewFilters({
                 ) : (
                   <select
                     name="adAccountId"
-                    value={selectedAdAccountId}
+                    value={fields.adAccountId}
                     onChange={(event) =>
                       handleAccountChange(event.currentTarget.value)
                     }
@@ -355,7 +636,7 @@ export function OverviewFilters({
               <input
                 type="hidden"
                 name="whatsappInstanceId"
-                value={selectedWhatsappInstanceId}
+                value={fields.whatsappInstanceId}
               />
               <span className="presentation-filter-placeholder">
                 Numero oculto
@@ -364,14 +645,14 @@ export function OverviewFilters({
           ) : (
             <select
               name="whatsappInstanceId"
-              value={selectedWhatsappInstanceId}
+              value={fields.whatsappInstanceId}
               onChange={(event) =>
-                setSelectedWhatsappInstanceId(event.currentTarget.value)
+                update({ whatsappInstanceId: event.currentTarget.value })
               }
             >
               <option value="">Todos os numeros</option>
               {selectedInstanceWasRemoved ? (
-                <option value={selectedWhatsappInstanceId}>
+                <option value={fields.whatsappInstanceId}>
                   Numero removido
                 </option>
               ) : null}
@@ -384,96 +665,45 @@ export function OverviewFilters({
           )}
         </label>
 
-        <label className="filter-field overview-scope-filter overview-campaign-filter">
-          <span>Campanha</span>
-          {presentationMode ? (
-            <>
-              <input
-                type="hidden"
-                name="campaignId"
-                value={selectedCampaignId}
-              />
-              <span className="presentation-filter-placeholder">
-                Campanha oculta
-              </span>
-            </>
-          ) : campaignFieldDisabled ? (
-            <>
-              {/* Disabled selects are not submitted; keep an applied cut. */}
-              {selectedCampaignId ? (
-                <input
-                  type="hidden"
-                  name="campaignId"
-                  value={selectedCampaignId}
-                />
-              ) : null}
-              <select disabled value="">
-                <option value="">
-                  {campaignOptions === null
-                    ? "Campanhas indisponiveis"
-                    : "Nenhuma campanha no periodo"}
-                </option>
-              </select>
-            </>
-          ) : (
-            <select
-              name="campaignId"
-              value={selectedCampaignId}
-              onChange={(event) =>
-                setSelectedCampaignId(event.currentTarget.value)
-              }
-            >
-              <option value="">Todas as campanhas</option>
-              {selectedCampaignMissing ? (
-                <option value={selectedCampaignId}>
-                  {missingCampaignLabel}
-                </option>
-              ) : null}
-              {campaignGroups.kind === "flat" ? (
-                campaignGroups.options.map(renderCampaignOption)
-              ) : (
-                <>
-                  {campaignGroups.withLeads.length > 0 ? (
-                    <optgroup label="Com conversas neste numero">
-                      {campaignGroups.withLeads.map(renderCampaignOption)}
-                    </optgroup>
-                  ) : null}
-                  {campaignGroups.others.length > 0 ? (
-                    <optgroup label="Outras campanhas">
-                      {campaignGroups.others.map(renderCampaignOption)}
-                    </optgroup>
-                  ) : null}
-                </>
-              )}
-            </select>
-          )}
-        </label>
+        <FilterCombobox
+          className="overview-scope-filter overview-campaign-filter"
+          name="campaignId"
+          label="Campanha"
+          value={fields.campaignId ? [fields.campaignId] : []}
+          options={comboboxOptions}
+          groups={campaignComboboxGroups}
+          copy={campaignComboboxCopy}
+          disabledLabel={campaignDisabledLabel}
+          presentationPlaceholder={
+            presentationMode
+              ? fields.campaignId
+                ? "Campanha oculta"
+                : campaignComboboxCopy.all
+              : undefined
+          }
+          onCommit={(next) => update({ campaignId: next[0] ?? "" })}
+        />
 
-        <div className="overview-filter-actions">
-          <button className="button primary" type="submit">
-            <Filter size={15} aria-hidden="true" />
-            Aplicar
-          </button>
-          {hasActiveFilter ? (
-            <Link
-              className="button ghost icon-button"
-              href="/overview"
-              aria-label="Limpar filtros"
-              title="Limpar filtros"
-            >
-              <RotateCcw size={15} aria-hidden="true" />
-            </Link>
+        <div
+          className="overview-filter-status"
+          data-pending={isPending ? "true" : undefined}
+        >
+          {isPending ? (
+            <span className="overview-filter-status-label" aria-hidden="true">
+              <span className="overview-filter-spinner" />
+              Atualizando...
+            </span>
           ) : null}
+          <span className="sr-only" role="status" aria-live="polite">
+            {isPending ? "Atualizando..." : statusMessage}
+          </span>
         </div>
       </div>
-    </form>
-  );
-}
 
-function renderCampaignOption(option: CampaignOptionDto) {
-  return (
-    <option key={option.id} value={option.id} title={option.name}>
-      {campaignOptionLabel(option)}
-    </option>
+      {/* Implicit Enter-submit and the no-JS GET still need a submitter. */}
+      <button className="sr-only" type="submit" tabIndex={-1}>
+        Atualizar recorte
+      </button>
+    </form>
   );
 }
