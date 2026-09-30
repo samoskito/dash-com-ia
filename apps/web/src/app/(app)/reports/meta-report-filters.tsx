@@ -1,10 +1,14 @@
 "use client";
 
-import type { MetaAssetsDto } from "@wpptrack/shared";
+import type {
+  MetaAssetsDto,
+  WhatsappInstanceSummaryDto,
+} from "@wpptrack/shared";
 import { Filter, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePresentationMode } from "../../../components/presentation-mode-toggle";
+import { instanceLabel } from "../overview/overview-labels";
 
 type MetaReportFiltersProps = {
   adAccountId?: string;
@@ -26,6 +30,8 @@ type MetaReportFiltersProps = {
   until?: string;
   view?: "campaigns" | "adsets" | "ads";
   whatsappClassification?: string;
+  whatsappInstanceId?: string;
+  whatsappInstances: WhatsappInstanceSummaryDto[];
 };
 
 const nameScopeOptions = [
@@ -108,6 +114,8 @@ export function MetaReportFilters({
   until,
   view = "campaigns",
   whatsappClassification = "whatsapp",
+  whatsappInstanceId,
+  whatsappInstances,
 }: MetaReportFiltersProps) {
   const reportingAccounts = useMemo(
     () => (assets?.reportingAccounts ?? []).filter((account) => account.active),
@@ -130,6 +138,10 @@ export function MetaReportFilters({
       accountsForBusiness(reportingAccounts, businessId ?? ""),
       adAccountId,
     ),
+  );
+  const selectedInstanceWasRemoved = Boolean(
+    whatsappInstanceId &&
+    !whatsappInstances.some((instance) => instance.id === whatsappInstanceId),
   );
 
   useEffect(() => {
@@ -174,11 +186,16 @@ export function MetaReportFilters({
     clearParams.set("adId", adId);
   }
 
+  if (whatsappInstanceId) {
+    clearParams.set("whatsappInstanceId", whatsappInstanceId);
+  }
+
   const advancedFilterCount = [
     nameScope !== "campaign",
     status !== "all",
     delivery !== "all",
     whatsappClassification !== "whatsapp",
+    Boolean(whatsappInstanceId),
     Boolean(compareSince && compareUntil),
     pageSize !== 10,
   ].filter(Boolean).length;
@@ -189,6 +206,7 @@ export function MetaReportFilters({
     status !== "all" ||
     delivery !== "all" ||
     whatsappClassification !== "whatsapp" ||
+    whatsappInstanceId ||
     compareSince ||
     compareUntil ||
     pageSize !== 10,
@@ -255,6 +273,35 @@ export function MetaReportFilters({
             {accounts.map((account) => (
               <option key={account.id} value={account.adAccountId}>
                 {account.adAccountName}
+              </option>
+            ))}
+          </select>
+        )}
+        {presentationMode ? (
+          <>
+            <input
+              type="hidden"
+              name="whatsappInstanceId"
+              value={whatsappInstanceId ?? ""}
+            />
+            <span className="filter-control presentation-filter-placeholder">
+              Numero oculto
+            </span>
+          </>
+        ) : (
+          <select
+            className="filter-control"
+            name="whatsappInstanceId"
+            defaultValue={whatsappInstanceId ?? ""}
+            aria-label="Numero WhatsApp"
+          >
+            <option value="">Todos os numeros</option>
+            {selectedInstanceWasRemoved ? (
+              <option value={whatsappInstanceId}>Numero removido</option>
+            ) : null}
+            {whatsappInstances.map((instance) => (
+              <option key={instance.id} value={instance.id}>
+                {instanceLabel(instance)}
               </option>
             ))}
           </select>
