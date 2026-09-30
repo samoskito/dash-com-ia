@@ -16,6 +16,7 @@ import {
   conversionAuditSourceSchema,
   metaBudgetUpdateInputSchema,
   metaEntityStatusUpdateInputSchema,
+  reportCampaignIdsSchema,
   metaWhatsappOverrideInputSchema,
   type ConversionAuditDeliveryStateDto,
   type ConversionAuditSourceDto,
@@ -52,6 +53,7 @@ type ReportFilters = {
   businessId?: string;
   adAccountId?: string;
   campaignId?: string;
+  campaignIds?: string[];
   adSetId?: string;
   adId?: string;
   nameScope?: ReportNameScope;
@@ -86,6 +88,7 @@ export class ReportingController {
     @Query("businessId") businessId?: string | string[],
     @Query("adAccountId") adAccountId?: string | string[],
     @Query("campaignId") campaignId?: string | string[],
+    @Query("campaignIds") campaignIds?: string | string[],
     @Query("adSetId") adSetId?: string | string[],
     @Query("adId") adId?: string | string[],
     @Query("nameScope") nameScope?: string | string[],
@@ -112,6 +115,7 @@ export class ReportingController {
       businessId,
       adAccountId,
       campaignId,
+      campaignIds,
       adSetId,
       adId,
       nameScope,
@@ -666,6 +670,7 @@ export class ReportingController {
     businessId?: string | string[];
     adAccountId?: string | string[];
     campaignId?: string | string[];
+    campaignIds?: string | string[];
     adSetId?: string | string[];
     adId?: string | string[];
     nameScope?: string | string[];
@@ -680,6 +685,7 @@ export class ReportingController {
     const businessId = this.trimOptional(input.businessId);
     const adAccountId = this.trimOptional(input.adAccountId);
     const campaignId = this.trimOptional(input.campaignId);
+    const campaignIds = this.parseCampaignIds(input.campaignIds, campaignId);
     const adSetId = this.trimOptional(input.adSetId);
     const adId = this.trimOptional(input.adId);
     const nameContains = this.trimOptional(input.nameContains);
@@ -702,8 +708,14 @@ export class ReportingController {
       filters.adAccountId = adAccountId;
     }
 
-    if (campaignId) {
+    // campaignId is retained for legacy callers. When campaignIds is present,
+    // both sources are merged and deduplicated before the 10-campaign limit.
+    if (input.campaignIds === undefined && campaignId) {
       filters.campaignId = campaignId;
+    }
+
+    if (input.campaignIds !== undefined && campaignIds.length > 0) {
+      filters.campaignIds = campaignIds;
     }
 
     if (adSetId) {
@@ -740,6 +752,35 @@ export class ReportingController {
     }
 
     return filters;
+  }
+
+  private parseCampaignIds(
+    value: string | string[] | undefined,
+    legacyCampaignId?: string,
+  ): string[] {
+    if (Array.isArray(value)) {
+      throw new BadRequestException("Filtro campaignIds invalido");
+    }
+
+    const ids = [
+      ...(legacyCampaignId ? [legacyCampaignId] : []),
+      ...(value === undefined
+        ? []
+        : value
+            .split(",")
+            .map((campaignId) => campaignId.trim())
+            .filter(Boolean)),
+    ];
+    const uniqueIds = [...new Set(ids)];
+    const parsed = reportCampaignIdsSchema.safeParse(uniqueIds);
+
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "No maximo 10 campanhas podem ser selecionadas",
+      );
+    }
+
+    return parsed.data;
   }
 
   private trimOptional(value?: string | string[]): string | undefined {
