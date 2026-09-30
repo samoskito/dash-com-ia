@@ -3,6 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import OverviewPage from "../src/app/(app)/overview/page";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -1088,11 +1092,19 @@ describe("overview campaign x WhatsApp number cross-filter", () => {
     expect(urls).toContain(
       "http://localhost:3333/reports/campaign-options?since=2026-09-17&until=2026-09-24&adAccountId=act_1",
     );
-    expect(html).toContain('<select name="campaignId">');
     expect(html).toContain(
-      '<option value="cmp_promo" title="Promo Setembro" selected="">Promo Setembro</option>',
+      '<input type="hidden" name="campaignId" value="cmp_promo"/>',
     );
-    expect(html).toContain("Outra campanha · Pausada");
+    expect(html).toContain(
+      '<span class="filter-combobox-value">Promo Setembro</span>',
+    );
+    expect(html).not.toContain('<select name="campaignId"');
+    expect(html).not.toContain("Aplicar");
+    // Results sit in the pending wrapper; idle, nothing is marked busy and
+    // the route skeleton is never part of the page.
+    expect(html).toContain('<div class="overview-results">');
+    expect(html).not.toContain("aria-busy");
+    expect(html).not.toContain("route-loading");
     expect(html).toContain('<span class="tag">1 campanha</span>');
     expect(html).not.toContain("1 campanhas");
   });
@@ -1312,8 +1324,9 @@ describe("overview campaign x WhatsApp number cross-filter", () => {
       '<p class="muted" role="note">Investimento e Conversas Meta existem por campanha, nao por numero. Escolha uma campanha para ver o investimento que trouxe conversas para este numero.</p>',
     );
     expect(html).not.toContain("sao da conta de anuncios e nao podem");
-    expect(html).toContain('<select name="campaignId">');
-    expect(html).toContain('<optgroup label="Com conversas neste numero">');
+    expect(html).toContain(
+      '<span class="filter-combobox-value">Todas as campanhas</span>',
+    );
   });
 
   it("hints the campaign's only number with a one-click filter link", async () => {
@@ -1395,9 +1408,9 @@ describe("overview campaign x WhatsApp number cross-filter", () => {
       '<span class="presentation-mask-value">Promo Setembro</span><span class="presentation-mask-placeholder">Campanha oculta</span>',
     );
     expect(header).not.toContain("Promo Setembro");
-    // Outside the filter select, the name only appears inside a mask.
+    // Outside the campaign trigger, the name only appears inside a mask.
     const withoutSelect = html.replace(
-      /<select name="campaignId">.*?<\/select>/,
+      /<button class="filter-combobox-trigger".*?<\/button>/,
       "",
     );
     expect(
@@ -1468,8 +1481,8 @@ describe("overview campaign x WhatsApp number cross-filter", () => {
     });
     const cards = metricCards(html);
 
-    expect(html).toContain(
-      '<select disabled=""><option value="" selected="">Campanhas indisponiveis</option></select>',
+    expect(html).toMatch(
+      /disabled=""><span class="filter-combobox-value">Campanhas indisponiveis<\/span><\/button>/,
     );
     expect(cards.find((card) => card.label === "Investimento")?.value).toBe(
       "R$\u00a0100,00",

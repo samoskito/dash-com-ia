@@ -2,12 +2,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const presentation = vi.hoisted(() => ({ enabled: true }));
+const router = vi.hoisted(() => ({ push: vi.fn() }));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => router,
+}));
 
 vi.mock("../src/components/presentation-mode-toggle", () => ({
   usePresentationMode: () => presentation.enabled,
 }));
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type {
   CampaignOptionDto,
   MetaReportingAccountDto,
@@ -19,7 +24,9 @@ import {
   OverviewFilters,
   campaignInScope,
   campaignOptionLabel,
+  dateRangeStatus,
   groupCampaignOptions,
+  overviewFiltersHref,
 } from "../src/app/(app)/overview/overview-filters";
 
 type FiltersProps = ComponentProps<typeof OverviewFilters>;
@@ -143,23 +150,60 @@ function stubViewport(mobile: boolean) {
   );
 }
 
-function optgroupOf(select: HTMLSelectElement, value: string) {
-  const option = Array.from(select.options).find(
-    (candidate) => candidate.value === value,
-  );
+function renderFilters(overrides: Partial<FiltersProps> = {}) {
+  const view = render(createElement(OverviewFilters, filtersProps(overrides)));
+  const { container } = view;
 
-  return option?.parentElement instanceof HTMLOptGroupElement
-    ? option.parentElement.label
+  return {
+    ...view,
+    trigger: () =>
+      container.querySelector<HTMLButtonElement>(".filter-combobox-trigger")!,
+    campaignValue: () =>
+      container.querySelector<HTMLInputElement>('input[name="campaignId"]')!
+        .value,
+    openCampaigns: () => {
+      fireEvent.click(
+        container.querySelector<HTMLButtonElement>(".filter-combobox-trigger")!,
+      );
+      return container.querySelector<HTMLInputElement>(
+        ".filter-combobox-search",
+      )!;
+    },
+    optionLabels: () =>
+      Array.from(
+        container.querySelectorAll('[role="option"] strong'),
+        (node) => node.textContent,
+      ),
+    option: (label: string) =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[role="option"]'),
+      ).find((node) => node.querySelector("strong")?.textContent === label)!,
+    rerender: (next: Partial<FiltersProps>) =>
+      view.rerender(createElement(OverviewFilters, filtersProps(next))),
+  };
+}
+
+/** Label of the listbox group holding an option, or null when ungrouped. */
+function groupOf(container: HTMLElement, label: string) {
+  const option = Array.from(
+    container.querySelectorAll<HTMLElement>('[role="option"]'),
+  ).find((node) => node.querySelector("strong")?.textContent === label);
+  const group = option?.closest(".filter-combobox-group");
+
+  return group
+    ? group.querySelector(".filter-combobox-group-label")?.textContent
     : null;
 }
 
 beforeEach(() => {
   presentation.enabled = false;
+  router.push.mockReset();
   stubViewport(false);
 });
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -197,19 +241,21 @@ describe("overview filters", () => {
   it("renders Campanha after Numero WhatsApp in the Numero e campanha group", () => {
     const html = renderMarkup({ campaignId: "cmp_centro" });
     const numberPosition = html.indexOf("<span>Numero WhatsApp</span>");
-    const campaignPosition = html.indexOf("<span>Campanha</span>");
+    const campaignPosition = html.search(/<span id="[^"]+">Campanha<\/span>/);
 
     expect(html).toContain("Periodo e contas");
     expect(html).toContain("Numero e campanha");
     expect(html.indexOf("Numero e campanha")).toBeLessThan(numberPosition);
     expect(numberPosition).toBeGreaterThan(-1);
     expect(campaignPosition).toBeGreaterThan(numberPosition);
-    expect(html).toContain('<select name="campaignId">');
-    expect(html).toContain('<option value="">Todas as campanhas</option>');
     expect(html).toContain(
-      '<option value="cmp_centro" title="Promo Centro" selected="">Promo Centro</option>',
+      '<input type="hidden" name="campaignId" value="cmp_centro"/>',
     );
-    expect(html).toContain("Awareness Nova · Pausada");
+    expect(html).toContain('aria-haspopup="listbox"');
+    expect(html).toContain(
+      '<span class="filter-combobox-value">Promo Centro</span>',
+    );
+    expect(html).not.toContain('<select name="campaignId"');
     // Limpar filtros goes back to the bare overview, dropping campaignId too.
     expect(html).toContain(
       'aria-label="Limpar filtros" title="Limpar filtros" href="/overview"',
@@ -229,30 +275,46 @@ describe("overview filters", () => {
     expect(data.getAll("campaignId")).toEqual(["cmp_centro"]);
   });
 
-  it("lists campaigns flat by name when no number is selected", () => {
+  it("renders no campaign names until the campaign list is opened", () => {
     const html = renderMarkup();
 
-    expect(html).not.toContain("<optgroup");
-    expect(html.indexOf("Awareness Nova")).toBeLessThan(
-      html.indexOf("Promo Centro"),
-    );
-    expect(html.indexOf("Promo Centro")).toBeLessThan(
-      html.indexOf("Promo Norte"),
-    );
+    expect(html).toContain("Todas as campanhas");
+    expect(html).not.toContain("Promo Centro");
+    expect(html).not.toContain('role="listbox"');
+  });
+
+  it("lists campaigns flat by name when no number is selected", () => {
+    const view = renderFilters();
+
+    view.openCampaigns();
+
+    expect(view.container.querySelector(".filter-combobox-group")).toBeNull();
+    expect(view.optionLabels()).toEqual([
+      "Todas as campanhas",
+      "Awareness Nova · Pausada",
+      "Promo Centro",
+      "Promo Norte",
+    ]);
   });
 
   it("groups campaigns by conversations on the selected number", () => {
-    const html = renderMarkup({ whatsappInstanceId: "instance_a" });
-    const withLeads = html.indexOf(
-      '<optgroup label="Com conversas neste numero">',
-    );
-    const others = html.indexOf('<optgroup label="Outras campanhas">');
+    const view = renderFilters({ whatsappInstanceId: "instance_a" });
 
-    expect(withLeads).toBeGreaterThan(-1);
-    expect(others).toBeGreaterThan(withLeads);
-    expect(html.indexOf("Promo Centro")).toBeGreaterThan(withLeads);
-    expect(html.indexOf("Promo Centro")).toBeLessThan(others);
-    expect(html.indexOf("Promo Norte")).toBeGreaterThan(others);
+    view.openCampaigns();
+
+    expect(
+      Array.from(
+        view.container.querySelectorAll(".filter-combobox-group-label"),
+        (node) => node.textContent,
+      ),
+    ).toEqual(["Com conversas neste numero", "Outras campanhas"]);
+    expect(groupOf(view.container, "Promo Centro")).toBe(
+      "Com conversas neste numero",
+    );
+    expect(groupOf(view.container, "Promo Norte")).toBe("Outras campanhas");
+    expect(view.option("Promo Centro").textContent).toContain(
+      "12 conversas neste numero",
+    );
   });
 
   it("sorts the conversations group by leads on the number, then name", () => {
@@ -287,93 +349,98 @@ describe("overview filters", () => {
     expect(label.length).toBeLessThanOrEqual(60 + " · Pausada".length);
     expect(
       renderMarkup({
+        campaignId: "cmp_1",
         campaignOptions: [campaignOption({ name: longName })],
       }),
     ).toContain(`title="${longName}"`);
   });
 
   // §9 test 9
+  // §9 test 9 + UX §8 test 7: one navigation for the BM and its cascade.
   it("clears a campaign from another BM when the BM changes", () => {
-    const { container } = render(
-      createElement(OverviewFilters, filtersProps({ campaignId: "cmp_norte" })),
+    const view = renderFilters({
+      adAccountId: "act_2",
+      campaignId: "cmp_norte",
+    });
+
+    expect(view.campaignValue()).toBe("cmp_norte");
+
+    fireEvent.change(
+      view.container.querySelector('select[name="businessId"]')!,
+      { target: { value: "business_1" } },
     );
-    const business = container.querySelector<HTMLSelectElement>(
-      'select[name="businessId"]',
-    )!;
-    const campaign = () =>
-      container.querySelector<HTMLSelectElement>('select[name="campaignId"]')!;
 
-    expect(campaign().value).toBe("cmp_norte");
+    expect(view.campaignValue()).toBe("");
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?businessId=business_1",
+      {
+        scroll: false,
+      },
+    );
 
-    fireEvent.change(business, { target: { value: "business_1" } });
-
-    expect(campaign().value).toBe("");
-    expect(
-      Array.from(campaign().options).map((option) => option.value),
-    ).not.toContain("cmp_norte");
+    view.openCampaigns();
+    expect(view.optionLabels()).not.toContain("Promo Norte");
   });
 
   it("keeps a campaign inside the new BM when the BM changes", () => {
-    const { container } = render(
-      createElement(
-        OverviewFilters,
-        filtersProps({ campaignId: "cmp_centro" }),
-      ),
+    const view = renderFilters({ campaignId: "cmp_centro" });
+
+    fireEvent.change(
+      view.container.querySelector('select[name="businessId"]')!,
+      { target: { value: "business_1" } },
     );
 
-    fireEvent.change(container.querySelector('select[name="businessId"]')!, {
-      target: { value: "business_1" },
-    });
-
-    expect(
-      container.querySelector<HTMLSelectElement>('select[name="campaignId"]')!
-        .value,
-    ).toBe("cmp_centro");
+    expect(view.campaignValue()).toBe("cmp_centro");
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?businessId=business_1&campaignId=cmp_centro",
+      { scroll: false },
+    );
   });
 
   it("clears a campaign outside the account when the account changes", () => {
-    const { container } = render(
-      createElement(
-        OverviewFilters,
-        filtersProps({ campaignId: "cmp_centro" }),
-      ),
+    const view = renderFilters({ campaignId: "cmp_centro" });
+
+    fireEvent.change(
+      view.container.querySelector('select[name="adAccountId"]')!,
+      { target: { value: "act_2" } },
     );
 
-    fireEvent.change(container.querySelector('select[name="adAccountId"]')!, {
-      target: { value: "act_2" },
+    expect(view.campaignValue()).toBe("");
+    expect(router.push).toHaveBeenCalledWith("/overview?adAccountId=act_2", {
+      scroll: false,
     });
-
-    expect(
-      container.querySelector<HTMLSelectElement>('select[name="campaignId"]')!
-        .value,
-    ).toBe("");
   });
 
-  it("keeps the campaign when the number changes and moves it between optgroups", () => {
-    const { container } = render(
-      createElement(
-        OverviewFilters,
-        filtersProps({
-          campaignId: "cmp_centro",
-          whatsappInstanceId: "instance_a",
-        }),
-      ),
-    );
-    const campaign = () =>
-      container.querySelector<HTMLSelectElement>('select[name="campaignId"]')!;
+  it("keeps the campaign when the number changes and moves it between groups", () => {
+    const view = renderFilters({
+      campaignId: "cmp_centro",
+      whatsappInstanceId: "instance_a",
+    });
 
-    expect(optgroupOf(campaign(), "cmp_centro")).toBe(
+    view.openCampaigns();
+    expect(groupOf(view.container, "Promo Centro")).toBe(
       "Com conversas neste numero",
+    );
+    fireEvent.keyDown(
+      view.container.querySelector(".filter-combobox-search")!,
+      { key: "Escape" },
     );
 
     fireEvent.change(
-      container.querySelector('select[name="whatsappInstanceId"]')!,
+      view.container.querySelector('select[name="whatsappInstanceId"]')!,
       { target: { value: "instance_b" } },
     );
 
-    expect(campaign().value).toBe("cmp_centro");
-    expect(optgroupOf(campaign(), "cmp_centro")).toBe("Outras campanhas");
-    expect(optgroupOf(campaign(), "cmp_norte")).toBe(
+    expect(view.campaignValue()).toBe("cmp_centro");
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?whatsappInstanceId=instance_b&campaignId=cmp_centro",
+      { scroll: false },
+    );
+
+    view.openCampaigns();
+    expect(groupOf(view.container, "Promo Centro")).toBe("Outras campanhas");
+    expect(groupOf(view.container, "Promo Norte")).toBe(
       "Com conversas neste numero",
     );
   });
@@ -395,7 +462,10 @@ describe("overview filters", () => {
     });
 
     expect(html).toContain(
-      '<option value="cmp_old" selected="">Promo Julho (sem dados no periodo)</option>',
+      '<span class="filter-combobox-value">Promo Julho (sem dados no periodo)</span>',
+    );
+    expect(html).toContain(
+      '<input type="hidden" name="campaignId" value="cmp_old"/>',
     );
   });
 
@@ -422,8 +492,8 @@ describe("overview filters", () => {
   it("disables the campaign field when the options endpoint fails", () => {
     const html = renderMarkup({ campaignOptions: null });
 
-    expect(html).toContain(
-      '<select disabled=""><option value="" selected="">Campanhas indisponiveis</option></select>',
+    expect(html).toMatch(
+      /<button class="filter-combobox-trigger" type="button" id="[^"]+" aria-labelledby="[^"]+" disabled=""><span class="filter-combobox-value">Campanhas indisponiveis<\/span><\/button>/,
     );
     expect(html).not.toContain('name="campaignId"');
   });
@@ -444,7 +514,7 @@ describe("overview filters", () => {
     const html = renderMarkup({ campaignOptions: [] });
 
     expect(html).toContain("Nenhuma campanha no periodo");
-    expect(html).toContain("<select disabled=");
+    expect(html).toMatch(/aria-labelledby="[^"]+" disabled=""/);
   });
 
   // §9 test 15
@@ -472,7 +542,7 @@ describe("overview filters", () => {
     ).not.toBeNull();
     expect(
       container.querySelector(
-        ".overview-filter-group-cut select[name='campaignId']",
+        ".overview-filter-group-cut input[name='campaignId']",
       ),
     ).not.toBeNull();
   });
@@ -538,5 +608,354 @@ describe("overview filters", () => {
 
     expect(html).toContain('class="overview-filter-bar single-row"');
     expect(html).not.toContain("overview-filter-accounts");
+  });
+});
+
+describe("overview filters auto-apply", () => {
+  const period = { since: "2026-09-01", until: "2026-09-24" };
+
+  it("has no Aplicar button, only a hidden submitter", () => {
+    const { container } = renderFilters();
+    const buttons = Array.from(container.querySelectorAll("button"));
+
+    expect(buttons.map((button) => button.textContent)).not.toContain(
+      "Aplicar",
+    );
+    expect(container.textContent).not.toContain("Aplicar");
+    expect(
+      container.querySelector<HTMLButtonElement>('button[type="submit"]'),
+    ).toMatchObject({ className: "sr-only", tabIndex: -1 });
+  });
+
+  // UX §8 test 4
+  it("navigates as soon as a campaign is picked", () => {
+    const view = renderFilters({ ...period, whatsappInstanceId: "instance_a" });
+
+    view.openCampaigns();
+    fireEvent.click(view.option("Promo Norte"));
+
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?since=2026-09-01&until=2026-09-24&whatsappInstanceId=instance_a&campaignId=cmp_norte",
+      { scroll: false },
+    );
+    expect(view.campaignValue()).toBe("cmp_norte");
+    expect(view.trigger().textContent).toBe("Promo Norte");
+    expect(view.container.querySelector('[role="listbox"]')).toBeNull();
+  });
+
+  it("drops campaignId when Todas as campanhas is picked", () => {
+    const view = renderFilters({ ...period, campaignId: "cmp_centro" });
+
+    view.openCampaigns();
+    fireEvent.click(view.option("Todas as campanhas"));
+
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?since=2026-09-01&until=2026-09-24",
+      { scroll: false },
+    );
+  });
+
+  // UX §8 test 1
+  it("finds campaigns by accent-insensitive name or pasted id", () => {
+    const view = renderFilters({
+      campaignOptions: [
+        ...options,
+        campaignOption({ id: "120210000000001", name: "Promocao Primavera" }),
+      ],
+    });
+    const search = view.openCampaigns();
+
+    fireEvent.change(search, { target: { value: "promoção" } });
+    expect(view.optionLabels()).toEqual(["Promocao Primavera"]);
+    expect(
+      view.container.querySelector(".filter-combobox-count")?.textContent,
+    ).toBe("1 de 4 campanhas");
+
+    fireEvent.change(search, { target: { value: "promo" } });
+    expect(view.optionLabels()).toEqual([
+      "Promo Centro",
+      "Promo Norte",
+      "Promocao Primavera",
+    ]);
+
+    fireEvent.change(search, { target: { value: "120210000000001" } });
+    expect(view.optionLabels()).toEqual(["Promocao Primavera"]);
+  });
+
+  // UX §8 test 2
+  it("keeps the number groups while searching and hides empty ones", () => {
+    const view = renderFilters({ whatsappInstanceId: "instance_a" });
+    const search = view.openCampaigns();
+
+    fireEvent.change(search, { target: { value: "centro" } });
+
+    expect(view.optionLabels()).toEqual(["Promo Centro"]);
+    expect(
+      Array.from(
+        view.container.querySelectorAll(".filter-combobox-group-label"),
+        (node) => node.textContent,
+      ),
+    ).toEqual(["Com conversas neste numero"]);
+  });
+
+  it("does not navigate while typing a search", () => {
+    const view = renderFilters({ campaignId: "cmp_centro" });
+    const search = view.openCampaigns();
+
+    fireEvent.change(search, { target: { value: "nor" } });
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(view.campaignValue()).toBe("cmp_centro");
+  });
+
+  it("does not navigate when the same campaign is picked again", () => {
+    const view = renderFilters({ ...period, campaignId: "cmp_centro" });
+
+    view.openCampaigns();
+    fireEvent.click(view.option("Promo Centro"));
+
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  // UX §8 test 6
+  it("commits a typed date once, after the debounce", () => {
+    vi.useFakeTimers();
+    const { container } = renderFilters(period);
+    const since = container.querySelector<HTMLInputElement>(
+      'input[name="since"]',
+    )!;
+
+    fireEvent.change(since, { target: { value: "0002-09-10" } });
+    fireEvent.change(since, { target: { value: "0020-09-10" } });
+    fireEvent.change(since, { target: { value: "2026-09-10" } });
+    expect(router.push).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(800);
+    });
+
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?since=2026-09-10&until=2026-09-24",
+      { scroll: false },
+    );
+  });
+
+  it("never commits a half-typed year", () => {
+    vi.useFakeTimers();
+    const { container } = renderFilters(period);
+    const since = container.querySelector<HTMLInputElement>(
+      'input[name="since"]',
+    )!;
+
+    fireEvent.change(since, { target: { value: "0202-09-10" } });
+    fireEvent.blur(since);
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it("flushes a pending date on blur", () => {
+    vi.useFakeTimers();
+    const { container } = renderFilters(period);
+    const until = container.querySelector<HTMLInputElement>(
+      'input[name="until"]',
+    )!;
+
+    fireEvent.change(until, { target: { value: "2026-09-20" } });
+    fireEvent.blur(until);
+
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?since=2026-09-01&until=2026-09-20",
+      { scroll: false },
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(router.push).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks Fim before Inicio with an inline error", () => {
+    vi.useFakeTimers();
+    const { container } = renderFilters(period);
+    const until = container.querySelector<HTMLInputElement>(
+      'input[name="until"]',
+    )!;
+
+    fireEvent.change(until, { target: { value: "2026-08-20" } });
+    fireEvent.blur(until);
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(until.getAttribute("aria-invalid")).toBe("true");
+    expect(container.querySelector(".overview-filter-error")?.textContent).toBe(
+      "Fim antes do inicio",
+    );
+
+    fireEvent.change(until, { target: { value: "2026-09-20" } });
+    expect(until.getAttribute("aria-invalid")).toBeNull();
+    expect(container.querySelector(".overview-filter-error")).toBeNull();
+  });
+
+  it("keeps the applied period when another filter changes mid-edit", () => {
+    const { container } = renderFilters(period);
+
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[name="until"]')!,
+      { target: { value: "" } },
+    );
+    fireEvent.change(
+      container.querySelector('select[name="whatsappInstanceId"]')!,
+      { target: { value: "instance_b" } },
+    );
+
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?since=2026-09-01&until=2026-09-24&whatsappInstanceId=instance_b",
+      { scroll: false },
+    );
+  });
+
+  // UX §8 test 11
+  it("commits immediately on Enter (form submit)", () => {
+    vi.useFakeTimers();
+    const { container } = renderFilters(period);
+
+    fireEvent.change(
+      container.querySelector<HTMLInputElement>('input[name="since"]')!,
+      { target: { value: "2026-09-05" } },
+    );
+    fireEvent.submit(container.querySelector("form")!);
+
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith(
+      "/overview?since=2026-09-05&until=2026-09-24",
+      { scroll: false },
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(router.push).toHaveBeenCalledTimes(1);
+  });
+
+  // UX §8 test 9
+  it("carries both of two quick changes into the final URL", () => {
+    const view = renderFilters(period);
+
+    fireEvent.change(
+      view.container.querySelector('select[name="whatsappInstanceId"]')!,
+      { target: { value: "instance_a" } },
+    );
+    view.openCampaigns();
+    fireEvent.click(view.option("Promo Centro"));
+
+    expect(router.push).toHaveBeenLastCalledWith(
+      "/overview?since=2026-09-01&until=2026-09-24&whatsappInstanceId=instance_a&campaignId=cmp_centro",
+      { scroll: false },
+    );
+  });
+
+  it("does not reset a newer local edit when an older navigation lands", () => {
+    vi.useFakeTimers();
+    const view = renderFilters(period);
+    const since = () =>
+      view.container.querySelector<HTMLInputElement>('input[name="since"]')!;
+
+    fireEvent.change(
+      view.container.querySelector('select[name="whatsappInstanceId"]')!,
+      { target: { value: "instance_a" } },
+    );
+    // A date is being typed while the number navigation is in flight.
+    fireEvent.change(since(), { target: { value: "2026-09-10" } });
+    view.rerender({ ...period, whatsappInstanceId: "instance_a" });
+
+    expect(since().value).toBe("2026-09-10");
+    expect(
+      view.container.querySelector<HTMLSelectElement>(
+        'select[name="whatsappInstanceId"]',
+      )!.value,
+    ).toBe("instance_a");
+  });
+
+  // UX §8 test 8
+  it("reflects Back/Forward navigation in the controls", () => {
+    const view = renderFilters({ ...period, campaignId: "cmp_centro" });
+
+    view.rerender({
+      since: "2026-08-01",
+      until: "2026-08-31",
+      campaignId: "cmp_norte",
+    });
+
+    expect(view.campaignValue()).toBe("cmp_norte");
+    expect(view.trigger().textContent).toBe("Promo Norte");
+    expect(
+      view.container.querySelector<HTMLInputElement>('input[name="since"]')!
+        .value,
+    ).toBe("2026-08-01");
+    expect(router.push).not.toHaveBeenCalled();
+
+    // The restored state is the applied one: re-picking it is a no-op.
+    view.openCampaigns();
+    fireEvent.click(view.option("Promo Norte"));
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  // UX §8 test 10
+  it("keeps the campaign hidden and non-interactive in presentation mode", () => {
+    presentation.enabled = true;
+    const view = renderFilters({ campaignId: "cmp_centro" });
+
+    expect(view.container.querySelector(".filter-combobox-trigger")).toBeNull();
+    expect(view.container.textContent).toContain("Campanha oculta");
+    expect(view.container.textContent).not.toContain("Promo");
+    expect(view.campaignValue()).toBe("cmp_centro");
+  });
+
+  it("shows Todas as campanhas in presentation mode without a selection", () => {
+    presentation.enabled = true;
+    const html = renderMarkup();
+
+    expect(html).toContain(
+      '<span class="presentation-filter-placeholder">Todas as campanhas</span>',
+    );
+    expect(html).not.toContain("Promo");
+  });
+
+  it("builds canonical hrefs and validates periods", () => {
+    expect(
+      overviewFiltersHref({
+        campaignId: "cmp_1",
+        whatsappInstanceId: "",
+        adAccountId: "act_1",
+        businessId: "",
+        until: "2026-09-24",
+        since: "2026-09-01",
+      }),
+    ).toBe(
+      "/overview?since=2026-09-01&until=2026-09-24&adAccountId=act_1&campaignId=cmp_1",
+    );
+    expect(
+      overviewFiltersHref({
+        since: "",
+        until: "",
+        businessId: "",
+        adAccountId: "",
+        whatsappInstanceId: "",
+        campaignId: "",
+      }),
+    ).toBe("/overview");
+    expect(dateRangeStatus("2026-09-01", "2026-09-24")).toBe("valid");
+    expect(dateRangeStatus("2026-09-01", "2026-09-01")).toBe("valid");
+    expect(dateRangeStatus("2026-09-24", "2026-09-01")).toBe("order");
+    expect(dateRangeStatus("0202-09-01", "2026-09-24")).toBe("incomplete");
+    expect(dateRangeStatus("", "2026-09-24")).toBe("incomplete");
   });
 });
