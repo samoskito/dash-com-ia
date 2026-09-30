@@ -373,7 +373,7 @@ describe("settings route", () => {
     ).toHaveLength(2);
     expect(html).toMatch(/<details[^>]*id="whatsapp-triggers"[^>]*open=""/);
     expect(html).toContain("Regras por conexao e canal");
-    expect(html).toContain("Regras antigas sem conexao");
+    expect(html).not.toContain("Regras antigas sem conexao");
     expect(html).toContain("Jornada do funil");
     expect(html).toContain("Salvar jornada");
     expect(html.match(/name="stageProduct:/g)).toHaveLength(1);
@@ -452,18 +452,10 @@ describe("settings route", () => {
     expect(html).toContain("Nao se aplica");
     expect(html).not.toContain("Consultoria inicial");
     expect(html).not.toContain("99,00");
-    expect(html).toContain("Criar gatilho");
-    expect(html).toContain("Nome interno opcional");
-    expect(html).toContain("Mensagem contem palavra ou frase");
-    expect(html).toContain("quero receber uma proposta hoje");
-    expect(html).toContain("Etiqueta e aplicada");
-    expect(html).toContain(
-      '<option value="OrderDelivered">Pedido entregue</option>',
-    );
-    expect(html).not.toContain('<option value="Contact">Contact</option>');
-    expect(html).not.toContain(
-      '<option value="CompleteRegistration">CompleteRegistration</option>',
-    );
+    expect(html).toContain("Regras antigas sem conexao");
+    expect(html).not.toContain("Criar regra legada");
+    expect(html).not.toContain("Nome interno opcional");
+    expect(html).not.toContain("Mensagem contem palavra ou frase");
     expect(html).toContain("Pausar");
   });
 
@@ -624,124 +616,6 @@ describe("settings route", () => {
     expect(html).toContain('href="/integrations"');
   });
 
-  it("renders WhatsApp label suggestions from active Uazapi instances", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      const url = String(input);
-
-      if (url.endsWith("/ops-alerts/settings")) {
-        return new Response(JSON.stringify(null), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (url.endsWith("/conversion-rules")) {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (url.endsWith("/conversion-rules/funnel")) {
-        return funnelConfigurationResponse();
-      }
-
-      if (url.endsWith("/auth/me")) {
-        return new Response(
-          JSON.stringify({
-            user: {
-              id: "user_1",
-              email: "samuel@example.com",
-              name: "Samuel",
-              authProvider: "email",
-              emailVerifiedAt: null,
-            },
-            workspaces: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      if (url.endsWith("/workspaces/current")) {
-        return new Response(
-          JSON.stringify({
-            id: "workspace_1",
-            name: "Loja Samuel",
-            slug: "loja-samuel",
-            role: "owner",
-            permissions: workspacePermissions("owner"),
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      if (url.endsWith("/workspaces/current/members")) {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (url.endsWith("/workspaces/current/invites")) {
-        return new Response(JSON.stringify([]), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      if (url.endsWith("/integrations/whatsapp/instances")) {
-        return new Response(
-          JSON.stringify([
-            {
-              id: "wpp_active",
-              name: "Vendas",
-              provider: "uazapi",
-              billingStatus: "active",
-              providerInstanceId: "provider_instance_1",
-              checkoutUrl: null,
-              createdAt: "2026-07-02T03:00:00.000Z",
-            },
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      if (url.endsWith("/integrations/whatsapp/instances/wpp_active/labels")) {
-        return new Response(
-          JSON.stringify([
-            {
-              id: "label_uuid_1",
-              name: "Venda fechada",
-              colorHex: "#fed428",
-              labelId: "10",
-            },
-          ]),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
-
-      return new Response(JSON.stringify({ message: "not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
-    });
-
-    const element = await SettingsPage();
-    const html = renderToStaticMarkup(createElement("div", null, element));
-
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/integrations/whatsapp/instances",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      "http://localhost:3333/integrations/whatsapp/instances/wpp_active/labels",
-      expect.objectContaining({ credentials: "include" }),
-    );
-    expect(html).toContain("Venda fechada");
-    expect(html).toContain('id="whatsapp-label-options"');
-    expect(html).toContain('<option value="Venda fechada"></option>');
-  });
-
   it("hides conversion rule mutation controls for workspace members", async () => {
     mockSettingsFetch({
       workspaceRole: "member",
@@ -818,7 +692,7 @@ describe("settings route", () => {
     const html = renderToStaticMarkup(createElement("div", null, element));
 
     expect(html).toContain("API indisponivel");
-    expect(html).toContain("Nao foi possivel carregar regras");
+    expect(html).toContain("Regras indisponiveis");
     expect(html).toMatch(
       /<details[^>]*class="[^"]*conversion-rules-panel[^"]*"[^>]*open/,
     );
@@ -827,13 +701,23 @@ describe("settings route", () => {
     expect(html).not.toContain("Venda fechada");
   });
 
-  it("renders an empty state without demo rules when no conversion rules exist", async () => {
+  it("hides the legacy rule section and builder when no legacy rules exist", async () => {
     mockSettingsFetch({ rulesBody: [] });
 
     const element = await SettingsPage();
     const html = renderToStaticMarkup(createElement("div", null, element));
 
-    expect(html).toContain("Nenhuma regra configurada");
+    expect(html).toContain("Origens conectadas");
+    expect(html).toContain("Regras por conexao e canal");
+    expect(html).toContain("Nenhuma conexao WhatsApp disponivel");
+    expect(html).not.toContain("legacy-trigger-section");
+    expect(html).not.toContain("Regras antigas sem conexao");
+    expect(html).not.toContain("Criar regra legada");
+    expect(html).not.toContain("Nome interno opcional");
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/whatsapp/instances",
+      expect.anything(),
+    );
     expect(html).not.toContain("Novo lead");
     expect(html).not.toContain("Compra confirmada");
     expect(html).not.toContain("Venda fechada");
