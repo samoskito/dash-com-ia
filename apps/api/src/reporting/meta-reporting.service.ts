@@ -98,6 +98,7 @@ type ReportFilterInput = {
   businessId?: string;
   adAccountId?: string;
   campaignId?: string;
+  campaignIds?: string[];
   adSetId?: string;
   adId?: string;
   nameScope?: ReportNameScope;
@@ -1554,7 +1555,10 @@ export class MetaReportingService {
   ): Promise<ReportOverviewDto> {
     const startedAt = Date.now();
     const whatsappInstance = await this.resolveWhatsappInstance(input);
-    const selectedCampaign = await this.resolveCampaign(input);
+    const selectedCampaigns = await this.resolveCampaigns(input);
+    const selectedCampaignIds = selectedCampaigns.map(
+      (campaign) => campaign.campaignId,
+    );
     const campaignWhere = await this.metaSnapshotWhere(input);
     const usesWhatsappDefault =
       (input.whatsappClassification ?? "whatsapp") === "whatsapp";
@@ -1608,14 +1612,18 @@ export class MetaReportingService {
         needsWorkspaceMetrics
           ? this.getLeads(input, summaryScope)
           : Promise.resolve([]),
-        (input.includeDaily || selectedCampaign) &&
+        (input.includeDaily || selectedCampaigns.length > 0) &&
         input.since &&
         input.until &&
-        campaignIds.length
+        (selectedCampaignIds.length || campaignIds.length)
           ? (this.prisma.metaCampaignDailyInsight.findMany({
               where: {
                 workspaceId: input.workspaceId,
-                campaignId: { in: campaignIds },
+                campaignId: {
+                  in: selectedCampaignIds.length
+                    ? selectedCampaignIds
+                    : campaignIds,
+                },
                 localDate: { gte: input.since, lte: input.until },
               },
               select: {
@@ -1626,10 +1634,10 @@ export class MetaReportingService {
               },
             }) as Promise<MetaCampaignDailyInsightRecord[]>)
           : Promise.resolve([] as MetaCampaignDailyInsightRecord[]),
-        selectedCampaign
+        selectedCampaigns.length > 0
           ? this.getCampaignInstanceLeads({
               workspaceId: input.workspaceId,
-              campaignId: selectedCampaign.campaignId,
+              campaignIds: selectedCampaignIds,
               since: input.since,
               until: input.until,
             })
@@ -1686,7 +1694,9 @@ export class MetaReportingService {
       );
     const metricByCampaign = dailyComparisonAvailable
       ? dailyMetricByCampaign
-      : childMetricByCampaign;
+      : selectedCampaigns.length > 1
+        ? new Map([...childMetricByCampaign, ...dailyMetricByCampaign])
+        : childMetricByCampaign;
     const rows = paginated.items.map((campaign) =>
       this.toReportRow(
         campaign,
@@ -1746,16 +1756,17 @@ export class MetaReportingService {
             until: input.until,
           })
         : undefined;
-    const metaMetricsScope = selectedCampaign
-      ? this.campaignMetaMetricsScope({
-          whatsappInstanceId: whatsappInstance?.id,
-          instanceIdsWithLeads:
-            campaignInstanceLeadsResult.instanceIdsWithLeads,
-          hasInsightRows: dailyInsights.length > 0,
-        })
-      : whatsappInstance
-        ? ("ad_account" as const)
-        : undefined;
+    const metaMetricsScope =
+      selectedCampaigns.length > 0
+        ? this.campaignMetaMetricsScope({
+            whatsappInstanceId: whatsappInstance?.id,
+            instanceIdsWithLeads:
+              campaignInstanceLeadsResult.instanceIdsWithLeads,
+            hasInsightRows: dailyInsights.length > 0,
+          })
+        : whatsappInstance
+          ? ("ad_account" as const)
+          : undefined;
 
     this.logReportRead("campaigns", startedAt, {
       returned: rows.length,
@@ -1773,7 +1784,7 @@ export class MetaReportingService {
       ...(dailyComparison ? { dailyComparison } : {}),
       ...(input.includeDaily ? { dailyComparisonAvailable } : {}),
       ...(paginated.pagination ? { pagination: paginated.pagination } : {}),
-      ...(whatsappInstance || selectedCampaign
+      ...(whatsappInstance || selectedCampaigns.length > 0
         ? {
             filters: {
               ...(whatsappInstance
@@ -1782,14 +1793,22 @@ export class MetaReportingService {
                     whatsappInstanceName: whatsappInstance.name,
                   }
                 : {}),
-              ...(selectedCampaign
+              ...(selectedCampaigns.length === 1
                 ? {
-                    campaignId: selectedCampaign.campaignId,
-                    campaignName: selectedCampaign.name,
+                    campaignId: selectedCampaigns[0]!.campaignId,
+                    campaignName: selectedCampaigns[0]!.name,
+                  }
+                : {}),
+              ...(selectedCampaigns.length > 0
+                ? {
+                    campaignIds: selectedCampaignIds,
+                    campaignNames: selectedCampaigns.map(
+                      (campaign) => campaign.name,
+                    ),
                   }
                 : {}),
             },
-            ...(selectedCampaign ? { campaignInstanceLeads } : {}),
+            ...(selectedCampaigns.length > 0 ? { campaignInstanceLeads } : {}),
             ...(metaMetricsScope ? { metaMetricsScope } : {}),
           }
         : {}),
@@ -3876,22 +3895,52 @@ export class MetaReportingService {
     return instance;
   }
 
-  private async resolveCampaign(input: {
+  private requestedCampaignIds(input: {
+    campaignId?: string;
+    campaignIds?: string[];
+  }): string[] {
+    return [
+      ...new Set(
+        [input.campaignId, ...(input.campaignIds ?? [])].filter(
+          (campaignId): campaignId is string => Boolean(campaignId),
+        ),
+      ),
+    ];
+  }
+
+  private async resolveCampaigns(input: {
     workspaceId: string;
     campaignId?: string;
-  }): Promise<MetaCampaignRecord | null> {
-    if (!input.campaignId) {
-      return null;
+    campaignIds?: string[];
+    businessId?: string;
+    adAccountId?: string;
+  }): Promise<MetaCampaignRecord[]> {
+    const campaignIds = this.requestedCampaignIds(input);
+
+    if (!campaignIds.length) {
+      return [];
+    }
+
+    if (campaignIds.length > 10) {
+      throw new BadRequestException(
+        "No maximo 10 campanhas podem ser selecionadas",
+      );
     }
 
     const activeAccounts = await this.prisma.metaReportingAccount.findMany({
-      where: { workspaceId: input.workspaceId, active: true },
-      select: { adAccountId: true },
-    });
-    const campaign = (await this.prisma.metaCampaign.findFirst({
       where: {
         workspaceId: input.workspaceId,
-        campaignId: input.campaignId,
+        active: true,
+        ...(input.businessId ? { businessId: input.businessId } : {}),
+        ...(input.adAccountId ? { adAccountId: input.adAccountId } : {}),
+      },
+      select: { adAccountId: true },
+    });
+    const campaigns = (await this.prisma.metaCampaign.findMany({
+      where: {
+        workspaceId: input.workspaceId,
+        campaignId: { in: campaignIds },
+        ...(input.businessId ? { businessId: input.businessId } : {}),
         adAccountId: {
           in: activeAccounts.map((account) => account.adAccountId),
         },
@@ -3910,18 +3959,22 @@ export class MetaReportingService {
         spendCents: true,
         metaConversationsStarted: true,
       },
-    })) as MetaCampaignRecord | null;
+    })) as MetaCampaignRecord[];
 
-    if (!campaign) {
+    if (campaigns.length !== campaignIds.length) {
       throw new NotFoundException("Campanha nao encontrada");
     }
 
-    return campaign;
+    const byCampaignId = new Map(
+      campaigns.map((campaign) => [campaign.campaignId, campaign]),
+    );
+
+    return campaignIds.map((campaignId) => byCampaignId.get(campaignId)!);
   }
 
   private async getCampaignInstanceLeads(input: {
     workspaceId: string;
-    campaignId: string;
+    campaignIds: string[];
     since?: string;
     until?: string;
   }): Promise<CampaignInstanceLeadsResult> {
@@ -3929,7 +3982,7 @@ export class MetaReportingService {
       by: ["whatsappInstanceId"],
       where: {
         workspaceId: input.workspaceId,
-        campaignId: input.campaignId,
+        campaignId: { in: input.campaignIds },
         ...this.leadPeriodWhere(input),
       },
       _count: { _all: true },
@@ -4987,8 +5040,10 @@ export class MetaReportingService {
       where.businessId = input.businessId;
     }
 
-    if (input.campaignId) {
-      where.campaignId = input.campaignId;
+    const campaignIds = this.requestedCampaignIds(input);
+
+    if (campaignIds.length > 0) {
+      where.campaignId = { in: campaignIds };
     }
 
     if (input.adAccountId) {

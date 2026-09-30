@@ -139,6 +139,10 @@ export const campaignOptionsResponseSchema = z.object({
   campaigns: z.array(campaignOptionSchema),
 });
 
+export const reportCampaignIdsSchema = z
+  .array(z.string().trim().min(1).max(120))
+  .max(10);
+
 export const reportOverviewSchema = z.object({
   workspaceId: z.string().min(1),
   rangeLabel: z.string().min(1),
@@ -156,6 +160,8 @@ export const reportOverviewSchema = z.object({
       whatsappInstanceName: z.string().min(1).nullable().optional(),
       campaignId: z.string().min(1).nullable().optional(),
       campaignName: z.string().min(1).nullable().optional(),
+      campaignIds: reportCampaignIdsSchema.optional(),
+      campaignNames: z.array(z.string().min(1)).max(10).optional(),
     })
     .optional(),
   campaignInstanceLeads: z
@@ -369,6 +375,7 @@ export const conversionAuditOverviewSchema = z.object({
 export const reportFiltersSchema = z.object({
   businessId: z.string().min(1).optional(),
   adAccountId: z.string().min(1).optional(),
+  campaignIds: reportCampaignIdsSchema.optional(),
   delivery: z.enum(["all", "had_delivery"]).default("all"),
   selectedEntityIds: z
     .array(z.string().trim().min(1).max(200))

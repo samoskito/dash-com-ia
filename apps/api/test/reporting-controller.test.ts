@@ -651,6 +651,52 @@ describe("reporting controller", () => {
     await app.close();
   });
 
+  it("parses comma-separated campaignIds and merges the legacy campaignId", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?campaignId=cmp_1&campaignIds=cmp_2,cmp_1")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(200);
+
+    expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignIds: ["cmp_1", "cmp_2"] }),
+    );
+
+    await app.close();
+  });
+
+  it("rejects repeated and oversized campaignIds query parameters", async () => {
+    const { app, reportingService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/reports/campaigns?campaignIds=cmp_1&campaignIds=cmp_2")
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.message).toBe("Filtro campaignIds invalido");
+      });
+
+    await request(app.getHttpServer())
+      .get(
+        `/reports/campaigns?campaignIds=${Array.from(
+          { length: 11 },
+          (_, index) => `cmp_${index + 1}`,
+        ).join(",")}`,
+      )
+      .set("Cookie", "wpptrack_session=refresh-token")
+      .expect(400)
+      .expect(({ body }) => {
+        expect(body.message).toBe(
+          "No maximo 10 campanhas podem ser selecionadas",
+        );
+      });
+
+    expect(reportingService.getCampaignReportOverview).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
   it("rejects an empty WhatsApp instance filter", async () => {
     const { app, reportingService } = await createApp();
 
