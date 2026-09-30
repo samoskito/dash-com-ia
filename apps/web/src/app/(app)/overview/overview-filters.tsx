@@ -5,7 +5,7 @@ import type {
   MetaReportingAccountDto,
   WhatsappInstanceSummaryDto,
 } from "@wpptrack/shared";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -20,17 +20,24 @@ import {
   FilterCombobox,
   type FilterComboboxCopy,
   type FilterComboboxGroup,
+  type FilterComboboxHandle,
   type FilterComboboxOption,
 } from "../../../components/filter-combobox";
 import { usePresentationMode } from "../../../components/presentation-mode-toggle";
+import {
+  maxOverviewCampaigns,
+  setCampaignParams,
+} from "./overview-campaign-params";
 import { instanceLabel } from "./overview-labels";
 import { useOverviewTransition } from "./overview-pending";
 
 type OverviewFiltersProps = {
   adAccountId?: string;
   businessId?: string;
-  campaignId?: string;
-  campaignName?: string;
+  /** Applied campaigns, in selection order. */
+  campaignIds?: string[];
+  /** Names from the report, for selected campaigns missing from the options. */
+  campaignNames?: Record<string, string>;
   /** `null` when `/reports/campaign-options` failed; the field is disabled. */
   campaignOptions: CampaignOptionDto[] | null;
   hasActiveFilter: boolean;
@@ -49,14 +56,15 @@ type CampaignOptionGroups =
       others: CampaignOptionDto[];
     };
 
-/** Every overview filter, in canonical URL order ("" = not set). */
+/** Every overview filter, in canonical URL order ("" / [] = not set). */
 export type OverviewFilterValues = {
   since: string;
   until: string;
   businessId: string;
   adAccountId: string;
   whatsappInstanceId: string;
-  campaignId: string;
+  /** Selection order; written as `campaignId` or `campaignIds` (§3.1). */
+  campaignIds: string[];
 };
 
 const filterKeys = [
@@ -65,15 +73,22 @@ const filterKeys = [
   "businessId",
   "adAccountId",
   "whatsappInstanceId",
-  "campaignId",
+  "campaignIds",
 ] as const satisfies readonly (keyof OverviewFilterValues)[];
 
 const campaignLabelMaxLength = 60;
+const campaignChipMaxLength = 32;
+/** Chips shown before the rest collapse into "+k" (1 on mobile, via CSS). */
+const campaignChipLimit = 6;
 const accountsCollapseQuery = "(max-width: 620px)";
 /** Native date inputs emit intermediate years while typing (0002, 0020...). */
 const dateCommitDelayMs = 800;
 /** The product has no data before this year; lower years are half-typed. */
 const minFilterYear = 2020;
+
+function selectedCampaignsLabel(count: number) {
+  return `${count} ${count === 1 ? "selecionada" : "selecionadas"}`;
+}
 
 const campaignComboboxCopy: FilterComboboxCopy = {
   all: "Todas as campanhas",
@@ -86,6 +101,15 @@ const campaignComboboxCopy: FilterComboboxCopy = {
       : `${matches} campanhas encontradas`,
   noResults: (query) => `Nenhuma campanha com "${query}"`,
   clearSearch: "Limpar busca",
+  multi: {
+    triggerCount: (count) => `${count} campanhas`,
+    selectedCount: selectedCampaignsLabel,
+    toggled: (label, added, count) =>
+      `${label} ${added ? "adicionada" : "removida"}. ${selectedCampaignsLabel(count)}.`,
+    limit: (max) => `Limite de ${max} campanhas`,
+    clear: "Limpar",
+    done: "Pronto",
+  },
 };
 
 const campaignComboboxGroups: FilterComboboxGroup[] = [
@@ -98,13 +122,21 @@ export function overviewFiltersHref(filters: OverviewFilterValues): string {
   const params = new URLSearchParams();
 
   for (const key of filterKeys) {
-    if (filters[key]) {
+    if (key === "campaignIds") {
+      setCampaignParams(params, filters.campaignIds);
+    } else if (filters[key]) {
       params.set(key, filters[key]);
     }
   }
 
   const query = params.toString();
   return query ? `/overview?${query}` : "/overview";
+}
+
+function sameFilterValue(left: string | string[], right: string | string[]) {
+  return Array.isArray(left) && Array.isArray(right)
+    ? left.join(",") === right.join(",")
+    : left === right;
 }
 
 function isCommittableDate(value: string) {
@@ -184,13 +216,20 @@ export function campaignInScope(
   );
 }
 
+function truncate(text: string, maxLength: number) {
+  return text.length > maxLength
+    ? `${text.slice(0, maxLength - 1).trimEnd()}…`
+    : text;
+}
+
 export function campaignOptionLabel(option: CampaignOptionDto): string {
-  const name =
-    option.name.length > campaignLabelMaxLength
-      ? `${option.name.slice(0, campaignLabelMaxLength - 1).trimEnd()}…`
-      : option.name;
+  const name = truncate(option.name, campaignLabelMaxLength);
 
   return option.status === "paused" ? `${name} · Pausada` : name;
+}
+
+function missingCampaignLabel(name: string | undefined) {
+  return `${name ?? "Campanha selecionada"} (sem dados no periodo)`;
 }
 
 function conversationsOnNumber(count: number) {
@@ -218,8 +257,8 @@ function campaignComboboxOption(
 export function OverviewFilters({
   adAccountId,
   businessId,
-  campaignId,
-  campaignName,
+  campaignIds,
+  campaignNames,
   campaignOptions,
   hasActiveFilter,
   reportingAccounts,
@@ -242,7 +281,7 @@ export function OverviewFilters({
     businessId: businessId ?? "",
     adAccountId: adAccountId ?? "",
     whatsappInstanceId: whatsappInstanceId ?? "",
-    campaignId: campaignId ?? "",
+    campaignIds: campaignIds ?? [],
   };
   const appliedHref = overviewFiltersHref(applied);
   // Local edits; the URL (props) is the source of truth once it lands.
@@ -252,6 +291,7 @@ export function OverviewFilters({
   const lastSyncedRef = useRef(applied);
   const lastCommittedHrefRef = useRef(appliedHref);
   const dateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const campaignComboboxRef = useRef<FilterComboboxHandle>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const wasPendingRef = useRef(false);
   const accountFiltersActive = Boolean(businessId || adAccountId);
@@ -286,18 +326,23 @@ export function OverviewFilters({
       ),
     [campaignOptions, fields.adAccountId, fields.businessId],
   );
-  const selectedCampaignMissing =
-    Boolean(fields.campaignId) &&
-    !scopedCampaignOptions.some((option) => option.id === fields.campaignId);
-  const missingCampaignLabel = `${campaignName ?? "Campanha selecionada"} (sem dados no periodo)`;
+  // Selected campaigns the period's options no longer list stay selectable.
+  const missingCampaignIds = useMemo(
+    () =>
+      fields.campaignIds.filter(
+        (id) => !scopedCampaignOptions.some((option) => option.id === id),
+      ),
+    [fields.campaignIds, scopedCampaignOptions],
+  );
   const comboboxOptions = useMemo(() => {
     const groups = groupCampaignOptions(
       scopedCampaignOptions,
       fields.whatsappInstanceId,
     );
-    const missing: FilterComboboxOption[] = selectedCampaignMissing
-      ? [{ value: fields.campaignId, label: missingCampaignLabel }]
-      : [];
+    const missing: FilterComboboxOption[] = missingCampaignIds.map((id) => ({
+      value: id,
+      label: missingCampaignLabel(campaignNames?.[id]),
+    }));
     const toOption = (option: CampaignOptionDto, group?: string) =>
       campaignComboboxOption(option, fields.whatsappInstanceId, group);
 
@@ -309,11 +354,10 @@ export function OverviewFilters({
           ...groups.others.map((option) => toOption(option, "others")),
         ];
   }, [
-    fields.campaignId,
+    campaignNames,
     fields.whatsappInstanceId,
-    missingCampaignLabel,
+    missingCampaignIds,
     scopedCampaignOptions,
-    selectedCampaignMissing,
   ]);
   const dateStatus = dateRangeStatus(fields.since, fields.until);
 
@@ -326,7 +370,9 @@ export function OverviewFilters({
     }
 
     const previous = lastSyncedRef.current;
-    const changed = filterKeys.filter((key) => previous[key] !== applied[key]);
+    const changed = filterKeys.filter(
+      (key) => !sameFilterValue(previous[key], applied[key]),
+    );
 
     lastCommittedHrefRef.current = appliedHref;
 
@@ -339,7 +385,7 @@ export function OverviewFilters({
       const next = { ...current };
 
       for (const key of changed) {
-        next[key] = applied[key];
+        Object.assign(next, { [key]: applied[key] });
       }
 
       return next;
@@ -404,20 +450,18 @@ export function OverviewFilters({
     commit(next);
   }
 
-  function campaignAfterScopeChange(
+  /** Drops only the selected campaigns outside the new BM/Conta (§2.3). */
+  function campaignsAfterScopeChange(
     nextBusinessId: string,
     nextAdAccountId: string,
   ) {
-    const current = fieldsRef.current.campaignId;
-
-    return current &&
+    return fieldsRef.current.campaignIds.filter((id) =>
       campaignInScope(
-        campaignOptions?.find((option) => option.id === current),
+        campaignOptions?.find((option) => option.id === id),
         nextBusinessId,
         nextAdAccountId,
-      )
-      ? current
-      : "";
+      ),
+    );
   }
 
   function handleBusinessChange(nextBusinessId: string) {
@@ -425,16 +469,24 @@ export function OverviewFilters({
     update({
       businessId: nextBusinessId,
       adAccountId: "",
-      campaignId: campaignAfterScopeChange(nextBusinessId, ""),
+      campaignIds: campaignsAfterScopeChange(nextBusinessId, ""),
     });
   }
 
   function handleAccountChange(nextAdAccountId: string) {
     update({
       adAccountId: nextAdAccountId,
-      campaignId: campaignAfterScopeChange(
+      campaignIds: campaignsAfterScopeChange(
         fieldsRef.current.businessId,
         nextAdAccountId,
+      ),
+    });
+  }
+
+  function removeCampaign(id: string) {
+    update({
+      campaignIds: fieldsRef.current.campaignIds.filter(
+        (candidate) => candidate !== id,
       ),
     });
   }
@@ -477,6 +529,20 @@ export function OverviewFilters({
         ? "Nenhuma campanha no periodo"
         : undefined;
   const dateOrderInvalid = dateStatus === "order";
+  const selectedCampaignCount = fields.campaignIds.length;
+  const campaignChips = fields.campaignIds.map((id) => {
+    const option = campaignOptions?.find((candidate) => candidate.id === id);
+    const title =
+      option && !missingCampaignIds.includes(id)
+        ? option.name
+        : missingCampaignLabel(campaignNames?.[id] ?? option?.name);
+
+    return { id, title, label: truncate(title, campaignChipMaxLength) };
+  });
+  const hiddenChipCount = Math.max(
+    0,
+    selectedCampaignCount - campaignChipLimit,
+  );
 
   return (
     <form
@@ -667,21 +733,26 @@ export function OverviewFilters({
 
         <FilterCombobox
           className="overview-scope-filter overview-campaign-filter"
-          name="campaignId"
-          label="Campanha"
-          value={fields.campaignId ? [fields.campaignId] : []}
+          mode="multi"
+          max={maxOverviewCampaigns}
+          handleRef={campaignComboboxRef}
+          name={selectedCampaignCount > 1 ? "campaignIds" : "campaignId"}
+          label="Campanhas"
+          value={fields.campaignIds}
           options={comboboxOptions}
           groups={campaignComboboxGroups}
           copy={campaignComboboxCopy}
           disabledLabel={campaignDisabledLabel}
           presentationPlaceholder={
             presentationMode
-              ? fields.campaignId
-                ? "Campanha oculta"
-                : campaignComboboxCopy.all
+              ? selectedCampaignCount === 0
+                ? campaignComboboxCopy.all
+                : selectedCampaignCount === 1
+                  ? "Campanha oculta"
+                  : `${selectedCampaignCount} campanhas ocultas`
               : undefined
           }
-          onCommit={(next) => update({ campaignId: next[0] ?? "" })}
+          onCommit={(next) => update({ campaignIds: next })}
         />
 
         <div
@@ -698,6 +769,64 @@ export function OverviewFilters({
             {isPending ? "Atualizando..." : statusMessage}
           </span>
         </div>
+
+        {/* Chips hold names, so presentation mode never renders them. */}
+        {!presentationMode && selectedCampaignCount > 0 ? (
+          <div
+            className="overview-campaign-strip"
+            role="group"
+            aria-label="Campanhas selecionadas"
+          >
+            {campaignChips.slice(0, campaignChipLimit).map((chip, index) => (
+              <span
+                className={`tag overview-campaign-chip${
+                  index > 0 ? " overview-campaign-chip-extra" : ""
+                }`}
+                key={chip.id}
+                title={chip.title}
+              >
+                <span className="overview-campaign-chip-label">
+                  {chip.label}
+                </span>
+                <button
+                  type="button"
+                  className="overview-campaign-chip-remove"
+                  aria-label={`Remover ${chip.title}`}
+                  onClick={() => removeCampaign(chip.id)}
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+            {hiddenChipCount > 0 ? (
+              <button
+                type="button"
+                className="tag overview-campaign-chip-more"
+                aria-label={`Ver mais ${hiddenChipCount} campanhas`}
+                onClick={() => campaignComboboxRef.current?.open()}
+              >
+                +{hiddenChipCount}
+              </button>
+            ) : null}
+            {selectedCampaignCount > 1 ? (
+              <button
+                type="button"
+                className="tag overview-campaign-chip-more overview-campaign-chip-more-mobile"
+                aria-label={`Ver mais ${selectedCampaignCount - 1} campanhas`}
+                onClick={() => campaignComboboxRef.current?.open()}
+              >
+                +{selectedCampaignCount - 1}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="overview-campaign-clear"
+              onClick={() => update({ campaignIds: [] })}
+            >
+              Limpar campanhas
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Implicit Enter-submit and the no-JS GET still need a submitter. */}

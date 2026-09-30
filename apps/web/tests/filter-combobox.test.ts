@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { createElement, type ComponentProps } from "react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { createElement, createRef, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -8,6 +8,7 @@ import {
   filterComboboxOptions,
   sectionComboboxOptions,
   type FilterComboboxCopy,
+  type FilterComboboxHandle,
   type FilterComboboxOption,
 } from "../src/components/filter-combobox";
 
@@ -318,5 +319,202 @@ describe("filter combobox", () => {
         'input[name="campaignId"]',
       )!.value,
     ).toBe("120210000000001");
+  });
+});
+
+describe("filter combobox multi mode", () => {
+  function renderMulti(overrides: Partial<Props> = {}) {
+    const view = renderCombobox({
+      mode: "multi",
+      name: "campaignIds",
+      ...overrides,
+    });
+    const statusText = () =>
+      view.container.querySelector('[role="status"]')?.textContent;
+
+    return { ...view, statusText };
+  }
+
+  function option(container: HTMLElement, label: string) {
+    return Array.from(
+      container.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((node) => node.querySelector("strong")?.textContent === label)!;
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("toggles without closing and commits once, 600 ms after the last toggle", () => {
+    vi.useFakeTimers();
+    const view = renderMulti();
+
+    fireEvent.click(view.trigger());
+    expect(view.listbox()?.getAttribute("aria-multiselectable")).toBe("true");
+    // No "all" row: an empty selection already means all.
+    expect(view.labels()).toEqual([
+      "Promocao Setembro",
+      "Remarketing 30d",
+      "Promo Dia dos Pais",
+    ]);
+
+    fireEvent.click(option(view.container, "Remarketing 30d"));
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.click(option(view.container, "Promocao Setembro"));
+
+    expect(view.listbox()).not.toBeNull();
+    expect(
+      option(view.container, "Remarketing 30d").getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(view.trigger().textContent).toBe("2 selecionados");
+    expect(view.onCommit).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(599);
+    });
+    expect(view.onCommit).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    // Selection order is kept.
+    expect(view.onCommit).toHaveBeenCalledTimes(1);
+    expect(view.onCommit).toHaveBeenCalledWith([
+      "120210000000002",
+      "120210000000001",
+    ]);
+  });
+
+  it("flushes pending toggles at once when the popover closes", () => {
+    vi.useFakeTimers();
+    const view = renderMulti();
+
+    fireEvent.click(view.trigger());
+    fireEvent.click(option(view.container, "Remarketing 30d"));
+    fireEvent.keyDown(view.search()!, { key: "Escape" });
+
+    expect(view.listbox()).toBeNull();
+    expect(document.activeElement).toBe(view.trigger());
+    expect(view.onCommit).toHaveBeenCalledTimes(1);
+    expect(view.onCommit).toHaveBeenCalledWith(["120210000000002"]);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(view.onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles with Enter and Space from the search and stays open", () => {
+    const view = renderMulti();
+
+    fireEvent.click(view.trigger());
+    fireEvent.keyDown(view.search()!, { key: "Enter" });
+    fireEvent.keyDown(view.search()!, { key: "ArrowDown" });
+    fireEvent.keyDown(view.search()!, { key: " " });
+
+    expect(view.listbox()).not.toBeNull();
+    expect(
+      Array.from(
+        view.container.querySelectorAll(
+          '[role="option"][aria-selected="true"]',
+        ),
+        (node) => node.querySelector("strong")?.textContent,
+      ),
+    ).toEqual(["Promocao Setembro", "Remarketing 30d"]);
+    expect(view.statusText()).toBe(
+      "Remarketing 30d adicionado. 2 selecionados.",
+    );
+
+    fireEvent.click(view.container.querySelector(".filter-combobox-done")!);
+    expect(view.onCommit).toHaveBeenCalledWith([
+      "120210000000001",
+      "120210000000002",
+    ]);
+  });
+
+  it("keeps search working and a typed space as part of the query", () => {
+    const view = renderMulti();
+
+    fireEvent.click(view.trigger());
+    fireEvent.change(view.search()!, { target: { value: "promo" } });
+    fireEvent.keyDown(view.search()!, { key: " " });
+
+    expect(view.labels()).toEqual(["Promocao Setembro", "Promo Dia dos Pais"]);
+    expect(
+      view.container.querySelectorAll('[role="option"][aria-selected="true"]'),
+    ).toHaveLength(0);
+  });
+
+  it("disables unselected options at the limit", () => {
+    const view = renderMulti({
+      max: 2,
+      value: ["120210000000001", "120210000000002"],
+    });
+
+    fireEvent.click(view.trigger());
+
+    const blocked = option(view.container, "Promo Dia dos Pais");
+    expect(blocked.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      option(view.container, "Remarketing 30d").getAttribute("aria-disabled"),
+    ).toBeNull();
+    expect(
+      view.container.querySelector(".filter-combobox-limit")?.textContent,
+    ).toBe("Limite de 2");
+
+    fireEvent.click(blocked);
+    fireEvent.click(view.container.querySelector(".filter-combobox-done")!);
+    expect(view.onCommit).not.toHaveBeenCalled();
+  });
+
+  it("clears the whole selection at once from the footer", () => {
+    const view = renderMulti({ value: ["120210000000001", "120210000000003"] });
+
+    fireEvent.click(view.trigger());
+    expect(
+      view.container.querySelector(".filter-combobox-selected-count")
+        ?.textContent,
+    ).toBe("2 selecionados");
+    fireEvent.click(
+      view.container.querySelector(
+        ".filter-combobox-footer .filter-combobox-clear",
+      )!,
+    );
+
+    expect(view.onCommit).toHaveBeenCalledWith([]);
+    expect(view.listbox()).not.toBeNull();
+  });
+
+  it("writes the list comma-joined into the hidden input and a count on the trigger", () => {
+    const view = renderMulti({
+      value: ["120210000000003", "120210000000001"],
+    });
+
+    expect(
+      view.container.querySelector<HTMLInputElement>(
+        'input[name="campaignIds"]',
+      )!.value,
+    ).toBe("120210000000003,120210000000001");
+    expect(view.trigger().textContent).toBe("2 selecionados");
+  });
+
+  it("shows the option label for a single selection", () => {
+    const view = renderMulti({ value: ["120210000000002"] });
+
+    expect(view.trigger().textContent).toBe("Remarketing 30d");
+  });
+
+  it("opens through the handle", () => {
+    const handle = createRef<FilterComboboxHandle>();
+    const view = renderMulti({ handleRef: handle });
+
+    act(() => {
+      handle.current!.open();
+    });
+
+    expect(view.listbox()).not.toBeNull();
+    expect(document.activeElement).toBe(view.search());
   });
 });

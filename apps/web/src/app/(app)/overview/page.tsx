@@ -13,6 +13,10 @@ import Link from "next/link";
 import { Fragment, type CSSProperties } from "react";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
+import {
+  parseCampaignIdsParam,
+  setCampaignParams,
+} from "./overview-campaign-params";
 import { OverviewFilters } from "./overview-filters";
 import { OverviewPendingProvider, OverviewResults } from "./overview-pending";
 import { instanceLabel } from "./overview-labels";
@@ -24,19 +28,31 @@ type OverviewFiltersInput = {
   since?: string;
   until?: string;
   whatsappInstanceId?: string;
-  campaignId?: string;
+  /** Selection order: `campaignId` (1) or `campaignIds` (2+) in the URL. */
+  campaignIds: string[];
 };
 
 /**
- * `invalid_filter`: the API rejected `campaignId` (removed campaign, inactive
- * account or another workspace). Never rendered as zeros.
+ * `invalid_filter`: the API rejected the campaign filter (removed campaign,
+ * inactive account, another workspace, or over the limit). Never rendered as
+ * zeros.
  */
 type OverviewFetchState = "real" | "empty" | "error" | "invalid_filter";
 type MetaMetricsScope = NonNullable<ReportOverviewDto["metaMetricsScope"]>;
 type OverviewReportResult = {
   report: ReportOverviewDto;
   state: OverviewFetchState;
+  /** 404: a campaign was not found; 400: too many campaigns (§5.6). */
+  invalidReason?: "not_found" | "limit";
 };
+
+const scalarFilterKeys = [
+  "since",
+  "until",
+  "businessId",
+  "adAccountId",
+  "whatsappInstanceId",
+] as const satisfies readonly (keyof OverviewFiltersInput)[];
 
 function money(cents: number | null) {
   if (cents === null) {
@@ -75,9 +91,7 @@ async function getOverviewReport(
       params.set("whatsappInstanceId", filters.whatsappInstanceId);
     }
 
-    if (filters.campaignId) {
-      params.set("campaignId", filters.campaignId);
-    }
+    setCampaignParams(params, filters.campaignIds);
 
     const report = await serverApiFetch<ReportOverviewDto>(
       `/reports/campaigns?${params.toString()}`,
@@ -91,18 +105,23 @@ async function getOverviewReport(
           : "empty",
     };
   } catch (error) {
-    const invalidFilter =
-      Boolean(filters.campaignId) &&
-      isApiRequestError(error) &&
-      error.status === 404;
+    const invalidReason =
+      filters.campaignIds.length > 0 && isApiRequestError(error)
+        ? error.status === 404
+          ? ("not_found" as const)
+          : error.status === 400
+            ? ("limit" as const)
+            : undefined
+        : undefined;
 
     return {
       report: {
         workspaceId: "unavailable",
-        rangeLabel: invalidFilter ? "Filtro invalido" : "API indisponivel",
+        rangeLabel: invalidReason ? "Filtro invalido" : "API indisponivel",
         campaigns: [],
       },
-      state: invalidFilter ? "invalid_filter" : "error",
+      state: invalidReason ? "invalid_filter" : "error",
+      ...(invalidReason ? { invalidReason } : {}),
     };
   }
 }
@@ -505,23 +524,68 @@ function funnelOutcomeSummary(
 function filtersQuery(filters: OverviewFiltersInput): string {
   const params = new URLSearchParams();
 
-  for (const [key, value] of Object.entries(filters)) {
+  for (const key of scalarFilterKeys) {
+    const value = filters[key];
+
     if (value) {
       params.set(key, value);
     }
   }
 
+  setCampaignParams(params, filters.campaignIds);
+
   return params.toString();
 }
 
+/**
+ * `/reports` only understands a single `campaignId`; a multi selection keeps
+ * period/BM/Conta/Numero and drops the campaigns (§3.6).
+ */
 function reportsHref(filters: OverviewFiltersInput): string {
-  const query = filtersQuery(filters);
+  const query = filtersQuery(
+    filters.campaignIds.length > 1 ? { ...filters, campaignIds: [] } : filters,
+  );
   return query ? `/reports?${query}` : "/reports";
 }
 
 function overviewHref(filters: OverviewFiltersInput): string {
   const query = filtersQuery(filters);
   return query ? `/overview?${query}` : "/overview";
+}
+
+/**
+ * Names for the selected campaigns: the report's resolved names first (they
+ * cover campaigns with no data in the period), then the period's options.
+ */
+function selectedCampaignNames(
+  campaignIds: string[],
+  report: ReportOverviewDto,
+  campaignOptions: CampaignOptionDto[] | null,
+): Record<string, string> {
+  const names: Record<string, string> = {};
+  const reported = report.filters?.campaignIds ?? [];
+
+  reported.forEach((id, index) => {
+    const name = report.filters?.campaignNames?.[index];
+
+    if (name) {
+      names[id] = name;
+    }
+  });
+
+  if (report.filters?.campaignId && report.filters.campaignName) {
+    names[report.filters.campaignId] = report.filters.campaignName;
+  }
+
+  for (const id of campaignIds) {
+    const option = campaignOptions?.find((candidate) => candidate.id === id);
+
+    if (!names[id] && option) {
+      names[id] = option.name;
+    }
+  }
+
+  return names;
 }
 
 function conversationCount(count: number): string {
@@ -540,10 +604,13 @@ export default async function OverviewPage({
     businessId: asStringParam(resolvedSearchParams.businessId),
     adAccountId: asStringParam(resolvedSearchParams.adAccountId),
     whatsappInstanceId: asStringParam(resolvedSearchParams.whatsappInstanceId),
-    campaignId: asStringParam(resolvedSearchParams.campaignId),
+    campaignIds: parseCampaignIdsParam(
+      resolvedSearchParams.campaignId,
+      resolvedSearchParams.campaignIds,
+    ),
   };
   const [
-    { report, state: reportState },
+    { report, state: reportState, invalidReason },
     metaAssets,
     whatsappInstances,
     campaignOptions,
@@ -561,7 +628,9 @@ export default async function OverviewPage({
   const invalidFilter = reportState === "invalid_filter";
   const dataAvailable = reportState !== "error" && !invalidFilter;
   const hasWhatsappInstanceFilter = Boolean(filters.whatsappInstanceId);
-  const hasCampaignFilter = Boolean(filters.campaignId);
+  const campaignCount = filters.campaignIds.length;
+  const hasCampaignFilter = campaignCount > 0;
+  const multiCampaign = campaignCount > 1;
   // The API decides how honest Meta metrics can be for this cut (D8). Older
   // payloads without the field keep the #110 rule for an instance filter.
   const metaScope: MetaMetricsScope | undefined =
@@ -587,9 +656,14 @@ export default async function OverviewPage({
   // S7: a real zero, not "-", but there is no spend base for ROAS.
   const campaignWithoutDelivery =
     metaScope === "campaign" && campaign.spendCents === 0;
-  const campaignName =
-    report.filters?.campaignName ??
-    campaignOptions?.find((option) => option.id === filters.campaignId)?.name;
+  const campaignNames = selectedCampaignNames(
+    filters.campaignIds,
+    report,
+    campaignOptions,
+  );
+  const campaignName = multiCampaign
+    ? undefined
+    : campaignNames[filters.campaignIds[0] ?? ""];
   const trackedRate =
     dataAvailable && campaign.trackingRate !== null
       ? ratePercent(campaign.trackingRate)
@@ -613,28 +687,32 @@ export default async function OverviewPage({
   const selectedAccount = reportingAccounts.find(
     (account) => account.adAccountId === filters.adAccountId,
   );
-  const scopeLabel =
-    hasCampaignFilter && campaignName
+  // n campaigns: a count, no names, so nothing to mask (§5.4).
+  const multiScopeLabel = `${campaignCount} campanhas selecionadas`;
+  const scopeLabel = multiCampaign
+    ? multiScopeLabel
+    : hasCampaignFilter && campaignName
       ? campaignName
       : (selectedAccount?.adAccountName ??
         selectedBusiness?.businessName ??
         "Todas as contas");
-  const scopePlaceholder =
-    hasCampaignFilter && campaignName
+  const scopePlaceholder = multiCampaign
+    ? multiScopeLabel
+    : hasCampaignFilter && campaignName
       ? "Campanha oculta"
       : "Conta de anuncios oculta";
   const detailHref = reportsHref(filters);
-  const clearCampaignHref = overviewHref({
-    ...filters,
-    campaignId: undefined,
-  });
+  const clearCampaignHref = overviewHref({ ...filters, campaignIds: [] });
+  const fromSelection = multiCampaign
+    ? "das campanhas selecionadas"
+    : "da campanha selecionada";
   const funnelSummary = dataAvailable
     ? metaPartial
-      ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} neste numero vindas da campanha selecionada.`
+      ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} neste numero vindas ${fromSelection}.`
       : metaByAccount
         ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} no chip selecionado.`
         : metaUnsynced
-          ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} vindas da campanha selecionada.`
+          ? `${report.rangeLabel}: ${conversationCount(campaign.realConversations)} vindas ${fromSelection}.`
           : funnelOutcomeSummary(
               report.rangeLabel,
               campaign.metaConversationsStarted,
@@ -649,9 +727,11 @@ export default async function OverviewPage({
         : metaUnsynced
           ? "Aguardando sincronizacao da Meta"
           : metaPartial
-            ? noLeadsOnSelectedNumber
-              ? "Campanha inteira · nenhuma conversa neste numero"
-              : "Campanha inteira · inclui outro numero"
+            ? `${multiCampaign ? "Soma das campanhas inteiras" : "Campanha inteira"} · ${
+                noLeadsOnSelectedNumber
+                  ? "nenhuma conversa neste numero"
+                  : "inclui outro numero"
+              }`
             : campaignWithoutDelivery
               ? "Sem veiculacao no periodo"
               : fallback;
@@ -686,9 +766,9 @@ export default async function OverviewPage({
               <>
                 <span className="tag">{report.rangeLabel}</span>
                 <span className="tag">
-                  {hasCampaignFilter
+                  {campaignCount === 1
                     ? "1 campanha"
-                    : `${campaigns.length} campanhas`}
+                    : `${hasCampaignFilter ? campaignCount : campaigns.length} campanhas`}
                 </span>
                 <span className="tag">
                   {trackedRate === null
@@ -703,10 +783,13 @@ export default async function OverviewPage({
         <OverviewFilters
           adAccountId={filters.adAccountId}
           businessId={filters.businessId}
-          campaignId={filters.campaignId}
-          campaignName={campaignName}
+          campaignIds={filters.campaignIds}
+          campaignNames={campaignNames}
           campaignOptions={campaignOptions}
-          hasActiveFilter={Object.values(filters).some(Boolean)}
+          hasActiveFilter={
+            hasCampaignFilter ||
+            scalarFilterKeys.some((key) => Boolean(filters[key]))
+          }
           reportingAccounts={reportingAccounts}
           since={report.since ?? filters.since}
           until={report.until ?? filters.until}
@@ -723,14 +806,23 @@ export default async function OverviewPage({
             >
               <span className="status-dot" aria-hidden="true" />
               <div>
-                <strong>Campanha nao encontrada</strong>
+                <strong>
+                  {invalidReason === "limit"
+                    ? "Filtro de campanha invalido"
+                    : multiCampaign
+                      ? "Campanhas nao encontradas"
+                      : "Campanha nao encontrada"}
+                </strong>
                 <span>
-                  Ela pode ter sido removida ou pertencer a outra conta de
-                  anuncio.
+                  {invalidReason === "limit"
+                    ? "Selecione ate 10 campanhas."
+                    : multiCampaign
+                      ? "Uma ou mais campanhas podem ter sido removidas ou pertencer a outra conta de anuncio."
+                      : "Ela pode ter sido removida ou pertencer a outra conta de anuncio."}
                 </span>
               </div>
               <Link className="button ghost" href={clearCampaignHref}>
-                Limpar campanha
+                {multiCampaign ? "Limpar campanhas" : "Limpar campanha"}
               </Link>
             </div>
           ) : (
@@ -740,6 +832,7 @@ export default async function OverviewPage({
                   campaignInstanceLeads={campaignInstanceLeads}
                   filters={filters}
                   metaByAccount={metaByAccount}
+                  multiCampaign={multiCampaign}
                   metaPartial={metaPartial}
                   noLeadsOnSelectedNumber={noLeadsOnSelectedNumber}
                   whatsappInstances={whatsappInstances}
@@ -894,6 +987,7 @@ function OverviewScopeNote({
   filters,
   metaByAccount,
   metaPartial,
+  multiCampaign,
   noLeadsOnSelectedNumber,
   whatsappInstances,
 }: {
@@ -903,6 +997,7 @@ function OverviewScopeNote({
   filters: OverviewFiltersInput;
   metaByAccount: boolean;
   metaPartial: boolean;
+  multiCampaign: boolean;
   noLeadsOnSelectedNumber: boolean;
   whatsappInstances: WhatsappInstanceSummaryDto[];
 }) {
@@ -917,17 +1012,22 @@ function OverviewScopeNote({
   }
 
   if (metaPartial) {
+    // M5/M6: one leaking member taints the whole set (§6).
     return (
       <p className="muted" role="note">
-        {noLeadsOnSelectedNumber
-          ? "Esta campanha nao gerou conversas neste numero no periodo. Investimento e Conversas Meta mostram a campanha inteira."
-          : "Esta campanha tambem gerou conversas em outro numero. Investimento e Conversas Meta mostram a campanha inteira; custos por etapa e ROAS ficam ocultos para nao distorcer o resultado."}
+        {multiCampaign
+          ? noLeadsOnSelectedNumber
+            ? "Nenhuma das campanhas selecionadas gerou conversas neste numero no periodo. Investimento e Conversas Meta mostram as campanhas inteiras."
+            : "Uma ou mais campanhas selecionadas tambem geraram conversas em outro numero. Investimento e Conversas Meta somam as campanhas inteiras; custos por etapa e ROAS ficam ocultos para nao distorcer o resultado."
+          : noLeadsOnSelectedNumber
+            ? "Esta campanha nao gerou conversas neste numero no periodo. Investimento e Conversas Meta mostram a campanha inteira."
+            : "Esta campanha tambem gerou conversas em outro numero. Investimento e Conversas Meta mostram a campanha inteira; custos por etapa e ROAS ficam ocultos para nao distorcer o resultado."}
       </p>
     );
   }
 
   if (
-    !filters.campaignId ||
+    filters.campaignIds.length === 0 ||
     filters.whatsappInstanceId ||
     campaignInstanceLeads.length === 0
   ) {
@@ -935,6 +1035,11 @@ function OverviewScopeNote({
   }
 
   if (campaignInstanceLeads.length > 1) {
+    // A set spread across numbers is too noisy to hint (§5.5).
+    if (multiCampaign) {
+      return null;
+    }
+
     return (
       <p className="muted" role="note">
         Esta campanha gerou conversas em {campaignInstanceLeads.length} numeros.
@@ -950,7 +1055,9 @@ function OverviewScopeNote({
 
   return (
     <p className="muted overview-scope-hint" role="note">
-      Esta campanha leva conversas para{" "}
+      {multiCampaign
+        ? "Estas campanhas levam conversas para"
+        : "Esta campanha leva conversas para"}{" "}
       <PresentationMask placeholder="Numero oculto">
         {instance ? instanceLabel(instance) : entry!.instanceName}
       </PresentationMask>
