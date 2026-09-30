@@ -10,6 +10,7 @@ import type {
   ReportOverviewDto,
   ReportFunnelStepDto,
   ReportPaginationDto,
+  WhatsappInstanceSummaryDto,
 } from "@wpptrack/shared";
 import { BarChart3, CalendarRange, Download, RefreshCcw } from "lucide-react";
 import Link from "next/link";
@@ -142,6 +143,7 @@ type ReportFilters = {
   status?: string;
   until?: string;
   whatsappClassification?: string;
+  whatsappInstanceId?: string;
 };
 
 function money(cents: number | null) {
@@ -305,6 +307,18 @@ async function getMetaAssets(): Promise<MetaAssetsDto | null> {
   }
 }
 
+async function getWhatsappInstances(): Promise<WhatsappInstanceSummaryDto[]> {
+  try {
+    const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+      "/integrations/whatsapp/instances",
+    );
+
+    return instances.filter((instance) => instance.billingStatus === "active");
+  } catch {
+    return [];
+  }
+}
+
 function reportQuery(
   filters: ReportFilters,
   includeComparison = false,
@@ -334,6 +348,10 @@ function reportQuery(
 
   if (filters.adAccountId) {
     params.set("adAccountId", filters.adAccountId);
+  }
+
+  if (filters.whatsappInstanceId) {
+    params.set("whatsappInstanceId", filters.whatsappInstanceId);
   }
 
   if (filters.campaignId) {
@@ -403,6 +421,7 @@ async function syncMetaReports(formData: FormData) {
     "delivery",
     "selectedIds",
     "whatsappClassification",
+    "whatsappInstanceId",
     "view",
     "metrics",
     "pageSize",
@@ -699,6 +718,7 @@ function leadsHref(filters: {
   since?: string;
   until?: string;
   whatsappClassification?: string;
+  whatsappInstanceId?: string;
 }): string {
   const params = new URLSearchParams();
 
@@ -740,6 +760,10 @@ function leadsHref(filters: {
 
   if (filters.whatsappClassification) {
     params.set("whatsappClassification", filters.whatsappClassification);
+  }
+
+  if (filters.whatsappInstanceId) {
+    params.set("whatsappInstanceId", filters.whatsappInstanceId);
   }
 
   const query = params.toString();
@@ -1895,6 +1919,9 @@ export default async function ReportsPage({
   const compareUntil = asStringParam(resolvedSearchParams.compareUntil);
   const businessId = asStringParam(resolvedSearchParams.businessId);
   const adAccountId = asStringParam(resolvedSearchParams.adAccountId);
+  const whatsappInstanceId = asStringParam(
+    resolvedSearchParams.whatsappInstanceId,
+  );
   const campaignId = asStringParam(resolvedSearchParams.campaignId);
   const adSetId = asStringParam(resolvedSearchParams.adSetId);
   const adId = asStringParam(resolvedSearchParams.adId);
@@ -1942,6 +1969,7 @@ export default async function ReportsPage({
     compareUntil,
     businessId,
     adAccountId,
+    whatsappInstanceId,
     campaignId,
     adSetId,
     adId,
@@ -1975,6 +2003,7 @@ export default async function ReportsPage({
     currentWorkspaceResult,
     comparisonReports,
     metaAssets,
+    whatsappInstances,
     metaStructure,
   ] = await Promise.all([
     activeView === "campaigns"
@@ -1997,6 +2026,7 @@ export default async function ReportsPage({
         })
       : Promise.resolve(null),
     getMetaAssets(),
+    getWhatsappInstances(),
     shouldLoadMetaStructure ? getMetaStructureReport() : Promise.resolve(null),
   ]);
   const loadedReport =
@@ -2008,6 +2038,9 @@ export default async function ReportsPage({
     since,
     until,
   };
+  const hasWhatsappInstanceFilter = Boolean(whatsappInstanceId);
+  const metaMetricsAreCampaignExclusive =
+    campaignReports?.report.metaMetricsScope === "campaign";
   const rows = campaignReports?.report.campaigns ?? [];
   const adSetRows = adSetReports?.report.adSets ?? [];
   const adRows = adReports?.report.ads ?? [];
@@ -2199,6 +2232,11 @@ export default async function ReportsPage({
                 name="adAccountId"
                 value={adAccountId ?? ""}
               />
+              <input
+                type="hidden"
+                name="whatsappInstanceId"
+                value={whatsappInstanceId ?? ""}
+              />
               <input type="hidden" name="campaignId" value={campaignId ?? ""} />
               <input type="hidden" name="adSetId" value={adSetId ?? ""} />
               <input type="hidden" name="adId" value={adId ?? ""} />
@@ -2312,6 +2350,8 @@ export default async function ReportsPage({
               selectedIds={selectedIds}
               status={status}
               whatsappClassification={whatsappClassification}
+              whatsappInstanceId={whatsappInstanceId}
+              whatsappInstances={whatsappInstances}
               since={since}
               until={until}
               compareSince={compareSince}
@@ -2369,6 +2409,11 @@ export default async function ReportsPage({
                       type="hidden"
                       name="adAccountId"
                       value={adAccountId ?? ""}
+                    />
+                    <input
+                      type="hidden"
+                      name="whatsappInstanceId"
+                      value={whatsappInstanceId ?? ""}
                     />
                     <input
                       type="hidden"
@@ -2434,6 +2479,17 @@ export default async function ReportsPage({
         <div className={`feedback-banner ${pageNotice.tone}`} role="status">
           <strong>{pageNotice.title}</strong>
           <span>{pageNotice.message}</span>
+        </div>
+      ) : null}
+
+      {hasWhatsappInstanceFilter ? (
+        <div className="feedback-banner warn" role="status">
+          <strong>Escopo do numero WhatsApp</strong>
+          <span>
+            {metaMetricsAreCampaignExclusive
+              ? "Leads, conversas e metricas Meta correspondem ao numero selecionado: a API confirmou campanha exclusiva."
+              : "Leads e conversas reais estao filtrados por este numero. Investimento, impressoes e demais metricas Meta continuam no escopo da campanha ou conta, nao por numero."}
+          </span>
         </div>
       ) : null}
 

@@ -716,7 +716,7 @@ describe("reporting controller", () => {
   it("passes name scope and status filters to all report levels", async () => {
     const { app, reportingService } = await createApp();
     const query =
-      "nameScope=adset&nameContains=BPC&status=active&businessId=business_1&adAccountId=act_123";
+      "nameScope=adset&nameContains=BPC&status=active&businessId=business_1&adAccountId=act_123&whatsappInstanceId=instance_123";
 
     await request(app.getHttpServer())
       .get(`/reports/campaigns?${query}`)
@@ -741,6 +741,7 @@ describe("reporting controller", () => {
       nameScope: "adset",
       nameContains: "BPC",
       status: "active",
+      whatsappInstanceId: "instance_123",
     };
 
     expect(reportingService.getCampaignReportOverview).toHaveBeenCalledWith(

@@ -230,6 +230,7 @@ export class ReportingController {
     @Query("delivery") delivery?: string | string[],
     @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("whatsappInstanceId") whatsappInstanceId?: string | string[],
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
   ) {
@@ -247,6 +248,7 @@ export class ReportingController {
       delivery,
       selectedIds,
       whatsappClassification,
+      whatsappInstanceId,
     });
     const pagination = this.parseReportPagination(page, pageSize);
 
@@ -274,6 +276,7 @@ export class ReportingController {
     @Query("delivery") delivery?: string | string[],
     @Query("selectedIds") selectedIds?: string | string[],
     @Query("whatsappClassification") whatsappClassification?: string | string[],
+    @Query("whatsappInstanceId") whatsappInstanceId?: string | string[],
     @Query("page") page?: string | string[],
     @Query("pageSize") pageSize?: string | string[],
   ) {
@@ -291,6 +294,7 @@ export class ReportingController {
       delivery,
       selectedIds,
       whatsappClassification,
+      whatsappInstanceId,
     });
     const pagination = this.parseReportPagination(page, pageSize);
 

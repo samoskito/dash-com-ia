@@ -250,6 +250,23 @@ const metaStructure = {
   ],
 };
 
+const whatsappInstances = [
+  {
+    id: "instance_active",
+    name: "Central vendas",
+    provider: "uazapi",
+    providerInstanceId: "551199998888",
+    billingStatus: "active",
+  },
+  {
+    id: "instance_removed",
+    name: "Numero removido",
+    provider: "uazapi",
+    providerInstanceId: "551188887777",
+    billingStatus: "removed",
+  },
+];
+
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -290,6 +307,10 @@ function mockReportsApi(
 
     if (url.includes("/integrations/meta/assets")) {
       return json(options.assets ?? metaAssets);
+    }
+
+    if (url.includes("/integrations/whatsapp/instances")) {
+      return json(whatsappInstances);
     }
 
     if (url.includes("/reports/meta/structure")) {
@@ -375,6 +396,40 @@ describe("reports route", () => {
     expect(urls.some((url) => url.includes("/reports/meta/structure"))).toBe(
       false,
     );
+  });
+
+  it("filters every report level by active WhatsApp instance and keeps Meta scope honest", async () => {
+    const fetchMock = mockReportsApi();
+
+    const campaignHtml = await renderReports({
+      whatsappInstanceId: "instance_active",
+    });
+    await renderReports({
+      view: "adsets",
+      whatsappInstanceId: "instance_active",
+    });
+    await renderReports({ view: "ads", whatsappInstanceId: "instance_active" });
+    const urls = fetchMock.mock.calls.map(([input]) => String(input));
+
+    for (const endpoint of ["campaigns", "adsets", "ads"]) {
+      expect(
+        urls.some(
+          (url) =>
+            url.includes(`/reports/${endpoint}`) &&
+            url.includes("whatsappInstanceId=instance_active"),
+        ),
+      ).toBe(true);
+    }
+    expect(campaignHtml).toContain("Numero WhatsApp");
+    expect(campaignHtml).toContain("Todos os numeros");
+    expect(campaignHtml).toContain("Central vendas - •••• 8888");
+    expect(campaignHtml).not.toContain('value="instance_removed"');
+    expect(campaignHtml).toContain("Escopo do numero WhatsApp");
+    expect(campaignHtml).toContain(
+      "Investimento, impressoes e demais metricas Meta continuam no escopo da campanha ou conta, nao por numero.",
+    );
+    expect(campaignHtml).toContain('name="whatsappInstanceId"');
+    expect(campaignHtml).toContain("whatsappInstanceId=instance_active");
   });
 
   it("accepts a broader Meta sync period that covers the report", async () => {
