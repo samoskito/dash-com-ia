@@ -1409,10 +1409,14 @@ describe("overview campaign x WhatsApp number cross-filter", () => {
     );
     expect(header).not.toContain("Promo Setembro");
     // Outside the campaign trigger, the name only appears inside a mask.
-    const withoutSelect = html.replace(
-      /<button class="filter-combobox-trigger".*?<\/button>/,
-      "",
-    );
+    // The trigger and the chip strip are the filter's own UI; presentation
+    // mode replaces both on the client.
+    const withoutSelect = html
+      .replace(/<button class="filter-combobox-trigger".*?<\/button>/, "")
+      .replace(
+        /<div class="overview-campaign-strip".*?Limpar campanhas<\/button><\/div>/,
+        "",
+      );
     expect(
       withoutSelect.replaceAll(
         '<span class="presentation-mask-value">Promo Setembro</span>',
@@ -1487,5 +1491,278 @@ describe("overview campaign x WhatsApp number cross-filter", () => {
     expect(cards.find((card) => card.label === "Investimento")?.value).toBe(
       "R$\u00a0100,00",
     );
+  });
+});
+
+describe("overview multi campaigns", () => {
+  const multiFilters = {
+    campaignIds: ["cmp_promo", "cmp_outra"],
+    campaignNames: ["Promo Setembro", "Outra campanha"],
+  };
+
+  function multiReport(overrides: Record<string, unknown> = {}) {
+    return campaignReport({ filters: multiFilters, ...overrides });
+  }
+
+  it("sends campaignIds to the report and labels the header with the count", async () => {
+    const fetchSpy = mockOverviewApi({
+      report: multiReport(),
+      campaignOptions: campaignOptionsBody,
+    });
+    const element = await OverviewPage({
+      searchParams: Promise.resolve({
+        since: "2026-09-17",
+        until: "2026-09-24",
+        campaignIds: "cmp_promo,cmp_outra",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+    const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+
+    expect(urls).toContain(
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&since=2026-09-17&until=2026-09-24&campaignIds=cmp_promo%2Ccmp_outra",
+    );
+    expect(html).toContain('<span class="tag">2 campanhas</span>');
+    expect(html).toContain(
+      '<input type="hidden" name="campaignIds" value="cmp_promo,cmp_outra"/>',
+    );
+    expect(html).toContain(
+      '<span class="filter-combobox-value">2 campanhas</span>',
+    );
+    expect(html).toContain('title="Outra campanha"');
+  });
+
+  it("merges a legacy campaignId with campaignIds and dedupes", async () => {
+    const fetchSpy = mockOverviewApi({
+      report: multiReport(),
+      campaignOptions: campaignOptionsBody,
+    });
+    await OverviewPage({
+      searchParams: Promise.resolve({
+        campaignId: "cmp_promo",
+        campaignIds: "cmp_outra, cmp_promo,,",
+      }),
+    });
+    const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+
+    expect(urls).toContain(
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&campaignIds=cmp_promo%2Ccmp_outra",
+    );
+  });
+
+  it("treats a one-item campaignIds exactly as campaignId", async () => {
+    const fetchSpy = mockOverviewApi({
+      report: campaignReport(),
+      campaignOptions: campaignOptionsBody,
+    });
+    const element = await OverviewPage({
+      searchParams: Promise.resolve({ campaignIds: "cmp_promo" }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+    const urls = fetchSpy.mock.calls.map(([input]) => String(input));
+
+    expect(urls).toContain(
+      "http://localhost:3333/reports/campaigns?includeDaily=true&includeSummary=true&campaignId=cmp_promo",
+    );
+    expect(html).toContain('<span class="tag">1 campanha</span>');
+  });
+
+  it("drops the campaigns from Abrir relatorios and shows a count scope", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: multiReport({ dailyComparisonAvailable: false }),
+        campaignOptions: campaignOptionsBody,
+      },
+      {
+        whatsappInstanceId: "instance_centro",
+        campaignIds: "cmp_promo,cmp_outra",
+      },
+    );
+
+    expect(html).toContain(
+      'href="/reports?whatsappInstanceId=instance_centro">Abrir relatorios',
+    );
+    expect(html).toContain(
+      '<span class="presentation-mask-value">2 campanhas selecionadas</span><span class="presentation-mask-placeholder">2 campanhas selecionadas</span>',
+    );
+  });
+
+  // UX §8 test 23 (M5)
+  it("M5: shared set renders summed partial cards without ROAS or costs", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: multiReport({
+          metaMetricsScope: "campaign_shared",
+          campaignInstanceLeads: [
+            {
+              instanceId: "instance_centro",
+              instanceName: "Loja Centro",
+              leads: 6,
+            },
+            {
+              instanceId: "instance_norte",
+              instanceName: "Loja Norte",
+              leads: 2,
+            },
+          ],
+        }),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      {
+        whatsappInstanceId: "instance_centro",
+        campaignIds: "cmp_promo,cmp_outra",
+      },
+    );
+    const cards = metricCards(html);
+
+    expect(html).toContain(
+      '<div class="metric-card partial"><span>Investimento</span><strong>R$ 100,00</strong><small>Soma das campanhas inteiras · inclui outro numero</small></div>',
+    );
+    expect(cards.find((card) => card.label === "Receita trafego")?.delta).toBe(
+      "Receita do numero; ROAS indisponivel",
+    );
+    expect(funnelCosts(html).every((cost) => cost.endsWith(": -"))).toBe(true);
+    expect(html).toContain(
+      "Uma ou mais campanhas selecionadas tambem geraram conversas em outro numero. Investimento e Conversas Meta somam as campanhas inteiras; custos por etapa e ROAS ficam ocultos para nao distorcer o resultado.",
+    );
+    expect(html).toContain(
+      "Ultimos 7 dias: 6 conversas reais neste numero vindas das campanhas selecionadas.",
+    );
+  });
+
+  it("M6: set with no conversations on the number shows the M6 note", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: multiReport({
+          metaMetricsScope: "campaign_shared",
+          campaignInstanceLeads: [
+            {
+              instanceId: "instance_norte",
+              instanceName: "Loja Norte",
+              leads: 2,
+            },
+          ],
+        }),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      {
+        whatsappInstanceId: "instance_centro",
+        campaignIds: "cmp_promo,cmp_outra",
+      },
+    );
+
+    expect(html).toContain(
+      "Nenhuma das campanhas selecionadas gerou conversas neste numero no periodo. Investimento e Conversas Meta mostram as campanhas inteiras.",
+    );
+    expect(html).toContain(
+      "Soma das campanhas inteiras · nenhuma conversa neste numero",
+    );
+  });
+
+  it("M8: unsynced set keeps Meta metrics unavailable", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: multiReport({ metaMetricsScope: "campaign_unsynced" }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignIds: "cmp_promo,cmp_outra" },
+    );
+
+    expect(
+      metricCards(html).find((card) => card.label === "Investimento"),
+    ).toEqual({
+      label: "Investimento",
+      value: "-",
+      delta: "Aguardando sincronizacao da Meta",
+    });
+  });
+
+  it("hints the set's only number with a one-click link that keeps campaignIds", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: multiReport(),
+        campaignOptions: campaignOptionsBody,
+        instances: campaignInstances,
+      },
+      { campaignIds: "cmp_promo,cmp_outra" },
+    );
+
+    expect(html).toContain("Estas campanhas levam conversas para ");
+    expect(html).toContain(
+      'href="/overview?whatsappInstanceId=instance_centro&amp;campaignIds=cmp_promo%2Ccmp_outra">Filtrar este numero</a>',
+    );
+  });
+
+  it("shows no hint when the set spreads across several numbers", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: multiReport({
+          campaignInstanceLeads: [
+            {
+              instanceId: "instance_centro",
+              instanceName: "Loja Centro",
+              leads: 6,
+            },
+            {
+              instanceId: "instance_norte",
+              instanceName: "Loja Norte",
+              leads: 3,
+            },
+          ],
+        }),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignIds: "cmp_promo,cmp_outra" },
+    );
+
+    expect(html).not.toContain('role="note"');
+  });
+
+  it("renders the invalid-set state for a 404 and clears every campaign", async () => {
+    const html = await renderOverviewWith(
+      {
+        report: new Response(
+          JSON.stringify({ message: "Campanha nao encontrada" }),
+          { status: 404, headers: { "Content-Type": "application/json" } },
+        ),
+        campaignOptions: campaignOptionsBody,
+      },
+      {
+        since: "2026-09-17",
+        until: "2026-09-24",
+        campaignIds: "cmp_promo,cmp_foreign",
+      },
+    );
+
+    expect(html).toContain("Campanhas nao encontradas");
+    expect(html).toContain(
+      '<a class="button ghost" href="/overview?since=2026-09-17&amp;until=2026-09-24">Limpar campanhas</a>',
+    );
+    expect(html).not.toContain("overview-primary-metrics");
+  });
+
+  it("renders the limit state for a 400 over ten campaigns", async () => {
+    const ids = Array.from({ length: 11 }, (_, index) => `cmp_${index}`);
+    const html = await renderOverviewWith(
+      {
+        report: new Response(
+          JSON.stringify({
+            message: "No maximo 10 campanhas podem ser selecionadas",
+          }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        ),
+        campaignOptions: campaignOptionsBody,
+      },
+      { campaignIds: ids.join(",") },
+    );
+
+    expect(html).toContain("Filtro de campanha invalido");
+    expect(html).toContain("Selecione ate 10 campanhas.");
+    expect(html).toContain(
+      '<span class="status-chip warn">Filtro invalido</span>',
+    );
+    expect(html).not.toContain("API indisponivel");
   });
 });
