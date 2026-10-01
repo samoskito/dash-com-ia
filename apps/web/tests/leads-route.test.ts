@@ -3,6 +3,11 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import LeadsPage from "../src/app/(app)/leads/page";
 
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -80,6 +85,104 @@ describe("leads route", () => {
     expect(html).toContain('name="until"');
     expect(html).toContain("+55 11 99999-1020");
     expect(html).toContain("02/07, 00:10");
+  });
+
+  it("auto-applies filters without a visible Aplicar button", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({ status: "lost" }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).not.toContain("Aplicar");
+    expect(html).toContain(
+      '<button class="sr-only" type="submit" tabindex="-1">Atualizar leads</button>',
+    );
+    expect(html).toContain('<option value="lost" selected="">Perdidos</option>');
+    expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).toMatch(
+      /<a class="button ghost" data-lead-filters-clear="true" href="\/leads">.*?Limpar<\/a>/,
+    );
+  });
+
+  it("hides Limpar when no filter is applied", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [],
+          pagination: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const element = await LeadsPage({ searchParams: Promise.resolve({}) });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).not.toContain("data-lead-filters-clear");
+    expect(html).not.toContain("Aplicar");
+  });
+
+  it("keeps active filters and page size on pagination links", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: "lead_1",
+              workspaceId: "workspace_1",
+              name: "Mariana Alves",
+              phoneDisplay: "+55 11 99999-1020",
+              phoneHash: "phone_hash_1",
+              status: "lost",
+              source: "uazapi",
+              labels: [],
+              campaignId: "cmp_1",
+              campaignName: "Black Friday WhatsApp",
+              adSetId: "adset_1",
+              adId: "ad_1",
+              lastEventName: null,
+              firstMessageAt: "2026-07-02T03:00:00.000Z",
+              lastMessageAt: "2026-07-02T03:10:00.000Z",
+              createdAt: "2026-07-02T03:00:00.000Z",
+              updatedAt: "2026-07-02T03:10:00.000Z",
+            },
+          ],
+          pagination: { page: 2, pageSize: 50, totalItems: 160, totalPages: 4 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({
+        search: "mari",
+        status: "lost",
+        campaignId: "cmp_1",
+        since: "2026-07-01",
+        page: "2",
+        pageSize: "50",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain(
+      'href="/leads?search=mari&amp;status=lost&amp;campaignId=cmp_1&amp;since=2026-07-01&amp;page=1&amp;pageSize=50"',
+    );
+    expect(html).toContain(
+      'href="/leads?search=mari&amp;status=lost&amp;campaignId=cmp_1&amp;since=2026-07-01&amp;page=3&amp;pageSize=50"',
+    );
+    expect(html).toContain('<input type="hidden" name="campaignId" value="cmp_1"/>');
+    expect(html).not.toContain('name="adSetId"');
   });
 
   it("preserves the selected page size in queries and filter controls", async () => {
