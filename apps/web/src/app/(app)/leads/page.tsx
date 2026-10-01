@@ -1,17 +1,15 @@
 import type { LeadListItemDto, LeadListPageDto } from "@wpptrack/shared";
 import {
   ArrowUpRight,
-  CalendarDays,
   Filter,
   RotateCcw,
-  Search,
-  SlidersHorizontal,
   UserRoundSearch,
 } from "lucide-react";
 import Link from "next/link";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
+import { LeadFilters } from "./lead-filters";
 
 type LeadsSearchParams = Record<string, string | string[] | undefined>;
 
@@ -218,21 +216,6 @@ export default async function LeadsPage({
   );
   const hasReportFilter = Boolean(campaignId || adSetId || adId || attribution);
   const hasPeriodFilter = Boolean(since || until);
-  const hasAdvancedFilters = Boolean(
-    attribution || label || since || until || campaignId || adSetId || adId,
-  );
-  const hasAnyFilter = Boolean(
-    search || status || eventName || hasAdvancedFilters,
-  );
-  const advancedFilterCount = [
-    attribution,
-    label,
-    since,
-    until,
-    campaignId,
-    adSetId,
-    adId,
-  ].filter(Boolean).length;
   const leadFilters: LeadFilters = {
     search,
     status,
@@ -288,128 +271,22 @@ export default async function LeadsPage({
         </div>
       </header>
 
-      <form
-        className="surface-panel lead-filter-panel"
-        aria-label="Filtros de leads"
-        action="/leads"
-      >
-        <div className="lead-filter-primary">
-          <label className="lead-search-control">
-            <span className="sr-only">Buscar por nome ou telefone</span>
-            <Search aria-hidden="true" size={18} strokeWidth={2} />
-            <input
-              className="filter-control"
-              name="search"
-              placeholder="Nome ou telefone"
-              defaultValue={search}
-              data-presentation-sensitive-field="true"
-            />
-          </label>
-          <select
-            className="filter-control"
-            name="status"
-            aria-label="Situacao operacional"
-            defaultValue={status ?? ""}
-          >
-            <option value="">Toda situacao</option>
-            <option value="active">Em atendimento</option>
-            <option value="qualified">Qualificados</option>
-            <option value="converted">Compradores</option>
-            <option value="lost">Perdidos</option>
-          </select>
-          <select
-            className="filter-control"
-            name="eventName"
-            aria-label="Etapa do funil"
-            defaultValue={eventName ?? ""}
-          >
-            <option value="">Todas as etapas</option>
-            <option value="LeadSubmitted">Conversa iniciada</option>
-            <option value="QualifiedLead">Lead qualificado</option>
-            <option value="Purchase">Compra atribuida</option>
-          </select>
-          <button className="button primary" type="submit">
-            <Filter aria-hidden="true" size={17} strokeWidth={2.2} />
-            Aplicar
-          </button>
-          {hasAnyFilter ? (
-            <Link className="button ghost" href="/leads">
-              <RotateCcw aria-hidden="true" size={16} strokeWidth={2} />
-              Limpar
-            </Link>
-          ) : null}
-        </div>
-
-        <details className="lead-advanced-filters" open={hasAdvancedFilters}>
-          <summary>
-            <span>
-              <SlidersHorizontal aria-hidden="true" size={17} strokeWidth={2} />
-              Filtros avancados
-            </span>
-            {advancedFilterCount > 0 ? (
-              <span className="lead-active-filter-count">
-                {advancedFilterCount} ativo(s)
-              </span>
-            ) : (
-              <span>Origem, etiqueta, periodo e exibicao</span>
-            )}
-          </summary>
-          <div className="lead-filter-advanced-grid">
-            <label className="filter-field">
-              <span>Origem</span>
-              <select
-                className="filter-control"
-                name="attribution"
-                defaultValue={attribution ?? ""}
-              >
-                <option value="">Toda origem</option>
-                <option value="paid">Com atribuicao</option>
-                <option value="organic">Sem atribuicao</option>
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>Etiqueta</span>
-              <input
-                className="filter-control"
-                name="label"
-                placeholder="Ex.: VIP"
-                defaultValue={label}
-                data-presentation-sensitive-field="true"
-              />
-            </label>
-            <label className="filter-field">
-              <span>Inicio</span>
-              <span className="lead-date-control">
-                <CalendarDays aria-hidden="true" size={16} strokeWidth={2} />
-                <input type="date" name="since" defaultValue={since} />
-              </span>
-            </label>
-            <label className="filter-field">
-              <span>Fim</span>
-              <span className="lead-date-control">
-                <CalendarDays aria-hidden="true" size={16} strokeWidth={2} />
-                <input type="date" name="until" defaultValue={until} />
-              </span>
-            </label>
-            <label className="filter-field">
-              <span>Por pagina</span>
-              <select
-                className="filter-control"
-                name="pageSize"
-                defaultValue={String(pageSize)}
-              >
-                <option value="25">25 leads</option>
-                <option value="50">50 leads</option>
-                <option value="100">100 leads</option>
-              </select>
-            </label>
-          </div>
-        </details>
-
-        <input type="hidden" name="campaignId" value={campaignId ?? ""} />
-        <input type="hidden" name="adSetId" value={adSetId ?? ""} />
-        <input type="hidden" name="adId" value={adId ?? ""} />
-      </form>
+      <LeadFilters
+        applied={{
+          search: search ?? "",
+          status: status ?? "",
+          eventName: eventName ?? "",
+          label: label ?? "",
+          campaignId: campaignId ?? "",
+          adSetId: adSetId ?? "",
+          adId: adId ?? "",
+          attribution: attribution ?? "",
+          since: since ?? "",
+          until: until ?? "",
+          pageSize: String(pageSize),
+        }}
+        page={page}
+      />
 
       {hasReportFilter || hasPeriodFilter ? (
         <div className="lead-filter-context" role="status">
