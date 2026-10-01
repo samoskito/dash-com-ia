@@ -127,6 +127,9 @@ export class LeadsService {
     workspaceId: string,
     query: LeadListQueryDto,
   ): Promise<LeadListPageDto> {
+    const whatsappInstanceId = query.whatsappInstanceId
+      ? await this.requireWorkspaceInstance(workspaceId, query.whatsappInstanceId)
+      : undefined;
     const conversationPeriodRange = this.conversationPeriodRange(query);
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? query.limit ?? 50;
@@ -192,6 +195,7 @@ export class LeadsService {
 
     const where = {
       workspaceId,
+      ...(whatsappInstanceId ? { whatsappInstanceId } : {}),
       ...(eventLeadIds ? { id: { in: eventLeadIds } } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.label ? { labels: { has: query.label } } : {}),
@@ -345,6 +349,25 @@ export class LeadsService {
         ...inferredConversations.map((lead) => lead.id),
       ]),
     );
+  }
+
+  private async requireWorkspaceInstance(
+    workspaceId: string,
+    whatsappInstanceId: string,
+  ): Promise<string> {
+    const instance = await this.prisma.whatsappInstance.findFirst({
+      where: {
+        id: whatsappInstanceId,
+        workspaceId,
+      },
+      select: { id: true },
+    });
+
+    if (!instance) {
+      throw new NotFoundException("Instancia WhatsApp nao encontrada");
+    }
+
+    return instance.id;
   }
 
   async getLeadDetail(

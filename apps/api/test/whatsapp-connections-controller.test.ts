@@ -66,6 +66,13 @@ async function createApp(role: "owner" | "admin" | "member" = "owner") {
       qrCode: null,
       message: "WhatsApp conectado"
     })),
+    getActivity: vi.fn(async () => ({
+      leads24h: 2,
+      leads7d: 5,
+      leadsTotal: 8,
+      lastLeadAt: "2026-07-02T03:00:00.000Z",
+      lastWebhookAt: null
+    })),
     connectInstance: vi.fn(async () => ({
       whatsappInstanceId: "wpp_1",
       provider: "uazapi",
@@ -179,6 +186,24 @@ describe("whatsapp connections controller", () => {
       "wpp_1"
     );
 
+    await app.close();
+  });
+
+  it("returns tenant-scoped instance activity for authenticated users", async () => {
+    const { app, whatsappConnectionsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/integrations/whatsapp/instances/wpp_1/activity")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body).toMatchObject({ leads24h: 2, leadsTotal: 8 });
+      });
+
+    expect(whatsappConnectionsService.getActivity).toHaveBeenCalledWith(
+      "workspace_1",
+      "wpp_1"
+    );
     await app.close();
   });
 

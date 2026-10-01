@@ -184,6 +184,23 @@ describe("leads controller", () => {
     await app.close();
   });
 
+  it("forwards a workspace-scoped WhatsApp instance filter", async () => {
+    const { app, leadsService } = await createApp();
+
+    await request(app.getHttpServer())
+      .get("/leads/page?whatsappInstanceId=instance_1&page=2&pageSize=25")
+      .set("Authorization", "Bearer refresh-token")
+      .expect(200);
+
+    expect(leadsService.listLeadsPage).toHaveBeenCalledWith("workspace_1", {
+      whatsappInstanceId: "instance_1",
+      page: 2,
+      pageSize: 25,
+    });
+
+    await app.close();
+  });
+
   it("forwards report drill-down filters to the leads service", async () => {
     const { app, leadsService } = await createApp();
 
