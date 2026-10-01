@@ -103,6 +103,7 @@ import {
   whatsappInstanceCheckoutInputSchema,
   whatsappInstanceCheckoutSchema,
   whatsappInstanceConnectionSchema,
+  whatsappInstanceActivitySchema,
   whatsappInstanceSummarySchema,
   whatsappInstanceQuoteSchema,
 } from "../src";
@@ -1515,6 +1516,27 @@ describe("shared contracts", () => {
 
     expect(connection.provider).toBe("uazapi");
     expect(connection.qrCode).toBe("base64-or-text-qr");
+  });
+
+  it("validates nullable UAZAPI instance activity timestamps", () => {
+    expect(
+      whatsappInstanceActivitySchema.parse({
+        leads24h: 0,
+        leads7d: 3,
+        leadsTotal: 12,
+        lastLeadAt: null,
+        lastWebhookAt: "2026-07-02T03:00:00.000Z",
+      }),
+    ).toMatchObject({ leadsTotal: 12, lastLeadAt: null });
+    expect(
+      whatsappInstanceActivitySchema.safeParse({
+        leads24h: -1,
+        leads7d: 0,
+        leadsTotal: 0,
+        lastLeadAt: null,
+        lastWebhookAt: null,
+      }).success,
+    ).toBe(false);
   });
 
   it("validates whatsapp instance summary contracts", () => {

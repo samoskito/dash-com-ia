@@ -38,6 +38,16 @@ export class WhatsappConnectionsController {
     return this.whatsappConnectionsService.getStatus(workspaceId, instanceId);
   }
 
+  @Get(":instanceId/activity")
+  async getActivity(
+    @AuthToken() refreshToken: string,
+    @Param("instanceId") instanceId: string,
+  ) {
+    const { workspaceId } = await this.getCurrentWorkspaceContext(refreshToken);
+
+    return this.whatsappConnectionsService.getActivity(workspaceId, instanceId);
+  }
+
   @Post(":instanceId/connect")
   async connect(
     @AuthToken() refreshToken: string,

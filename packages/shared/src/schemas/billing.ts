@@ -630,6 +630,14 @@ export const whatsappInstanceConnectionSchema = z.object({
   message: z.string().min(1).nullable(),
 });
 
+export const whatsappInstanceActivitySchema = z.object({
+  leads24h: z.number().int().nonnegative(),
+  leads7d: z.number().int().nonnegative(),
+  leadsTotal: z.number().int().nonnegative(),
+  lastLeadAt: z.string().datetime().nullable(),
+  lastWebhookAt: z.string().datetime().nullable(),
+});
+
 export const whatsappInstanceSummarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -888,6 +896,9 @@ export type WhatsappInstanceCheckoutDto = z.infer<
 >;
 export type WhatsappInstanceConnectionDto = z.infer<
   typeof whatsappInstanceConnectionSchema
+>;
+export type WhatsappInstanceActivityDto = z.infer<
+  typeof whatsappInstanceActivitySchema
 >;
 export type WhatsappInstanceSummaryDto = z.infer<
   typeof whatsappInstanceSummarySchema

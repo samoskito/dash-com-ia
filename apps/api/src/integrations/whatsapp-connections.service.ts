@@ -1,12 +1,14 @@
 import {
   ForbiddenException,
   Inject,
+  InternalServerErrorException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import type { WhatsappInstanceConnectionDto } from "@wpptrack/shared";
+import type { WhatsappInstanceActivityDto } from "@wpptrack/shared";
 import type { WhatsappLabelDto } from "@wpptrack/shared";
 import type { WhatsappInstanceSummaryDto } from "@wpptrack/shared";
 import { PrismaService } from "../common/prisma/prisma.service";
@@ -45,6 +47,9 @@ type CloudApiOperation =
   | "whatsapp.cloud_api.connect"
   | "whatsapp.cloud_api.qr"
   | "whatsapp.cloud_api.labels.list";
+
+const INSTANCE_ACTIVITY_QUERY_ERROR =
+  "Nao foi possivel consultar a atividade da instancia";
 
 @Injectable()
 export class WhatsappConnectionsService {
@@ -110,6 +115,104 @@ export class WhatsappConnectionsService {
     );
 
     return this.toDto(instance, result);
+  }
+
+  /**
+   * Lead.whatsappInstanceId is the lead's current association, not immutable
+   * message history. Activity therefore follows the instance currently stored
+   * on each lead.
+   */
+  async getActivity(
+    workspaceId: string,
+    whatsappInstanceId: string,
+    now = new Date(),
+  ): Promise<WhatsappInstanceActivityDto> {
+    let instance: WhatsappInstanceRecord;
+    try {
+      instance = await this.getWorkspaceInstance(
+        workspaceId,
+        whatsappInstanceId,
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException(INSTANCE_ACTIVITY_QUERY_ERROR);
+    }
+
+    if (instance.provider !== "uazapi") {
+      throw new ForbiddenException(
+        "Atividade disponivel apenas para instancias UAZAPI",
+      );
+    }
+
+    const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const leadScope = {
+      workspaceId,
+      whatsappInstanceId: instance.id,
+      source: "uazapi",
+      ctwaClid: { not: null },
+    };
+    const window = (since: Date) => ({
+      OR: [
+        { firstMessageAt: { gte: since, lte: now } },
+        { firstMessageAt: null, createdAt: { gte: since, lte: now } },
+      ],
+    });
+
+    try {
+      const [
+        leads24h,
+        leads7d,
+        leadsTotal,
+        lastFirstMessageLead,
+        lastCreatedLead,
+        lastWebhook,
+      ] = await Promise.all([
+        this.prisma.lead.count({ where: { ...leadScope, ...window(since24h) } }),
+        this.prisma.lead.count({ where: { ...leadScope, ...window(since7d) } }),
+        this.prisma.lead.count({ where: leadScope }),
+        this.prisma.lead.findFirst({
+          where: { ...leadScope, firstMessageAt: { not: null } },
+          orderBy: { firstMessageAt: "desc" },
+          select: { firstMessageAt: true },
+        }),
+        this.prisma.lead.findFirst({
+          where: { ...leadScope, firstMessageAt: null },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        }),
+        this.prisma.webhookLog.findFirst({
+          where: {
+            workspaceId,
+            whatsappInstanceId: instance.id,
+            source: "uazapi",
+          },
+          orderBy: { receivedAt: "desc" },
+          select: { receivedAt: true },
+        }),
+      ]);
+      const lastLeadAt = [
+        lastFirstMessageLead?.firstMessageAt ?? null,
+        lastCreatedLead?.createdAt ?? null,
+      ].reduce<Date | null>(
+        (latest, candidate) =>
+          !candidate || (latest && latest >= candidate) ? latest : candidate,
+        null,
+      );
+
+      return {
+        leads24h,
+        leads7d,
+        leadsTotal,
+        lastLeadAt: lastLeadAt?.toISOString() ?? null,
+        lastWebhookAt: lastWebhook?.receivedAt.toISOString() ?? null,
+      };
+    } catch {
+      throw new InternalServerErrorException(INSTANCE_ACTIVITY_QUERY_ERROR);
+    }
   }
 
   async connectInstance(
@@ -497,6 +600,24 @@ export class WhatsappConnectionsService {
     workspaceId: string,
     whatsappInstanceId: string,
   ): Promise<WhatsappInstanceRecord> {
+    const instance = await this.getWorkspaceInstance(
+      workspaceId,
+      whatsappInstanceId,
+    );
+
+    if (instance.status !== "active") {
+      throw new ForbiddenException(
+        "Instancia WhatsApp ainda nao foi liberada por pagamento",
+      );
+    }
+
+    return instance;
+  }
+
+  private async getWorkspaceInstance(
+    workspaceId: string,
+    whatsappInstanceId: string,
+  ): Promise<WhatsappInstanceRecord> {
     const instance = (await this.prisma.whatsappInstance.findFirst({
       where: {
         id: whatsappInstanceId,
@@ -506,12 +627,6 @@ export class WhatsappConnectionsService {
 
     if (!instance) {
       throw new NotFoundException("Instancia WhatsApp nao encontrada");
-    }
-
-    if (instance.status !== "active") {
-      throw new ForbiddenException(
-        "Instancia WhatsApp ainda nao foi liberada por pagamento",
-      );
     }
 
     return instance;
