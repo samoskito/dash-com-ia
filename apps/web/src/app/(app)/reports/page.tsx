@@ -23,6 +23,8 @@ import { isApiRequestError, serverApiFetch } from "../../../lib/server-api";
 import { getCurrentWorkspace } from "../../../lib/current-workspace";
 import { MetaEntityControls } from "./meta-entity-controls";
 import { MetaReportFilters } from "./meta-report-filters";
+import { ReportFiltersProvider } from "./report-filter-state";
+import { ReportPeriodFilter } from "./report-period-filter";
 import { logMetaReportingSyncEnqueueFailure } from "./reports-error-logging";
 import { ReportAdPreview } from "./report-ad-preview";
 import {
@@ -2039,6 +2041,27 @@ export default async function ReportsPage({
     until,
   };
   const hasWhatsappInstanceFilter = Boolean(whatsappInstanceId);
+  const appliedFilterValues = {
+    since: since ?? "",
+    until: until ?? "",
+    compareSince: compareSince ?? "",
+    compareUntil: compareUntil ?? "",
+    businessId: businessId ?? "",
+    adAccountId: adAccountId ?? "",
+    whatsappInstanceId: whatsappInstanceId ?? "",
+    campaignId: campaignId ?? "",
+    adSetId: adSetId ?? "",
+    adId: adId ?? "",
+    nameContains: nameContains ?? "",
+    nameScope: nameScope ?? "",
+    status: status ?? "",
+    delivery,
+    selectedIds: selectedIds ?? "",
+    whatsappClassification: whatsappClassification ?? "",
+    pageSize: String(pageSize),
+    metrics: activeMetricGroup,
+    view: activeView,
+  };
   const metaMetricsAreCampaignExclusive =
     campaignReports?.report.metaMetricsScope === "campaign";
   const rows = campaignReports?.report.campaigns ?? [];
@@ -2215,264 +2238,188 @@ export default async function ReportsPage({
         className="surface-panel report-control-center"
         aria-label="Controles do relatorio"
       >
-        <div className="report-toolbar">
-          <div
-            className="report-toolbar-group report-toolbar-period"
-            role="group"
-            aria-label="Periodo"
-          >
-            <span className="micro-label report-group-label">Periodo</span>
-            <form className="report-period-form" action="/reports">
-              <input type="hidden" name="view" value={activeView} />
-              <input type="hidden" name="metrics" value={activeMetricGroup} />
-              <input type="hidden" name="pageSize" value={pageSize} />
-              <input type="hidden" name="businessId" value={businessId ?? ""} />
-              <input
-                type="hidden"
-                name="adAccountId"
-                value={adAccountId ?? ""}
-              />
-              <input
-                type="hidden"
-                name="whatsappInstanceId"
-                value={whatsappInstanceId ?? ""}
-              />
-              <input type="hidden" name="campaignId" value={campaignId ?? ""} />
-              <input type="hidden" name="adSetId" value={adSetId ?? ""} />
-              <input type="hidden" name="adId" value={adId ?? ""} />
-              <input type="hidden" name="nameScope" value={nameScope ?? ""} />
-              <input
-                type="hidden"
-                name="nameContains"
-                value={nameContains ?? ""}
-              />
-              <input type="hidden" name="status" value={status ?? ""} />
-              <input type="hidden" name="delivery" value={delivery} />
-              <input
-                type="hidden"
-                name="selectedIds"
-                value={selectedIds ?? ""}
-              />
-              <input
-                type="hidden"
-                name="whatsappClassification"
-                value={whatsappClassification ?? ""}
-              />
-              <input
-                type="hidden"
-                name="compareSince"
-                value={compareSince ?? ""}
-              />
-              <input
-                type="hidden"
-                name="compareUntil"
-                value={compareUntil ?? ""}
-              />
-              <div className="report-period-context">
-                <CalendarRange aria-hidden="true" size={17} />
-                <span>
-                  <strong>Periodo de analise</strong>
-                  <small>{requestedPeriodLabel}</small>
-                </span>
-              </div>
-              <div className="report-period-range">
-                <label className="filter-field">
-                  <span>Inicio</span>
-                  <input type="date" name="since" defaultValue={since} />
-                </label>
-                <label className="filter-field">
-                  <span>Fim</span>
-                  <input type="date" name="until" defaultValue={until} />
-                </label>
-              </div>
-              <button className="button" type="submit">
-                Aplicar periodo
-              </button>
-            </form>
-          </div>
-
-          <div
-            className="report-toolbar-group report-toolbar-scope"
-            role="group"
-            aria-label="Escopo"
-          >
-            <div className="report-analysis-switcher">
-              <span className="micro-label report-group-label">Escopo</span>
-              <nav className="report-view-tabs" aria-label="Nivel do relatorio">
-                {(
-                  [
-                    ["campaigns", "Campanhas"],
-                    ["adsets", "Conjuntos"],
-                    ["ads", "Anuncios"],
-                  ] as const
-                ).map(([view, label]) => (
-                  <Link
-                    aria-current={activeView === view ? "page" : undefined}
-                    className={activeView === view ? "active" : ""}
-                    href={reportViewHref(view, {
-                      ...reportFilters,
-                      selectedIds:
-                        view === activeView
-                          ? reportFilters.selectedIds
-                          : undefined,
-                    })}
-                    key={view}
-                  >
-                    {label}
-                  </Link>
-                ))}
-              </nav>
-              <span className="tag report-scope-count">
-                {pagination?.totalItems ?? activeRows.length}{" "}
-                {activeCopy.plural}
-              </span>
-              <div className="report-analysis-meta">
-                <ReportSelectionToolbar
-                  activeSelectedIds={activeSelectedIds}
-                  filterActive={Boolean(selectedIds)}
-                  level={activeSelectionLevel}
-                  workspaceId={currentWorkspaceId}
-                />
-              </div>
+        <ReportFiltersProvider applied={appliedFilterValues}>
+          <div className="report-toolbar">
+            <div
+              className="report-toolbar-group report-toolbar-period"
+              role="group"
+              aria-label="Periodo"
+            >
+              <span className="micro-label report-group-label">Periodo</span>
+              <ReportPeriodFilter periodLabel={requestedPeriodLabel} />
             </div>
 
-            <MetaReportFilters
-              assets={metaAssets}
-              businessId={businessId}
-              adAccountId={adAccountId}
-              campaignId={campaignId}
-              adSetId={adSetId}
-              adId={adId}
-              metrics={activeMetricGroup}
-              nameScope={nameScope}
-              nameContains={nameContains}
-              delivery={delivery}
-              selectedIds={selectedIds}
-              status={status}
-              whatsappClassification={whatsappClassification}
-              whatsappInstanceId={whatsappInstanceId}
-              whatsappInstances={whatsappInstances}
-              since={since}
-              until={until}
-              compareSince={compareSince}
-              compareUntil={compareUntil}
-              view={activeView}
-              pageSize={pageSize}
-            />
-          </div>
-
-          <div
-            className="report-toolbar-group report-toolbar-actions"
-            role="group"
-            aria-label="Acoes"
-          >
-            <span className="micro-label report-group-label">Acoes</span>
-            <div className="report-command-actions">
-              {reportState === "error" ? (
-                <span className="tag">API indisponivel</span>
-              ) : null}
-              <Link
-                className="button ghost"
-                href={reportExportHref(reportFilters, activeView)}
-              >
-                <Download aria-hidden="true" size={16} />
-                Exportar CSV
-              </Link>
-              <div className="report-sync-action">
-                {canSyncMetaReports ? (
-                  <form action={syncMetaReports}>
-                    <input type="hidden" name="view" value={activeView} />
-                    <input
-                      type="hidden"
-                      name="metrics"
-                      value={activeMetricGroup}
-                    />
-                    <input type="hidden" name="pageSize" value={pageSize} />
-                    <input type="hidden" name="since" value={since ?? ""} />
-                    <input type="hidden" name="until" value={until ?? ""} />
-                    <input
-                      type="hidden"
-                      name="compareSince"
-                      value={compareSince ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="compareUntil"
-                      value={compareUntil ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="businessId"
-                      value={businessId ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="adAccountId"
-                      value={adAccountId ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="whatsappInstanceId"
-                      value={whatsappInstanceId ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="campaignId"
-                      value={campaignId ?? ""}
-                    />
-                    <input type="hidden" name="adSetId" value={adSetId ?? ""} />
-                    <input type="hidden" name="adId" value={adId ?? ""} />
-                    <input
-                      type="hidden"
-                      name="nameScope"
-                      value={nameScope ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="nameContains"
-                      value={nameContains ?? ""}
-                    />
-                    <input type="hidden" name="status" value={status ?? ""} />
-                    <input type="hidden" name="delivery" value={delivery} />
-                    <input
-                      type="hidden"
-                      name="selectedIds"
-                      value={selectedIds ?? ""}
-                    />
-                    <input
-                      type="hidden"
-                      name="whatsappClassification"
-                      value={whatsappClassification ?? ""}
-                    />
-                    <SubmitButton
-                      className="button ghost"
-                      pendingLabel="Sincronizando..."
-                      statusText="Enfileirando leitura dos dados Meta."
+            <div
+              className="report-toolbar-group report-toolbar-scope"
+              role="group"
+              aria-label="Escopo"
+            >
+              <div className="report-analysis-switcher">
+                <span className="micro-label report-group-label">Escopo</span>
+                <nav
+                  className="report-view-tabs"
+                  aria-label="Nivel do relatorio"
+                >
+                  {(
+                    [
+                      ["campaigns", "Campanhas"],
+                      ["adsets", "Conjuntos"],
+                      ["ads", "Anuncios"],
+                    ] as const
+                  ).map(([view, label]) => (
+                    <Link
+                      aria-current={activeView === view ? "page" : undefined}
+                      className={activeView === view ? "active" : ""}
+                      href={reportViewHref(view, {
+                        ...reportFilters,
+                        selectedIds:
+                          view === activeView
+                            ? reportFilters.selectedIds
+                            : undefined,
+                      })}
+                      key={view}
                     >
-                      <RefreshCcw aria-hidden="true" size={16} />
-                      Sincronizar Meta
-                    </SubmitButton>
-                  </form>
-                ) : (
-                  <span className="tag">
-                    {workspacePermissionsUnavailable
-                      ? "Permissoes indisponiveis"
-                      : "Sem permissao para sincronizar Meta"}
-                  </span>
-                )}
-                {metaSyncPeriod.kind === "single" ? (
-                  <small
-                    className="report-sync-hint"
-                    title={`Janela ja sincronizada da Meta: ${periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}`}
-                  >
-                    Meta:{" "}
-                    {periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}
-                  </small>
+                      {label}
+                    </Link>
+                  ))}
+                </nav>
+                <span className="tag report-scope-count">
+                  {pagination?.totalItems ?? activeRows.length}{" "}
+                  {activeCopy.plural}
+                </span>
+                <div className="report-analysis-meta">
+                  <ReportSelectionToolbar
+                    activeSelectedIds={activeSelectedIds}
+                    filterActive={Boolean(selectedIds)}
+                    level={activeSelectionLevel}
+                    workspaceId={currentWorkspaceId}
+                  />
+                </div>
+              </div>
+
+              <MetaReportFilters
+                assets={metaAssets}
+                whatsappInstances={whatsappInstances}
+              />
+            </div>
+
+            <div
+              className="report-toolbar-group report-toolbar-actions"
+              role="group"
+              aria-label="Acoes"
+            >
+              <span className="micro-label report-group-label">Acoes</span>
+              <div className="report-command-actions">
+                {reportState === "error" ? (
+                  <span className="tag">API indisponivel</span>
                 ) : null}
+                <Link
+                  className="button ghost"
+                  href={reportExportHref(reportFilters, activeView)}
+                >
+                  <Download aria-hidden="true" size={16} />
+                  Exportar CSV
+                </Link>
+                <div className="report-sync-action">
+                  {canSyncMetaReports ? (
+                    <form action={syncMetaReports}>
+                      <input type="hidden" name="view" value={activeView} />
+                      <input
+                        type="hidden"
+                        name="metrics"
+                        value={activeMetricGroup}
+                      />
+                      <input type="hidden" name="pageSize" value={pageSize} />
+                      <input type="hidden" name="since" value={since ?? ""} />
+                      <input type="hidden" name="until" value={until ?? ""} />
+                      <input
+                        type="hidden"
+                        name="compareSince"
+                        value={compareSince ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="compareUntil"
+                        value={compareUntil ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="businessId"
+                        value={businessId ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="adAccountId"
+                        value={adAccountId ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="whatsappInstanceId"
+                        value={whatsappInstanceId ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="campaignId"
+                        value={campaignId ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="adSetId"
+                        value={adSetId ?? ""}
+                      />
+                      <input type="hidden" name="adId" value={adId ?? ""} />
+                      <input
+                        type="hidden"
+                        name="nameScope"
+                        value={nameScope ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="nameContains"
+                        value={nameContains ?? ""}
+                      />
+                      <input type="hidden" name="status" value={status ?? ""} />
+                      <input type="hidden" name="delivery" value={delivery} />
+                      <input
+                        type="hidden"
+                        name="selectedIds"
+                        value={selectedIds ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="whatsappClassification"
+                        value={whatsappClassification ?? ""}
+                      />
+                      <SubmitButton
+                        className="button ghost"
+                        pendingLabel="Sincronizando..."
+                        statusText="Enfileirando leitura dos dados Meta."
+                      >
+                        <RefreshCcw aria-hidden="true" size={16} />
+                        Sincronizar Meta
+                      </SubmitButton>
+                    </form>
+                  ) : (
+                    <span className="tag">
+                      {workspacePermissionsUnavailable
+                        ? "Permissoes indisponiveis"
+                        : "Sem permissao para sincronizar Meta"}
+                    </span>
+                  )}
+                  {metaSyncPeriod.kind === "single" ? (
+                    <small
+                      className="report-sync-hint"
+                      title={`Janela ja sincronizada da Meta: ${periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}`}
+                    >
+                      Meta:{" "}
+                      {periodLabel(metaSyncPeriod.since, metaSyncPeriod.until)}
+                    </small>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </ReportFiltersProvider>
       </section>
 
       {pageNotice ? (

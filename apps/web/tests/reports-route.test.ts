@@ -8,6 +8,11 @@ import {
   logMetaReportingSyncEnqueueFailure,
 } from "../src/app/(app)/reports/reports-error-logging";
 
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
