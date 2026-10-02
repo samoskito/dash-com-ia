@@ -18,66 +18,19 @@ import {
   type FormEvent,
 } from "react";
 import { dateRangeStatus } from "../overview/overview-filters";
-
-/** Every lead filter, in canonical URL order ("" = not set). */
-export type LeadFilterValues = {
-  search: string;
-  status: string;
-  eventName: string;
-  label: string;
-  campaignId: string;
-  adSetId: string;
-  adId: string;
-  attribution: string;
-  since: string;
-  until: string;
-  pageSize: string;
-};
-
-type LeadFilterKey = keyof LeadFilterValues;
-
-export const leadFilterKeys = [
-  "search",
-  "status",
-  "eventName",
-  "label",
-  "campaignId",
-  "adSetId",
-  "adId",
-  "attribution",
-  "since",
-  "until",
-  "pageSize",
-] as const satisfies readonly LeadFilterKey[];
-
-export const defaultLeadPageSize = "25";
+import {
+  hasEditableLeadFilter,
+  leadFilterKeys,
+  leadFiltersClearHref,
+  leadFiltersHref,
+  reportScopeKeys,
+  scopeKeys,
+  type LeadFilterKey,
+  type LeadFilterValues,
+} from "./lead-filter-params";
 
 /** Typing dates and text emits intermediate values; wait before applying. */
 const deferredCommitDelayMs = 800;
-
-/** Report drill-down scope: not editable here, but carried on every change. */
-const scopeKeys = ["campaignId", "adSetId", "adId"] as const;
-
-/**
- * Canonical, shareable href: fixed param order, blank and default params
- * omitted, and no `page` so a new filter always starts on the first page.
- */
-export function leadFiltersHref(filters: LeadFilterValues): string {
-  const params = new URLSearchParams();
-
-  for (const key of leadFilterKeys) {
-    const value = filters[key].trim();
-
-    if (!value || (key === "pageSize" && value === defaultLeadPageSize)) {
-      continue;
-    }
-
-    params.set(key, value);
-  }
-
-  const query = params.toString();
-  return query ? `/leads?${query}` : "/leads";
-}
 
 /**
  * The Leads period is optional on both ends: either side alone is a valid
@@ -140,14 +93,10 @@ export function LeadFilters({
     applied.label,
     applied.since,
     applied.until,
-    ...scopeKeys.map((key) => applied[key]),
+    ...reportScopeKeys.map((key) => applied[key]),
   ].filter(Boolean).length;
-  const hasAnyFilter = Boolean(
-    applied.search ||
-    applied.status ||
-    applied.eventName ||
-    advancedFilterCount > 0,
-  );
+  const clearHref = leadFiltersClearHref(applied);
+  const canClear = hasEditableLeadFilter(applied);
   // Uncontrolled after mount: applying a filter must not fold the panel the
   // user is working in.
   const [advancedOpen, setAdvancedOpen] = useState(advancedFilterCount > 0);
@@ -362,10 +311,10 @@ export function LeadFilters({
             {isPending ? "Atualizando..." : statusMessage}
           </span>
         </div>
-        {hasAnyFilter ? (
+        {canClear ? (
           <Link
             className="button ghost"
-            href="/leads"
+            href={clearHref}
             data-lead-filters-clear="true"
             onClick={cancelPendingEdit}
           >

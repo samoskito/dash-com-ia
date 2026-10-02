@@ -1,8 +1,80 @@
 # Spike: auto-apply filters across client surfaces
 
 Date: 2026-10-01
-Branch: feat/reports-autoapply-filters (base 4cb15c3)
+Branch: feat/reports-autoapply-filters (base 4cb15c3) (historical: spike branch)
 Kanban: t_0767c043
+
+## Status (updated 2026-10-01)
+
+| Phase | Scope | State |
+| --- | --- | --- |
+| B | Auto-apply filters: Relatorios #121 `98bf9fc`, Leads #122 `4f42dd0`, Eventos #123 `8b99506`, Revisao de compras #124 `9db0858` | **Accepted and merged** |
+| C API | UAZAPI instance activity + scoped leads filter #125 `75125d6` | **Merged** |
+| C web | UAZAPI activity on Integracoes + `whatsappInstanceId` scope on Leads, branch `feat/uazapi-instance-activity-web` (base `75125d6`) | **Local only, gates green, not committed/pushed** |
+| C deploy | Production API deploy of #125 and web smoke | **Pending** |
+| D | Invites | **Pending** |
+
+### C web (local, uncommitted)
+
+- `integrations/whatsapp-instance-activity.tsx`: validates the
+  `GET /integrations/whatsapp/instances/:id/activity` payload with the shared
+  `whatsappInstanceActivitySchema`. Failure, timeout or malformed payload is
+  `unavailable` ("Atividade indisponivel"), never zero. Null `lastLeadAt` /
+  `lastWebhookAt` render "Nenhum lead registrado" / "Nenhum webhook
+  registrado". Webhook recency is separate from the provider connection
+  status: "Sem webhook recente ha mais de 24h" only when strictly older than
+  24h from the server read time. "Ver leads desta instancia" links to
+  `/leads?whatsappInstanceId=...` with no period.
+- `integrations/page.tsx`: one activity read per distinct UAZAPI instance
+  (not `pending_payment`, not `cloud_api`), in parallel with the status reads
+  and under the same timeout. Instances only known from a UAZAPI inbound
+  bridge are read once after the inbound data; nothing is read twice. New
+  "Atividade" column in the instance table.
+- `integrations/inbound-webhook-panel.tsx`: UAZAPI connections keep the real
+  `eligibleRouted`; the four unmeasured counters show "Nao medido" with a
+  note, and the bridged instance shows its activity and leads link. Other
+  providers are unchanged.
+- Leads: `whatsappInstanceId` is threaded through the URL read, the API
+  query, the canonical `leadFiltersHref`, the scope keys, the hidden GET
+  field and pagination. Limpar drops the editable filters (busca, situacao,
+  etapa, origem, etiqueta, periodo) and keeps the scope (instance and report
+  drill-down) and the page size; it is hidden when it would change nothing.
+  A masked "Instancia WhatsApp" recorte says the list follows each lead's
+  current instance, not message history, with "Ver todas as instancias" as
+  the way out. The report drill-down banner gains "Remover recorte do
+  relatorio", since Limpar now keeps that scope.
+- Review finding P1 (RSC boundary), fixed: the Leads server page imported and
+  called `leadFiltersHref` / `leadFiltersClearHref` / `hasEditableLeadFilter`
+  from `lead-filters.tsx` (`"use client"`). In the RSC build those exports are
+  client references and cannot be called on the server. The pure URL/state
+  helpers, `LeadFilterValues`, keys, default page size and scope keys moved to
+  `leads/lead-filter-params.ts` (no `"use client"`, no imports). The server
+  page and the client component both import from there; the page takes only
+  the `LeadFilters` component from the client module. `leadDateRangeStatus` /
+  `committableLeadFilters` stay in the client module (client-only users, and
+  they depend on the client `overview-filters`). Regression
+  `tests/server-client-boundary.test.ts`: the helper module is not a client
+  module and has no imports; `leads/page.tsx` and `integrations/page.tsx`
+  take only components (PascalCase) from relative `"use client"` modules.
+  Mutation check: importing `leadDateRangeStatus` from `./lead-filters` into
+  the page makes it fail.
+- Gates (local, after the fix): web suite 77 files / 788 tests green; `tsc`
+  only the 4 known TS2353 in `tests/billing-trial-eligibility.test.ts` (file
+  untouched); `next build` green.
+- Real RSC render check (local only): `next start` of that build on
+  127.0.0.1:3999 against a disposable mock API on 127.0.0.1:3333 (fake
+  fixtures, fake session cookie, no production, no secrets). `/leads`,
+  `/leads?whatsappInstanceId=...` and
+  `/leads?whatsappInstanceId=...&status=lost&page=2&pageSize=50` all returned
+  200 with the list, instance recorte, hidden scope field, Limpar keeping
+  scope + page size and scoped pagination; no server errors and no provider
+  id in the HTML. The pre-fix crash was not reproduced at runtime (that would
+  need a separate pre-fix build); `/integrations` was not rendered against
+  the mock (its imports are covered by the boundary test). No browser
+  available, so no visual/layout capture; interaction is covered by jsdom
+  and server-render tests only.
+- Not done: production deploy, production smoke, commit/PR (parent reviews
+  first).
 
 ## Goal
 
@@ -32,15 +104,17 @@ Only Relatorios ships in this branch.
 - Status: "Atualizando..." spinner plus a polite live region that says "Dados
   atualizados." when the update finishes.
 
-## Inventory of remaining "Aplicar" on CLIENT surfaces
+## Inventory of remaining "Aplicar" on CLIENT surfaces (historical)
+
+Snapshot from the spike. Every row below has since shipped (phase B).
 
 | Surface | File | Control | Fields | Status |
 | --- | --- | --- | --- | --- |
-| Relatorios | `app/(app)/reports/meta-report-filters.tsx` | "Aplicar filtros" | BM, conta, numero, nome, escopo do nome, status, veiculacao, classificacao WhatsApp, comparacao, itens por pagina | **Done in this branch** |
-| Relatorios | `app/(app)/reports/page.tsx` | "Aplicar periodo" (separate form) | Inicio, Fim | **Done in this branch** |
-| Leads | `app/(app)/leads/page.tsx` (~L333) | "Aplicar" | busca, status, evento | Next |
-| Eventos | `app/(app)/events/page.tsx` (~L495) | "Aplicar" | since, until, pageSize (hidden) | After Leads |
-| Revisao de compras | `app/(app)/events/purchase-reviews/page.tsx` (~L195) | "Aplicar" | since, until, view, status, providerRuleId | Last |
+| Relatorios | `app/(app)/reports/meta-report-filters.tsx` | "Aplicar filtros" | BM, conta, numero, nome, escopo do nome, status, veiculacao, classificacao WhatsApp, comparacao, itens por pagina | Shipped #121 `98bf9fc` |
+| Relatorios | `app/(app)/reports/page.tsx` | "Aplicar periodo" (separate form) | Inicio, Fim | Shipped #121 `98bf9fc` |
+| Leads | `app/(app)/leads/page.tsx` (~L333) | "Aplicar" | busca, status, evento | Shipped #122 `4f42dd0` |
+| Eventos | `app/(app)/events/page.tsx` (~L495) | "Aplicar" | since, until, pageSize (hidden) | Shipped #123 `8b99506` |
+| Revisao de compras | `app/(app)/events/purchase-reviews/page.tsx` (~L195) | "Aplicar" | since, until, view, status, providerRuleId | Shipped #124 `9db0858` |
 
 ## Explicitly OUT OF SCOPE
 
@@ -54,14 +128,14 @@ These are operator tools or bulk actions, not client filter bars:
 - Health filters: `components/backoffice-health-filters.tsx` "Aplicar
   filtros".
 
-## Recommended rollout
+## Recommended rollout (historical, completed in phase B)
 
-1. **Relatorios (now).** This branch.
+1. **Relatorios.** #121.
 2. **Leads.** The search field needs the debounce and Enter path. Selects
-   apply immediately.
+   apply immediately. #122.
 3. **Eventos.** Only a date range plus a hidden pageSize. Reuse the date
-   rule as is.
-4. **Revisao de compras.** Dates plus three selects. Same pattern.
+   rule as is. #123.
+4. **Revisao de compras.** Dates plus three selects. Same pattern. #124.
 
 For each surface: one client component that owns the fields, a canonical
 `*FiltersHref` builder that drops `page` on every change, no visible submit,

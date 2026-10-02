@@ -10,11 +10,15 @@ vi.mock("next/navigation", () => ({
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { createElement } from "react";
 import {
+  hasEditableLeadFilter,
+  leadFiltersClearHref,
+  leadFiltersHref,
+  type LeadFilterValues,
+} from "../src/app/(app)/leads/lead-filter-params";
+import {
   LeadFilters,
   committableLeadFilters,
   leadDateRangeStatus,
-  leadFiltersHref,
-  type LeadFilterValues,
 } from "../src/app/(app)/leads/lead-filters";
 
 const empty: LeadFilterValues = {
@@ -25,6 +29,7 @@ const empty: LeadFilterValues = {
   campaignId: "",
   adSetId: "",
   adId: "",
+  whatsappInstanceId: "",
   attribution: "",
   since: "",
   until: "",
@@ -422,13 +427,15 @@ describe("lead filters auto-apply", () => {
     expect(router.push).not.toHaveBeenCalled();
   });
 
-  it("links Limpar to /leads and discards the pending edit", () => {
+  it("links Limpar to the kept scope and discards the pending edit", () => {
     vi.useFakeTimers();
     const { field, navigate } = renderLeadFilters();
     const clear = field<HTMLAnchorElement>("[data-lead-filters-clear]");
     const search = field<HTMLInputElement>('input[name="search"]');
 
-    expect(clear.getAttribute("href")).toBe("/leads");
+    expect(clear.getAttribute("href")).toBe(
+      "/leads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1&pageSize=50",
+    );
     expect(clear.textContent).toBe("Limpar");
 
     fireEvent.change(search, { target: { value: "mari" } });
@@ -451,6 +458,112 @@ describe("lead filters auto-apply", () => {
 
     expect(container.querySelector("[data-lead-filters-clear]")).toBeNull();
     expect(container.textContent).not.toContain("Limpar");
+  });
+
+  it("hides Limpar when only the scope and page size are applied", () => {
+    const { container } = renderLeadFilters({
+      ...empty,
+      whatsappInstanceId: "wpp_1",
+      campaignId: "cmp_1",
+      pageSize: "50",
+    });
+
+    expect(container.querySelector("[data-lead-filters-clear]")).toBeNull();
+  });
+});
+
+describe("lead filters WhatsApp instance scope", () => {
+  const scoped: Partial<LeadFilterValues> = {
+    whatsappInstanceId: "wpp_1",
+    campaignId: "",
+    adSetId: "",
+    adId: "",
+  };
+  const scopedQuery =
+    "whatsappInstanceId=wpp_1&attribution=paid&since=2026-09-01&until=2026-09-24&pageSize=50";
+
+  it("places the instance in the canonical href after the report scope", () => {
+    expect(
+      leadFiltersHref({ ...applied, whatsappInstanceId: "wpp_1" }),
+    ).toBe(
+      "/leads?status=qualified&campaignId=cmp_1&adSetId=adset_1&adId=ad_1&whatsappInstanceId=wpp_1&attribution=paid&since=2026-09-01&until=2026-09-24&pageSize=50",
+    );
+    expect(leadFiltersHref({ ...empty, whatsappInstanceId: "wpp_1" })).toBe(
+      "/leads?whatsappInstanceId=wpp_1",
+    );
+  });
+
+  it("keeps the instance on select, debounced text and Enter commits", () => {
+    vi.useFakeTimers();
+    const { field } = renderLeadFilters(scoped);
+
+    fireEvent.change(field('select[name="status"]'), {
+      target: { value: "lost" },
+    });
+    fireEvent.change(field('input[name="search"]'), {
+      target: { value: "mari" },
+    });
+    advance(800);
+    fireEvent.change(field('input[name="label"]'), {
+      target: { value: "VIP" },
+    });
+    fireEvent.submit(field("form"));
+
+    expect(router.push.mock.calls.map(([href]) => href)).toEqual([
+      `/leads?status=lost&${scopedQuery}`,
+      `/leads?search=mari&status=lost&${scopedQuery}`,
+      `/leads?search=mari&status=lost&label=VIP&${scopedQuery}`,
+    ]);
+  });
+
+  it("carries the instance as a hidden GET field", () => {
+    const { field } = renderLeadFilters(scoped);
+    const data = new FormData(field<HTMLFormElement>("form"));
+
+    expect(data.get("whatsappInstanceId")).toBe("wpp_1");
+    expect(
+      field('input[type="hidden"][name="whatsappInstanceId"]'),
+    ).not.toBeNull();
+  });
+
+  it("Limpar drops editable filters but keeps the instance and page size", () => {
+    const { field } = renderLeadFilters({
+      ...scoped,
+      search: "mari",
+      label: "VIP",
+      eventName: "Purchase",
+    });
+
+    expect(
+      field<HTMLAnchorElement>("[data-lead-filters-clear]").getAttribute(
+        "href",
+      ),
+    ).toBe("/leads?whatsappInstanceId=wpp_1&pageSize=50");
+    expect(
+      leadFiltersClearHref({
+        ...applied,
+        whatsappInstanceId: "wpp_1",
+        search: "mari",
+      }),
+    ).toBe(
+      "/leads?campaignId=cmp_1&adSetId=adset_1&adId=ad_1&whatsappInstanceId=wpp_1&pageSize=50",
+    );
+    expect(hasEditableLeadFilter({ ...empty, whatsappInstanceId: "wpp_1" })).toBe(
+      false,
+    );
+    expect(
+      hasEditableLeadFilter({ ...empty, whatsappInstanceId: "wpp_1", status: "lost" }),
+    ).toBe(true);
+  });
+
+  it("does not count the instance as an advanced filter", () => {
+    const { container, field } = renderLeadFilters({
+      ...empty,
+      whatsappInstanceId: "wpp_1",
+    });
+
+    expect(field<HTMLDetailsElement>("details").open).toBe(false);
+    expect(container.querySelector(".lead-active-filter-count")).toBeNull();
   });
 
   it("keeps the advanced panel open while its filters change", () => {

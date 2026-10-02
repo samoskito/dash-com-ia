@@ -3601,6 +3601,73 @@ body {
   margin-top: 14px;
 }
 
+.inbound-counter.unmeasured strong {
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.inbound-counter-note {
+  margin: 0;
+  font-size: 12px;
+}
+
+.inbound-instance-activity {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.whatsapp-instance-activity {
+  display: grid;
+  min-width: 180px;
+  justify-items: start;
+  gap: 8px;
+}
+
+.whatsapp-instance-activity p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.whatsapp-instance-activity-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, auto));
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.whatsapp-instance-activity-counts div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.whatsapp-instance-activity-counts dt {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.whatsapp-instance-activity-counts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.whatsapp-instance-activity small {
+  color: var(--ink-muted);
+}
+
+@media (max-width: 720px) {
+  .whatsapp-instance-activity-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .integration-flow-content {
   gap: 0;
 }

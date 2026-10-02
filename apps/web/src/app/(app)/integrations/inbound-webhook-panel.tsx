@@ -33,6 +33,10 @@ import type {
   InboundWebhookOneTimeSecret,
 } from "./inbound-webhook-actions";
 import { InboundWebhookRouteEditor } from "./inbound-webhook-route-editor";
+import {
+  WhatsappInstanceActivitySummary,
+  type WhatsappInstanceActivities,
+} from "./whatsapp-instance-activity";
 
 type InboundWebhookAction = (
   formData: FormData,
@@ -57,6 +61,8 @@ export type InboundWebhookPanelProps = {
   removeConnectionAction: InboundWebhookAction;
   setChannelStatusAction: InboundWebhookAction;
   saveRoutesAction: InboundWebhookAction;
+  /** UAZAPI activity keyed by WhatsApp instance id. */
+  instanceActivities?: WhatsappInstanceActivities;
 };
 
 type PanelNotice = {
@@ -86,6 +92,7 @@ export function InboundWebhookPanel({
   removeConnectionAction,
   setChannelStatusAction,
   saveRoutesAction,
+  instanceActivities = {},
 }: InboundWebhookPanelProps) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(connections.length === 0);
@@ -315,6 +322,19 @@ export function InboundWebhookPanel({
           connections.map(({ overview, channels, detailState }) => {
             const connection = overview.connection;
             const connectionPending = pendingAction?.includes(connection.id);
+            // UAZAPI materializes leads directly: only routed CTWA is counted.
+            const isUazapi = connection.provider === "uazapi";
+            const bridgedInstanceIds = isUazapi
+              ? [
+                  ...new Set(
+                    channels.flatMap((channel) =>
+                      channel.whatsappInstanceId
+                        ? [channel.whatsappInstanceId]
+                        : [],
+                    ),
+                  ),
+                ]
+              : [];
 
             return (
               <details className="inbound-connection" key={connection.id}>
@@ -376,23 +396,47 @@ export function InboundWebhookPanel({
                     />
                     <ObservationCounter
                       label="CTWA pendente"
-                      value={overview.counters.eligibleUnresolved}
+                      value={
+                        isUazapi ? null : overview.counters.eligibleUnresolved
+                      }
                       tone="warn"
                     />
                     <ObservationCounter
                       label="Sem CTWA"
-                      value={overview.counters.ignoredNoCtwa}
+                      value={isUazapi ? null : overview.counters.ignoredNoCtwa}
                     />
                     <ObservationCounter
                       label="Duplicados"
-                      value={overview.counters.duplicate}
+                      value={isUazapi ? null : overview.counters.duplicate}
                     />
                     <ObservationCounter
                       label="Invalidos"
-                      value={overview.counters.invalid}
+                      value={isUazapi ? null : overview.counters.invalid}
                       tone="error"
                     />
                   </div>
+                  {isUazapi ? (
+                    <p className="muted inbound-counter-note">
+                      A UAZAPI registra apenas os leads CTWA roteados;
+                      pendentes, sem CTWA, duplicados e invalidos nao sao
+                      medidos nesta conexao.
+                    </p>
+                  ) : null}
+                  {bridgedInstanceIds.map((whatsappInstanceId) => (
+                    <section
+                      className="inbound-instance-activity"
+                      aria-label="Atividade da instancia WhatsApp"
+                      key={whatsappInstanceId}
+                    >
+                      <span className="micro-label">
+                        Atividade da instancia
+                      </span>
+                      <WhatsappInstanceActivitySummary
+                        view={instanceActivities[whatsappInstanceId]}
+                        whatsappInstanceId={whatsappInstanceId}
+                      />
+                    </section>
+                  ))}
 
                   {canManage ? (
                     <div className="inbound-connection-actions">
@@ -690,8 +734,18 @@ function ObservationCounter({
 }: {
   label: string;
   tone?: "" | "success" | "warn" | "error";
-  value: number;
+  /** `null` = the provider does not measure this counter. */
+  value: number | null;
 }) {
+  if (value === null) {
+    return (
+      <div className="inbound-counter unmeasured" data-measured="false">
+        <span>{label}</span>
+        <strong>Nao medido</strong>
+      </div>
+    );
+  }
+
   return (
     <div className={`inbound-counter${tone ? ` ${tone}` : ""}`}>
       <span>{label}</span>

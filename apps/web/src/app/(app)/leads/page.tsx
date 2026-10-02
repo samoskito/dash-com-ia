@@ -1,7 +1,12 @@
-import type { LeadListItemDto, LeadListPageDto } from "@wpptrack/shared";
+import type {
+  LeadListItemDto,
+  LeadListPageDto,
+  WhatsappInstanceSummaryDto,
+} from "@wpptrack/shared";
 import {
   ArrowUpRight,
   Filter,
+  MessageCircle,
   RotateCcw,
   UserRoundSearch,
 } from "lucide-react";
@@ -9,6 +14,12 @@ import Link from "next/link";
 import { PresentationMask } from "../../../components/presentation-mask";
 import { formatDateTime } from "../../../lib/date-time";
 import { serverApiFetch } from "../../../lib/server-api";
+import {
+  hasEditableLeadFilter,
+  leadFiltersClearHref,
+  leadFiltersHref,
+  type LeadFilterValues,
+} from "./lead-filter-params";
 import { LeadFilters } from "./lead-filters";
 
 type LeadsSearchParams = Record<string, string | string[] | undefined>;
@@ -27,12 +38,43 @@ type LeadFilters = {
   campaignId?: string;
   adSetId?: string;
   adId?: string;
+  whatsappInstanceId?: string;
   attribution?: string;
   since?: string;
   until?: string;
   page: number;
   pageSize: number;
 };
+
+type InstanceScope =
+  | { state: "none" }
+  | { state: "named"; name: string }
+  | { state: "unnamed" };
+
+/**
+ * Names the instance the list is scoped to. The leads request itself enforces
+ * the scope, so a failed lookup only loses the name, never the filter.
+ */
+async function getInstanceScope(
+  whatsappInstanceId: string | undefined,
+): Promise<InstanceScope> {
+  if (!whatsappInstanceId) {
+    return { state: "none" };
+  }
+
+  try {
+    const instances = await serverApiFetch<WhatsappInstanceSummaryDto[]>(
+      "/integrations/whatsapp/instances",
+    );
+    const instance = instances.find(({ id }) => id === whatsappInstanceId);
+
+    return instance
+      ? { state: "named", name: instance.name }
+      : { state: "unnamed" };
+  } catch {
+    return { state: "unnamed" };
+  }
+}
 
 async function getLeads(filters: LeadFilters): Promise<LeadsResult> {
   try {
@@ -71,6 +113,7 @@ function leadQuery(filters: LeadFilters, page = filters.page): string {
     campaignId: filters.campaignId,
     adSetId: filters.adSetId,
     adId: filters.adId,
+    whatsappInstanceId: filters.whatsappInstanceId,
     attribution: filters.attribution,
     since: filters.since,
     until: filters.until,
@@ -203,6 +246,9 @@ export default async function LeadsPage({
   const campaignId = asStringParam(resolvedSearchParams.campaignId);
   const adSetId = asStringParam(resolvedSearchParams.adSetId);
   const adId = asStringParam(resolvedSearchParams.adId);
+  const whatsappInstanceId =
+    asStringParam(resolvedSearchParams.whatsappInstanceId)?.trim() ||
+    undefined;
   const attribution = asStringParam(resolvedSearchParams.attribution);
   const since = asStringParam(resolvedSearchParams.since);
   const until = asStringParam(resolvedSearchParams.until);
@@ -214,7 +260,8 @@ export default async function LeadsPage({
     positiveIntegerParam(asStringParam(resolvedSearchParams.pageSize), 25),
     100,
   );
-  const hasReportFilter = Boolean(campaignId || adSetId || adId || attribution);
+  const hasReportScope = Boolean(campaignId || adSetId || adId);
+  const hasReportFilter = hasReportScope || Boolean(attribution);
   const hasPeriodFilter = Boolean(since || until);
   const leadFilters: LeadFilters = {
     search,
@@ -224,13 +271,31 @@ export default async function LeadsPage({
     campaignId,
     adSetId,
     adId,
+    whatsappInstanceId,
     attribution,
     since,
     until,
     page,
     pageSize,
   };
-  const result = await getLeads(leadFilters);
+  const appliedFilters: LeadFilterValues = {
+    search: search ?? "",
+    status: status ?? "",
+    eventName: eventName ?? "",
+    label: label ?? "",
+    campaignId: campaignId ?? "",
+    adSetId: adSetId ?? "",
+    adId: adId ?? "",
+    whatsappInstanceId: whatsappInstanceId ?? "",
+    attribution: attribution ?? "",
+    since: since ?? "",
+    until: until ?? "",
+    pageSize: String(pageSize),
+  };
+  const [result, instanceScope] = await Promise.all([
+    getLeads(leadFilters),
+    getInstanceScope(whatsappInstanceId),
+  ]);
   const { leads } = result;
   const pendingCount = leads.filter((lead) => !lead.lastEventName).length;
   const pageStart =
@@ -249,6 +314,16 @@ export default async function LeadsPage({
     result.state === "error"
       ? "Confira a API antes de analisar conversas."
       : "Quando uma integracao ativa receber conversas, elas aparecem aqui.";
+  const clearHref = leadFiltersClearHref(appliedFilters);
+  // Only scope applied: clearing would reload the same list, so the scope
+  // banners own the way out.
+  const emptyActionHref =
+    result.state === "error"
+      ? `/leads?${leadQuery(leadFilters)}`
+      : hasEditableLeadFilter(appliedFilters) ||
+          !(whatsappInstanceId || hasReportScope)
+        ? clearHref
+        : null;
 
   return (
     <section className="page-stack page-wide leads-page">
@@ -271,22 +346,34 @@ export default async function LeadsPage({
         </div>
       </header>
 
-      <LeadFilters
-        applied={{
-          search: search ?? "",
-          status: status ?? "",
-          eventName: eventName ?? "",
-          label: label ?? "",
-          campaignId: campaignId ?? "",
-          adSetId: adSetId ?? "",
-          adId: adId ?? "",
-          attribution: attribution ?? "",
-          since: since ?? "",
-          until: until ?? "",
-          pageSize: String(pageSize),
-        }}
-        page={page}
-      />
+      <LeadFilters applied={appliedFilters} page={page} />
+
+      {instanceScope.state !== "none" ? (
+        <div
+          className="lead-filter-context lead-instance-context"
+          role="status"
+        >
+          <MessageCircle aria-hidden="true" size={16} strokeWidth={2} />
+          <strong>Instancia WhatsApp</strong>
+          <span>
+            Exibindo leads associados atualmente a{" "}
+            {instanceScope.state === "named" ? (
+              <PresentationMask placeholder="instancia oculta">
+                {instanceScope.name}
+              </PresentationMask>
+            ) : (
+              "instancia selecionada"
+            )}
+            . O vinculo e o atual de cada lead, nao o historico de mensagens.
+          </span>
+          <Link
+            className="button ghost"
+            href={leadFiltersHref({ ...appliedFilters, whatsappInstanceId: "" })}
+          >
+            Ver todas as instancias
+          </Link>
+        </div>
+      ) : null}
 
       {hasReportFilter || hasPeriodFilter ? (
         <div className="lead-filter-context" role="status">
@@ -304,6 +391,20 @@ export default async function LeadsPage({
               ? `: ${since ?? "inicio"} ate ${until ?? "hoje"}`
               : "."}
           </span>
+          {hasReportScope ? (
+            // Limpar keeps the drill-down; this is the way out of it.
+            <Link
+              className="button ghost"
+              href={leadFiltersHref({
+                ...appliedFilters,
+                campaignId: "",
+                adSetId: "",
+                adId: "",
+              })}
+            >
+              Remover recorte do relatorio
+            </Link>
+          ) : null}
         </div>
       ) : null}
 
@@ -485,17 +586,14 @@ export default async function LeadsPage({
               <strong>{emptyTitle}</strong>
               <span>{emptyDescription}</span>
             </div>
-            <Link
-              className="button ghost"
-              href={
-                result.state === "error"
-                  ? `/leads?${leadQuery(leadFilters)}`
-                  : "/leads"
-              }
-            >
-              <RotateCcw aria-hidden="true" size={16} strokeWidth={2} />
-              {result.state === "error" ? "Tentar novamente" : "Limpar filtros"}
-            </Link>
+            {emptyActionHref ? (
+              <Link className="button ghost" href={emptyActionHref}>
+                <RotateCcw aria-hidden="true" size={16} strokeWidth={2} />
+                {result.state === "error"
+                  ? "Tentar novamente"
+                  : "Limpar filtros"}
+              </Link>
+            ) : null}
           </div>
         )}
       </section>

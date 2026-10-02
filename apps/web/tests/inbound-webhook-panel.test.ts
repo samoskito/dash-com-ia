@@ -13,6 +13,7 @@ import {
   type InboundWebhookConnectionView,
 } from "../src/app/(app)/integrations/inbound-webhook-panel";
 import { inboundWebhookReportingAccountOptions } from "../src/app/(app)/integrations/inbound-webhook-route-editor";
+import type { WhatsappInstanceActivities } from "../src/app/(app)/integrations/whatsapp-instance-activity";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -379,12 +380,113 @@ describe("inbound webhook panel", () => {
   });
 });
 
+describe("inbound webhook panel UAZAPI bridge", () => {
+  const uazapiView = {
+    overview: {
+      connection: {
+        ...connectionView.overview.connection,
+        id: "connection_uazapi",
+        provider: "uazapi",
+        displayName: "UAZAPI Vendas",
+      },
+      counters: {
+        eligibleRouted: 7,
+        eligibleUnresolved: 0,
+        ignoredNoCtwa: 0,
+        duplicate: 0,
+        invalid: 0,
+      },
+    },
+    channels: [
+      {
+        ...connectionView.channels[0],
+        id: "channel_uazapi",
+        connectionId: "connection_uazapi",
+        connectedPhone: "provider_instance_secret_1",
+        whatsappInstanceId: "wpp_1",
+      },
+    ],
+  } satisfies InboundWebhookConnectionView;
+
+  it("keeps the routed CTWA count and marks the unmeasured counters", () => {
+    const html = renderPanel({ connections: [uazapiView] });
+
+    expect(html).toContain("<span>CTWA roteado</span><strong>7</strong>");
+    expect(html).toContain("7 roteados");
+    for (const label of [
+      "CTWA pendente",
+      "Sem CTWA",
+      "Duplicados",
+      "Invalidos",
+    ]) {
+      expect(html).toContain(
+        `<div class="inbound-counter unmeasured" data-measured="false"><span>${label}</span><strong>Nao medido</strong></div>`,
+      );
+      expect(html).not.toContain(`<span>${label}</span><strong>0</strong>`);
+    }
+    expect(html).toContain("nao sao medidos nesta conexao");
+  });
+
+  it("shows the bridged instance activity and its leads link", () => {
+    const html = renderPanel({
+      connections: [uazapiView],
+      instanceActivities: {
+        wpp_1: {
+          state: "real",
+          checkedAt: "2026-07-18T12:00:00.000Z",
+          activity: {
+            leads24h: 0,
+            leads7d: 4,
+            leadsTotal: 7,
+            lastLeadAt: "2026-07-16T12:00:00.000Z",
+            lastWebhookAt: "2026-07-17T11:00:00.000Z",
+          },
+        },
+      },
+    });
+
+    expect(html).toContain('aria-label="Atividade da instancia WhatsApp"');
+    expect(html).toContain("<dt>CTWA 24h</dt><dd>0</dd>");
+    expect(html).toContain("Sem webhook recente ha mais de 24h");
+    expect(html).toContain('href="/leads?whatsappInstanceId=wpp_1"');
+    // The provider id stays behind the presentation mask, as before.
+    expect(html).toMatch(
+      /presentation-mask-value">provider_instance_secret_1<\/span><span class="presentation-mask-placeholder">Numero oculto/,
+    );
+  });
+
+  it("renders missing activity as unavailable, not as zero or no webhook", () => {
+    const html = renderPanel({ connections: [uazapiView] });
+
+    expect(html).toContain("Atividade indisponivel");
+    expect(html).not.toContain("Nenhum webhook registrado");
+    expect(html).not.toContain("<dt>CTWA 24h</dt>");
+  });
+
+  it("leaves generic providers without activity or unmeasured counters", () => {
+    const html = renderPanel({
+      connections: [connectionView, uazapiView],
+      instanceActivities: {},
+    });
+    const umbler = html.slice(0, html.indexOf("UAZAPI Vendas"));
+
+    expect(umbler).toContain("<span>CTWA pendente</span><strong>5</strong>");
+    expect(umbler).toContain("<span>Invalidos</span><strong>2</strong>");
+    expect(umbler).not.toContain("Nao medido");
+    expect(umbler).not.toContain("Atividade da instancia");
+    expect(umbler).not.toContain("/leads?whatsappInstanceId");
+    expect(html.match(/Atividade da instancia WhatsApp/g)).toHaveLength(1);
+  });
+});
+
 function renderPanel({
   canManage = true,
   connections = [connectionView],
+  instanceActivities,
 }: {
   canManage?: boolean;
   connections?: InboundWebhookConnectionView[];
+  instanceActivities?: WhatsappInstanceActivities;
 } = {}) {
   const action = vi.fn(async (_formData: FormData) => ({
     ok: true as const,
@@ -405,6 +507,7 @@ function renderPanel({
       removeConnectionAction: action,
       setChannelStatusAction: action,
       saveRoutesAction: action,
+      instanceActivities,
     }),
   );
 }

@@ -391,3 +391,180 @@ describe("leads route", () => {
     expect(html).not.toContain("Remarketing 7 dias");
   });
 });
+
+describe("leads route WhatsApp instance scope", () => {
+  const json = (value: unknown, status = 200) =>
+    new Response(JSON.stringify(value), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  const scopedLead = {
+    id: "lead_1",
+    workspaceId: "workspace_1",
+    name: "Mariana Alves",
+    phoneDisplay: "+55 11 99999-1020",
+    phoneHash: "phone_hash_1",
+    status: "lost",
+    source: "uazapi",
+    labels: [],
+    campaignId: null,
+    campaignName: null,
+    adSetId: null,
+    adId: null,
+    lastEventName: null,
+    firstMessageAt: "2026-07-02T03:00:00.000Z",
+    lastMessageAt: "2026-07-02T03:10:00.000Z",
+    createdAt: "2026-07-02T03:00:00.000Z",
+    updatedAt: "2026-07-02T03:10:00.000Z",
+  };
+  const instances = [
+    {
+      id: "wpp_1",
+      name: "Vendas Centro",
+      provider: "uazapi",
+      billingStatus: "active",
+      providerInstanceId: "provider_instance_1",
+      checkoutUrl: null,
+      createdAt: "2026-07-02T03:00:00.000Z",
+    },
+  ];
+
+  function mockApi({
+    instancesResponse = () => json(instances),
+    leadsPage = { page: 2, pageSize: 50, totalItems: 160, totalPages: 4 },
+    items = [scopedLead] as unknown[],
+  } = {}) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url.includes("/integrations/whatsapp/instances")) {
+        return instancesResponse();
+      }
+
+      return json({ items, pagination: leadsPage });
+    });
+  }
+
+  it("scopes the API query, pagination, hidden field and Limpar to the instance", async () => {
+    const fetchMock = mockApi();
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({
+        whatsappInstanceId: "wpp_1",
+        status: "lost",
+        page: "2",
+        pageSize: "50",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3333/leads/page?status=lost&whatsappInstanceId=wpp_1&page=2&pageSize=50",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).toContain(
+      'href="/leads?status=lost&amp;whatsappInstanceId=wpp_1&amp;page=1&amp;pageSize=50"',
+    );
+    expect(html).toContain(
+      'href="/leads?status=lost&amp;whatsappInstanceId=wpp_1&amp;page=3&amp;pageSize=50"',
+    );
+    expect(html).toContain(
+      '<input type="hidden" name="whatsappInstanceId" value="wpp_1"/>',
+    );
+    expect(html).toMatch(
+      /data-lead-filters-clear="true" href="\/leads\?whatsappInstanceId=wpp_1&amp;pageSize=50"/,
+    );
+  });
+
+  it("shows an honest, masked instance recorte with a way out", async () => {
+    mockApi();
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({ whatsappInstanceId: "wpp_1" }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Instancia WhatsApp");
+    expect(html).toContain("Exibindo leads associados atualmente a");
+    expect(html).toMatch(
+      /data-presentation-sensitive="true"><span class="presentation-mask-value">Vendas Centro<\/span><span class="presentation-mask-placeholder">instancia oculta<\/span>/,
+    );
+    expect(html).toContain("nao o historico de mensagens");
+    expect(html).toMatch(/href="\/leads">Ver todas as instancias<\/a>/);
+    // The scope implies no period: no 24h/7d window is claimed here.
+    expect(html).not.toContain("24h");
+    expect(html).not.toContain("Periodo das conversas");
+    expect(html).not.toContain("provider_instance_1");
+    // Only scope applied: Limpar would reload the same list.
+    expect(html).not.toContain("data-lead-filters-clear");
+  });
+
+  it("keeps the scope when the instance name cannot be loaded", async () => {
+    const fetchMock = mockApi({
+      instancesResponse: () => json({ message: "unavailable" }, 503),
+    });
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({ whatsappInstanceId: "wpp_1" }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3333/leads/page?whatsappInstanceId=wpp_1&page=1&pageSize=25",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(html).toContain("instancia selecionada");
+    expect(html).toContain("Mariana Alves");
+  });
+
+  it("does not offer a no-op Limpar on an empty scoped list", async () => {
+    mockApi({
+      items: [],
+      leadsPage: { page: 1, pageSize: 25, totalItems: 0, totalPages: 0 },
+    });
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({ whatsappInstanceId: "wpp_1" }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("Nenhum lead encontrado");
+    expect(html).not.toContain("Limpar filtros");
+    expect(html).toContain("Ver todas as instancias");
+  });
+
+  it("does not look up instances without an instance scope", async () => {
+    const fetchMock = mockApi();
+
+    await LeadsPage({ searchParams: Promise.resolve({ status: "lost" }) });
+
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).includes("/integrations/whatsapp/instances"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the report drill-down on Limpar and offers a separate way out", async () => {
+    mockApi();
+
+    const element = await LeadsPage({
+      searchParams: Promise.resolve({
+        campaignId: "cmp_1",
+        whatsappInstanceId: "wpp_1",
+        search: "mari",
+      }),
+    });
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toMatch(
+      /data-lead-filters-clear="true" href="\/leads\?campaignId=cmp_1&amp;whatsappInstanceId=wpp_1"/,
+    );
+    expect(html).toMatch(
+      /href="\/leads\?search=mari&amp;whatsappInstanceId=wpp_1">Remover recorte do relatorio<\/a>/,
+    );
+    expect(html).toMatch(
+      /href="\/leads\?search=mari&amp;campaignId=cmp_1">Ver todas as instancias<\/a>/,
+    );
+  });
+});

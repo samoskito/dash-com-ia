@@ -82,6 +82,11 @@ import {
 } from "./meta-oauth-actions";
 import { MetaOAuthButton } from "./meta-oauth-button";
 import { MetaReportingAccountsForm } from "./meta-reporting-accounts-form";
+import {
+  WhatsappInstanceActivitySummary,
+  whatsappInstanceActivityView,
+  type WhatsappInstanceActivities,
+} from "./whatsapp-instance-activity";
 
 type ResourceResult<T> = {
   data: T;
@@ -143,16 +148,20 @@ async function getWhatsappInstances(): Promise<
   }
 }
 
-async function getWhatsappInstanceStatuses(
-  instances: WhatsappInstanceSummaryDto[],
-): Promise<Record<string, WhatsappInstanceConnectionDto>> {
+function providerStatusTimeoutMs(): number {
   const configuredTimeout = Number(
     process.env.WPPTRACK_WEB_PROVIDER_STATUS_TIMEOUT_MS ?? 2000,
   );
-  const timeoutMs =
-    Number.isFinite(configuredTimeout) && configuredTimeout > 0
-      ? configuredTimeout
-      : 2000;
+
+  return Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : 2000;
+}
+
+async function getWhatsappInstanceStatuses(
+  instances: WhatsappInstanceSummaryDto[],
+): Promise<Record<string, WhatsappInstanceConnectionDto>> {
+  const timeoutMs = providerStatusTimeoutMs();
   const activeInstances = instances.filter(
     (instance) => instance.billingStatus === "active",
   );
@@ -183,6 +192,57 @@ async function getWhatsappInstanceStatuses(
   );
 
   return Object.fromEntries(entries);
+}
+
+/** One parallel read per distinct UAZAPI instance; failures stay unavailable. */
+async function getWhatsappInstanceActivities(
+  instanceIds: Iterable<string>,
+): Promise<WhatsappInstanceActivities> {
+  const timeoutMs = providerStatusTimeoutMs();
+  const entries = await Promise.all(
+    [...new Set(instanceIds)].map(async (instanceId) => {
+      try {
+        const payload = await serverApiFetch<unknown>(
+          `/integrations/whatsapp/instances/${encodeURIComponent(instanceId)}/activity`,
+          { signal: AbortSignal.timeout(timeoutMs) },
+        );
+
+        return [
+          instanceId,
+          whatsappInstanceActivityView(payload, new Date()),
+        ] as const;
+      } catch {
+        return [instanceId, { state: "unavailable" }] as const;
+      }
+    }),
+  );
+
+  return Object.fromEntries(entries);
+}
+
+function uazapiActivityInstanceIds(
+  instances: WhatsappInstanceSummaryDto[],
+): string[] {
+  // A pending payment never reached UAZAPI, so it has nothing to measure.
+  return instances
+    .filter(
+      (instance) =>
+        instance.provider === "uazapi" &&
+        instance.billingStatus !== "pending_payment",
+    )
+    .map((instance) => instance.id);
+}
+
+function uazapiBridgedInstanceIds(
+  connections: InboundWebhookConnectionView[],
+): string[] {
+  return connections.flatMap(({ overview, channels }) =>
+    overview.connection.provider === "uazapi"
+      ? channels.flatMap((channel) =>
+          channel.whatsappInstanceId ? [channel.whatsappInstanceId] : [],
+        )
+      : [],
+  );
 }
 
 async function getWhatsappQuote(): Promise<
@@ -984,9 +1044,15 @@ export default async function IntegrationsPage({
     pipelineResult.data?.whatsappSource?.mode === "external";
   const health = healthResult.data;
   const whatsappInstances = whatsappInstancesResult.data;
-  const whatsappInstanceStatuses = usesExternalWhatsapp
-    ? {}
-    : await getWhatsappInstanceStatuses(whatsappInstances);
+  const [whatsappInstanceStatuses, listedInstanceActivities] =
+    usesExternalWhatsapp
+      ? [{}, {}]
+      : await Promise.all([
+          getWhatsappInstanceStatuses(whatsappInstances),
+          getWhatsappInstanceActivities(
+            uazapiActivityInstanceIds(whatsappInstances),
+          ),
+        ]);
   const metaConnection = metaConnectionResult.data;
   const metaAssets = metaAssetsResult.data;
   const metaCapabilities = metaCapabilitiesResult.data;
@@ -999,6 +1065,15 @@ export default async function IntegrationsPage({
         : ({ data: null, state: "empty" } as const);
   const inboundWebhookResult = await getInboundWebhookData();
   const inboundWebhookData = inboundWebhookResult.data;
+  // Bridged instances are normally already in the list; only fetch the rest.
+  const whatsappInstanceActivities: WhatsappInstanceActivities = {
+    ...listedInstanceActivities,
+    ...(await getWhatsappInstanceActivities(
+      uazapiBridgedInstanceIds(inboundWebhookData?.connections ?? []).filter(
+        (instanceId) => !(instanceId in listedInstanceActivities),
+      ),
+    )),
+  };
   const whatsappQuote = whatsappQuoteResult.data;
   const billingSubscription = billingSubscriptionResult.data;
   const packageBilling = packageBillingResult.data;
@@ -1601,6 +1676,7 @@ export default async function IntegrationsPage({
               removeConnectionAction={removeInboundWebhookConnectionAction}
               setChannelStatusAction={setInboundWebhookChannelStatusAction}
               saveRoutesAction={saveInboundWebhookChannelRoutesAction}
+              instanceActivities={whatsappInstanceActivities}
             />
           ) : null}
 
@@ -1789,6 +1865,7 @@ export default async function IntegrationsPage({
                       <th>Provider</th>
                       <th>Billing</th>
                       <th>Conexao</th>
+                      <th>Atividade</th>
                       <th>ID NOD API</th>
                       <th>Acao</th>
                     </tr>
@@ -1831,6 +1908,17 @@ export default async function IntegrationsPage({
                                   </code>
                                 ) : null}
                               </>
+                            ) : (
+                              <span>-</span>
+                            )}
+                          </td>
+                          <td>
+                            {instance.provider === "uazapi" &&
+                            instance.billingStatus !== "pending_payment" ? (
+                              <WhatsappInstanceActivitySummary
+                                view={whatsappInstanceActivities[instance.id]}
+                                whatsappInstanceId={instance.id}
+                              />
                             ) : (
                               <span>-</span>
                             )}
@@ -1887,6 +1975,7 @@ export default async function IntegrationsPage({
                             WhatsApp
                           </span>
                         </td>
+                        <td>-</td>
                         <td>-</td>
                         <td>-</td>
                         <td>-</td>

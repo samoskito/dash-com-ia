@@ -339,6 +339,18 @@ describe("integrations route", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
+            leads24h: 2,
+            leads7d: 9,
+            leadsTotal: 41,
+            lastLeadAt: "2026-07-02T02:00:00.000Z",
+            lastWebhookAt: "2026-07-02T02:30:00.000Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
             workspaceId: "workspace_1",
             connectionMode: "oauth",
             advancedRoutingEnabled: false,
@@ -430,6 +442,19 @@ describe("integrations route", () => {
       "http://localhost:3333/integrations/whatsapp/instances/wpp_1/status",
       expect.objectContaining({ credentials: "include" }),
     );
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/whatsapp/instances/wpp_1/activity",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    // A pending payment never reached UAZAPI: nothing to measure.
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      "http://localhost:3333/integrations/whatsapp/instances/wpp_2/activity",
+      expect.anything(),
+    );
+    expect(html).toContain("<th>Atividade</th>");
+    expect(html).toContain("<dt>CTWA total</dt><dd>41</dd>");
+    expect(html).toContain('href="/leads?whatsappInstanceId=wpp_1"');
+    expect(html).not.toContain('href="/leads?whatsappInstanceId=wpp_2"');
     expect(html).toContain("Meta conectado");
     expect(html).toContain("Conta adicionada");
     expect(html).toContain("A conta de anuncio foi adicionada aos relatorios.");
@@ -1521,12 +1546,158 @@ describe("integrations route", () => {
   });
 });
 
+describe("integrations UAZAPI instance activity", () => {
+  const instance = (
+    id: string,
+    patch: Record<string, unknown> = {},
+  ) => ({
+    id,
+    name: `Instancia ${id}`,
+    provider: "uazapi",
+    billingStatus: "active",
+    providerInstanceId: `provider_${id}`,
+    checkoutUrl: null,
+    createdAt: "2026-07-02T03:00:00.000Z",
+    ...patch,
+  });
+  const activity = {
+    leads24h: 2,
+    leads7d: 5,
+    leadsTotal: 30,
+    lastLeadAt: "2026-07-17T10:00:00.000Z",
+    lastWebhookAt: "2026-07-17T10:30:00.000Z",
+  };
+  const uazapiConnection = (id: string) => ({
+    ...wave7Connection,
+    id,
+    provider: "uazapi",
+    displayName: `UAZAPI ${id}`,
+    parserVersion: "uazapi/v1",
+    parserReleaseStatus: "certified",
+  });
+  const uazapiChannel = (connectionId: string, whatsappInstanceId: string) => ({
+    ...wave7Channel,
+    id: `channel_${connectionId}`,
+    connectionId,
+    whatsappInstanceId,
+  });
+  const overview = (connectionId: string) => ({
+    connection: uazapiConnection(connectionId),
+    counters: {
+      eligibleRouted: 4,
+      eligibleUnresolved: 0,
+      ignoredNoCtwa: 0,
+      duplicate: 0,
+      invalid: 0,
+    },
+  });
+
+  function mockUazapiWorkspace(onActivity?: () => Promise<void>) {
+    return mockWave7IntegrationsFetch({
+      canManage: true,
+      onActivity,
+      failPaths: ["/integrations/whatsapp/instances/wpp_down/activity"],
+      overrides: {
+        "/integrations/whatsapp/instances": [
+          instance("wpp_live"),
+          instance("wpp_down"),
+          instance("wpp_bad"),
+          instance("wpp_pending", {
+            billingStatus: "pending_payment",
+            providerInstanceId: null,
+          }),
+          instance("wpp_cloud", { provider: "cloud_api" }),
+        ],
+        "/integrations/whatsapp/instances/wpp_live/activity": activity,
+        "/integrations/whatsapp/instances/wpp_bad/activity": {
+          ...activity,
+          leadsTotal: -3,
+        },
+        "/integrations/whatsapp/instances/wpp_orphan/activity": {
+          ...activity,
+          leadsTotal: 77,
+        },
+        "/integrations/inbound-webhooks": [
+          wave7Connection,
+          uazapiConnection("connection_live"),
+          uazapiConnection("connection_orphan"),
+        ],
+        "/integrations/inbound-webhooks/connection_live/overview":
+          overview("connection_live"),
+        "/integrations/inbound-webhooks/connection_live/channels": [
+          uazapiChannel("connection_live", "wpp_live"),
+        ],
+        "/integrations/inbound-webhooks/connection_orphan/overview":
+          overview("connection_orphan"),
+        "/integrations/inbound-webhooks/connection_orphan/channels": [
+          uazapiChannel("connection_orphan", "wpp_orphan"),
+        ],
+      },
+    });
+  }
+
+  it("reads each UAZAPI instance once, in parallel, and skips other providers", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const { requestedPaths } = mockUazapiWorkspace(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+    });
+
+    await IntegrationsPage({});
+
+    const activityPaths = requestedPaths.filter((path) =>
+      path.endsWith("/activity"),
+    );
+
+    expect([...activityPaths].sort()).toEqual([
+      "/integrations/whatsapp/instances/wpp_bad/activity",
+      "/integrations/whatsapp/instances/wpp_down/activity",
+      "/integrations/whatsapp/instances/wpp_live/activity",
+      "/integrations/whatsapp/instances/wpp_orphan/activity",
+    ]);
+    expect(maxInFlight).toBeGreaterThanOrEqual(3);
+  });
+
+  it("renders real, unavailable and malformed activity honestly", async () => {
+    mockUazapiWorkspace();
+
+    const element = await IntegrationsPage({});
+    const html = renderToStaticMarkup(createElement("div", null, element));
+
+    expect(html).toContain("<dt>CTWA total</dt><dd>30</dd>");
+    expect(html).toContain("<dt>CTWA total</dt><dd>77</dd>");
+    expect(html).not.toContain("<dd>-3</dd>");
+    // wpp_down and wpp_bad: unavailable in the table, never zero.
+    expect(
+      html.match(/data-activity-state="unavailable"/g)?.length,
+    ).toBe(2);
+    expect(html).toContain('href="/leads?whatsappInstanceId=wpp_live"');
+    expect(html).toContain('href="/leads?whatsappInstanceId=wpp_orphan"');
+    expect(html).not.toContain('href="/leads?whatsappInstanceId=wpp_pending"');
+    expect(html).not.toContain('href="/leads?whatsappInstanceId=wpp_cloud"');
+    // The Umbler connection keeps its measured counters.
+    expect(html).toContain("<span>CTWA pendente</span><strong>4</strong>");
+    expect(html).toContain("Nao medido");
+    // Provider connection status is untouched by activity.
+    expect(html).toContain("Conectar WhatsApp");
+  });
+});
+
 function mockWave7IntegrationsFetch({
   canManage,
   failInboundDetails = false,
+  overrides = {},
+  failPaths = [],
+  onActivity,
 }: {
   canManage: boolean;
   failInboundDetails?: boolean;
+  overrides?: Record<string, unknown>;
+  failPaths?: string[];
+  onActivity?: () => Promise<void>;
 }) {
   const requestedPaths: string[] = [];
   const responses: Record<string, unknown> = {
@@ -1627,6 +1798,7 @@ function mockWave7IntegrationsFetch({
       },
     },
     "/integrations/inbound-webhooks/connection_wave7/channels": [wave7Channel],
+    ...overrides,
   };
 
   const fetchMock = vi
@@ -1634,6 +1806,14 @@ function mockWave7IntegrationsFetch({
     .mockImplementation(async (input) => {
       const path = new URL(String(input)).pathname;
       requestedPaths.push(path);
+
+      if (path.endsWith("/activity")) {
+        await onActivity?.();
+      }
+
+      if (failPaths.includes(path)) {
+        return jsonResponse({ message: "unavailable" }, 503);
+      }
 
       if (
         failInboundDetails &&
