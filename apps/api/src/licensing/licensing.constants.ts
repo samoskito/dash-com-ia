@@ -14,6 +14,7 @@ export const LICENSE_KEY_CHUNK_LENGTH = 4;
 export const LICENSE_CLAIM_ELIGIBLE_PRODUCTS = [
   "Rastracking100 - Sua estrutura 100% rastreada",
   "Comunidade A Nova Ordem do Digital",
+  "Comunidade NOD - A Nova Ordem do Digital - VITALÍCIO",
 ] as const;
 
 export const LICENSE_CLAIM_PAID_STATUS = "Paga";

@@ -68,14 +68,74 @@ describe("student base MySQL adapter", () => {
     expect(input.sql).toMatch(/^\s*SELECT\b/i);
     expect(input.sql).toContain("telefone_comprador");
     expect(input.sql).toMatch(/FROM Transacoes/);
+    expect(input.sql).toMatch(/WHERE email_comprador = \?/);
     expect(input.sql).toMatch(/status = 'Paga'/);
+    expect(input.sql).toMatch(/nome_produto IN \(\?, \?, \?\)/);
+    expect(input.sql).not.toMatch(/\bLIKE\b/i);
     expect(input.sql).not.toContain("ana@x.com");
+    expect(input.sql.match(/\?/g)).toHaveLength(input.values.length);
     expect(input.values).toEqual([
       "ana@x.com",
       "Rastracking100 - Sua estrutura 100% rastreada",
-      "Comunidade A Nova Ordem do Digital"
+      "Comunidade A Nova Ordem do Digital",
+      "Comunidade NOD - A Nova Ordem do Digital - VITALÍCIO"
     ]);
     expect(input.timeout).toBe(3000);
+  });
+
+  it("returns eligible for a paid VITALÍCIO purchase with the same paid-status query", async () => {
+    const harness = createHarness(async () => [
+      [
+        {
+          nome_comprador: "Bia",
+          telefone_comprador: null,
+          nome_produto: "Comunidade NOD - A Nova Ordem do Digital - VITALÍCIO"
+        }
+      ],
+      []
+    ]);
+    const adapter = new StudentBaseMysqlAdapter(
+      harness.factory,
+      configuredEnv
+    );
+
+    await expect(adapter.findEligiblePurchase("bia@x.com")).resolves.toEqual({
+      kind: "eligible",
+      buyerName: "Bia",
+      phone: null,
+      productName: "Comunidade NOD - A Nova Ordem do Digital - VITALÍCIO"
+    });
+    const input = harness.query.mock.calls[0]?.[0] as {
+      sql: string;
+      values: unknown[];
+    };
+    expect(input.sql).toMatch(/status = 'Paga'/);
+    expect(input.values[0]).toBe("bia@x.com");
+    expect(input.values).toContain(
+      "Comunidade NOD - A Nova Ordem do Digital - VITALÍCIO"
+    );
+  });
+
+  it("binds only the three exact course names, so unlisted variants are never sent as eligible", async () => {
+    const harness = createHarness(async () => [[], []]);
+    const adapter = new StudentBaseMysqlAdapter(
+      harness.factory,
+      configuredEnv
+    );
+
+    await adapter.findEligiblePurchase("ana@x.com");
+
+    const input = harness.query.mock.calls[0]?.[0] as { values: unknown[] };
+    const boundNames = input.values.slice(1);
+    expect(boundNames).toHaveLength(3);
+    for (const unlisted of [
+      "Comunidade NOD - A Nova Ordem do Digital",
+      "Comunidade NOD - A Nova Ordem do Digital - VITALICIO",
+      "comunidade nod - a nova ordem do digital - vitalício",
+      "Comunidade NOD - A Nova Ordem do Digital - MENSAL"
+    ]) {
+      expect(boundNames).not.toContain(unlisted);
+    }
   });
 
   it("returns not_eligible for an empty result", async () => {
