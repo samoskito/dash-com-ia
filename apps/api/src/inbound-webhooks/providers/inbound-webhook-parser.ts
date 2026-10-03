@@ -114,6 +114,10 @@ export type InboundWebhookParserResult = {
 
 export type InboundWebhookParserContext = {
   organizationId?: string;
+  /**
+   * Channel phone bound by the connection, never a provider payload field.
+   */
+  connectedPhone?: string;
 };
 
 export interface InboundWebhookParser {
