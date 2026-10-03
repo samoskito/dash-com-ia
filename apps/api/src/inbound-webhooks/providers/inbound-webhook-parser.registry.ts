@@ -1,5 +1,6 @@
 import type { InboundWebhookParser } from "./inbound-webhook-parser";
 import { DataCrazyV1Parser } from "./datacrazy/datacrazy-v1.parser";
+import { GoHighLevelV1Parser } from "./gohighlevel/gohighlevel-v1.parser";
 import { GupshupV1Parser } from "./gupshup/gupshup-v1.parser";
 import { UmblerV1Parser } from "./umbler/umbler-v1.parser";
 
@@ -42,7 +43,12 @@ function parserKey(provider: string, parserVersion: string): string {
 }
 
 function defaultParsers(): InboundWebhookParser[] {
-  return [new UmblerV1Parser(), new GupshupV1Parser(), new DataCrazyV1Parser()];
+  return [
+    new UmblerV1Parser(),
+    new GupshupV1Parser(),
+    new DataCrazyV1Parser(),
+    new GoHighLevelV1Parser(),
+  ];
 }
 
 export class InboundWebhookParserRegistry {
