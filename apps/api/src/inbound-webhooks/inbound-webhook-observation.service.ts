@@ -39,6 +39,26 @@ const supportedClassifications = new Set<InboundWebhookEventClassification>([
 ]);
 const safeErrorCodePattern = /^[a-z0-9_]{1,120}$/;
 
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function goHighLevelLocationId(payload: unknown): string | null {
+  const direct = recordValue(payload);
+  const body =
+    direct ??
+    (Array.isArray(payload) && payload.length === 1
+      ? recordValue(recordValue(payload[0])?.body)
+      : null);
+  const locationId = recordValue(body?.location)?.id;
+
+  if (typeof locationId !== "string") return null;
+  const normalized = locationId.trim();
+  return normalized.length > 0 && normalized.length <= 255 ? normalized : null;
+}
+
 type LoadedDelivery = Prisma.InboundWebhookDeliveryGetPayload<{
   include: {
     workspace: {
@@ -241,7 +261,7 @@ export class InboundWebhookObservationService {
     let result: InboundWebhookParserResult;
 
     try {
-      result = this.parseEncryptedPayload(delivery, parser);
+      result = await this.parseEncryptedPayload(delivery, parser);
       this.validateParserResult(result, parser);
     } catch (error) {
       return this.finishFailure(
@@ -335,7 +355,7 @@ export class InboundWebhookObservationService {
         parserVersion: delivery.connection.parserRelease.version,
         parserReleaseStatus: delivery.connection.parserRelease.status,
       });
-      const result = this.parseEncryptedPayload(delivery, parser);
+      const result = await this.parseEncryptedPayload(delivery, parser);
       this.validateParserResult(result, parser);
       if (result.error || result.classification === "invalid_payload") {
         throw new InboundWebhookObservationError(
@@ -358,8 +378,7 @@ export class InboundWebhookObservationService {
         },
       });
 
-      for (const providerConversionExecutionId of
-        reevaluated.eligibleExecutionIds) {
+      for (const providerConversionExecutionId of reevaluated.eligibleExecutionIds) {
         try {
           await this.productionQueue.enqueueProviderConversion({
             providerConversionExecutionId,
@@ -513,10 +532,10 @@ export class InboundWebhookObservationService {
     };
   }
 
-  private parseEncryptedPayload(
+  private async parseEncryptedPayload(
     delivery: LoadedDelivery,
     parser: InboundWebhookParser,
-  ): InboundWebhookParserResult {
+  ): Promise<InboundWebhookParserResult> {
     if (
       !delivery.encryptedPayload ||
       !delivery.payloadIv ||
@@ -575,8 +594,44 @@ export class InboundWebhookObservationService {
     }
 
     try {
+      if (parser.provider === "gohighlevel") {
+        const providerChannelId = goHighLevelLocationId(payload);
+        if (!providerChannelId) {
+          throw new InboundWebhookDeterministicFailure(
+            "inbound_webhook_gohighlevel_location_missing",
+            "invalid_payload",
+          );
+        }
+
+        const channel = await this.prisma.inboundWebhookChannel.findFirst({
+          where: {
+            workspaceId: delivery.workspaceId,
+            connectionId: delivery.connectionId,
+            organizationId: delivery.workspaceId,
+            providerChannelId,
+          },
+          select: {
+            connectedPhone: true,
+          },
+        });
+        if (!channel?.connectedPhone?.trim()) {
+          throw new InboundWebhookDeterministicFailure(
+            "inbound_webhook_gohighlevel_channel_binding_missing",
+            "invalid_payload",
+          );
+        }
+
+        return parser.parse(payload, {
+          organizationId: delivery.workspaceId,
+          connectedPhone: channel.connectedPhone,
+        });
+      }
+
       return parser.parse(payload, { organizationId: delivery.workspaceId });
-    } catch {
+    } catch (error) {
+      if (error instanceof InboundWebhookDeterministicFailure) {
+        throw error;
+      }
       throw new InboundWebhookDeterministicFailure(
         "inbound_webhook_parser_execution_failed",
         "invalid_payload",
@@ -919,7 +974,7 @@ export class InboundWebhookObservationService {
         parserReleaseStatus: delivery.connection.parserRelease.status,
       });
       const result =
-        parsedResult ?? this.parseEncryptedPayload(delivery, parser);
+        parsedResult ?? (await this.parseEncryptedPayload(delivery, parser));
 
       this.validateParserResult(result, parser);
       if (result.error || result.classification === "invalid_payload") {

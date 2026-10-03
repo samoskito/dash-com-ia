@@ -165,10 +165,64 @@ export const inboundWebhookDisplayNameSchema = z
     message: "Nome de conexao invalido",
   });
 
-export const inboundWebhookConnectionCreateInputSchema = z.object({
-  provider: inboundWebhookProviderSchema,
-  displayName: inboundWebhookDisplayNameSchema,
+const inboundWebhookGoHighLevelLocationSchema = z.object({
+  id: idSchema,
+  name: z.string().trim().min(1).max(160).optional(),
 });
+
+const inboundWebhookGenericConnectionCreateInputSchema = z
+  .object({
+    provider: inboundWebhookProviderSchema.exclude(["gohighlevel"]),
+    displayName: inboundWebhookDisplayNameSchema,
+  })
+  .strict();
+
+const inboundWebhookGoHighLevelConnectionCreateInputSchema = z
+  .object({
+    provider: z.literal("gohighlevel"),
+    // GHL operators can use the location name as the connection label.
+    displayName: inboundWebhookDisplayNameSchema.optional(),
+    // providerChannelId is the GHL location.id persisted on the bound channel.
+    providerChannelId: idSchema.optional(),
+    location: inboundWebhookGoHighLevelLocationSchema.optional(),
+    // This is the clinic's WhatsApp number, never a lead phone from a webhook.
+    connectedPhone: z.string().trim().min(1).max(32),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (!input.providerChannelId && !input.location?.id) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["providerChannelId"],
+        message: "A localizacao GoHighLevel e obrigatoria",
+      });
+    }
+
+    if (
+      input.providerChannelId &&
+      input.location?.id &&
+      input.providerChannelId !== input.location.id
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["providerChannelId"],
+        message: "A localizacao GoHighLevel esta inconsistente",
+      });
+    }
+
+    if (!input.displayName && !input.location?.name) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["displayName"],
+        message: "Informe um nome de conexao ou da localizacao",
+      });
+    }
+  });
+
+export const inboundWebhookConnectionCreateInputSchema = z.union([
+  inboundWebhookGenericConnectionCreateInputSchema,
+  inboundWebhookGoHighLevelConnectionCreateInputSchema,
+]);
 
 export const inboundWebhookConnectionStatusUpdateInputSchema = z.object({
   status: inboundWebhookMutableConnectionStatusSchema,
