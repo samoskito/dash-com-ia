@@ -52,6 +52,7 @@ enum DiagnosticSource {
   umbler
   gupshup
   datacrazy
+  gohighlevel
   payt
   asaas
   external_mysql
@@ -280,6 +281,7 @@ enum InboundWebhookProvider {
   gupshup
   uazapi
   datacrazy
+  gohighlevel
 }
 
 enum InboundWebhookParserReleaseStatus {

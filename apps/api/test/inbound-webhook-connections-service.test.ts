@@ -10,7 +10,7 @@ import { InboundWebhookConnectionsService } from "../src/inbound-webhooks/inboun
 
 type TestParserRelease = {
   id: string;
-  provider: "umbler" | "gupshup" | "uazapi" | "datacrazy";
+  provider: "umbler" | "gupshup" | "uazapi" | "datacrazy" | "gohighlevel";
   version: string;
   status: "observation_only" | "certified";
   certifiedByUserId: null;
@@ -22,7 +22,7 @@ type TestParserRelease = {
 type TestConnection = {
   id: string;
   workspaceId: string;
-  provider: "umbler" | "gupshup" | "uazapi" | "datacrazy";
+  provider: "umbler" | "gupshup" | "uazapi" | "datacrazy" | "gohighlevel";
   displayName: string;
   parserReleaseId: string;
   secretHash: string | null;
@@ -73,6 +73,16 @@ function createHarness() {
     {
       id: "inbound_parser_datacrazy_v1",
       provider: "datacrazy",
+      version: "v1",
+      status: "observation_only",
+      certifiedByUserId: null,
+      certifiedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "inbound_parser_gohighlevel_v1",
+      provider: "gohighlevel",
       version: "v1",
       status: "observation_only",
       certifiedByUserId: null,
@@ -293,7 +303,7 @@ describe("inbound webhook connections service", () => {
     });
   });
 
-  it("advertises and creates Gupshup and Data Crazy as observation connections", async () => {
+  it("advertises and creates observation connections for seeded providers", async () => {
     const harness = createHarness();
     const capabilities = await harness.service.getCapabilities();
 
@@ -325,8 +335,8 @@ describe("inbound webhook connections service", () => {
       {
         provider: "gohighlevel",
         parserVersion: "v1",
-        parserReleaseStatus: null,
-        creationEnabled: false,
+        parserReleaseStatus: "observation_only",
+        creationEnabled: true,
       },
     ]);
     expect(
@@ -335,7 +345,14 @@ describe("inbound webhook connections service", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           provider: {
-            in: ["umbler", "payt", "gupshup", "uazapi", "datacrazy"],
+            in: [
+              "umbler",
+              "payt",
+              "gupshup",
+              "uazapi",
+              "datacrazy",
+              "gohighlevel",
+            ],
           },
         }),
       }),
@@ -375,30 +392,22 @@ describe("inbound webhook connections service", () => {
       parserReleaseStatus: "observation_only",
       status: "observation",
     });
-  });
+    const goHighLevel = await harness.service.createConnection(
+      "workspace_3",
+      {
+        provider: "gohighlevel",
+        displayName: "Go High Level Comercial",
+      },
+      "user_3",
+    );
 
-  it("fails closed for Go High Level before querying Prisma enum filters", async () => {
-    const harness = createHarness();
-
-    await expect(
-      harness.service.createConnection(
-        "workspace_1",
-        {
-          provider: "gohighlevel",
-          displayName: "Go High Level Comercial",
-        },
-        "user_1",
-      ),
-    ).rejects.toMatchObject({
-      status: 409,
-      message: "Versao de observacao do provedor indisponivel",
+    expect(goHighLevel.connection).toMatchObject({
+      workspaceId: "workspace_3",
+      provider: "gohighlevel",
+      parserVersion: "v1",
+      parserReleaseStatus: "observation_only",
+      status: "observation",
     });
-
-    expect(harness.prisma.$transaction).not.toHaveBeenCalled();
-    expect(
-      harness.prisma.inboundWebhookParserRelease.findFirst,
-    ).not.toHaveBeenCalled();
-    expect(harness.connections.size).toBe(0);
   });
 
   it("rotates the hash and returns a single new URL without exposing it later", async () => {
