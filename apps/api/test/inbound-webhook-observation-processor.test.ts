@@ -21,6 +21,7 @@ import { InboundWebhookParserRegistry } from "../src/inbound-webhooks/providers/
 import { UmblerV1Parser } from "../src/inbound-webhooks/providers/umbler/umbler-v1.parser";
 import type { UmblerV1Envelope } from "../src/inbound-webhooks/providers/umbler/umbler-v1.types";
 import { DataCrazyV1Parser } from "../src/inbound-webhooks/providers/datacrazy/datacrazy-v1.parser";
+import { GoHighLevelV1Parser } from "../src/inbound-webhooks/providers/gohighlevel/gohighlevel-v1.parser";
 
 const fixturePath = resolve(
   __dirname,
@@ -78,6 +79,27 @@ function dataCrazyMessage(overrides: MutableRecord = {}) {
           ...overrides,
         }),
       }),
+    },
+  ];
+}
+
+function goHighLevelMessage() {
+  return [
+    {
+      body: {
+        contact_id: "ghl_contact_1",
+        phone: "+5511999991111",
+        full_name: "Lead GHL",
+        date_created: "2026-10-01T12:34:56.000Z",
+        location: { id: "ghl_location_1", name: "Clinica GHL" },
+        workflow: { id: "ghl_workflow_1" },
+        contact: {
+          attributionSource: {
+            ctwa_clid: "ghl_ctwa_1",
+            adId: "ghl_ad_1",
+          },
+        },
+      },
     },
   ];
 }
@@ -176,6 +198,26 @@ function createHarness(parser?: InboundWebhookParser) {
     return delivery;
   };
 
+  const addChannel = (input: MutableRecord) => {
+    const channel: MutableRecord = {
+      id: `channel_${++channelSequence}`,
+      workspaceId: "workspace_1",
+      organizationId: "workspace_1",
+      status: "discovered",
+      conversionEngineMode: "canonical",
+      ...input,
+    };
+    channels.set(
+      [
+        channel.connectionId,
+        channel.organizationId,
+        channel.providerChannelId,
+      ].join(":"),
+      channel,
+    );
+    return channel;
+  };
+
   const inboundWebhookDelivery = {
     findFirst: vi.fn(async ({ where }: MutableRecord) => {
       const delivery = deliveries.get(where.id);
@@ -258,6 +300,16 @@ function createHarness(parser?: InboundWebhookParser) {
     }),
   };
   const inboundWebhookChannel = {
+    findFirst: vi.fn(async ({ where }: MutableRecord) => {
+      const channel = [...channels.values()].find(
+        (candidate) =>
+          candidate.workspaceId === where.workspaceId &&
+          candidate.connectionId === where.connectionId &&
+          candidate.organizationId === where.organizationId &&
+          candidate.providerChannelId === where.providerChannelId,
+      );
+      return channel ? { connectedPhone: channel.connectedPhone } : null;
+    }),
     upsert: vi.fn(async ({ where, create, update }: MutableRecord) => {
       const identity = where.connectionId_organizationId_providerChannelId;
       const key = [
@@ -380,6 +432,7 @@ function createHarness(parser?: InboundWebhookParser) {
 
   return {
     addConnection,
+    addChannel,
     addDelivery,
     channels,
     connections,
@@ -450,6 +503,94 @@ class MultiEventParser implements InboundWebhookParser {
 }
 
 describe("inbound webhook observation processor", () => {
+  it("uses the GoHighLevel channel bind as parser context, never the lead phone", async () => {
+    const base = new GoHighLevelV1Parser();
+    const parser: InboundWebhookParser = {
+      provider: base.provider,
+      parserVersion: base.parserVersion,
+      parse: vi.fn((payload, context) => base.parse(payload, context)),
+    };
+    const harness = createHarness(parser);
+    harness.addConnection("connection_gohighlevel", "workspace_1", {
+      provider: "gohighlevel",
+      parserReleaseId: "parser_release_gohighlevel",
+      parserRelease: {
+        id: "parser_release_gohighlevel",
+        provider: "gohighlevel",
+        version: "v1",
+        status: "observation_only",
+      },
+    });
+    harness.addChannel({
+      connectionId: "connection_gohighlevel",
+      providerChannelId: "ghl_location_1",
+      connectedPhone: "+5511999990000",
+      channelName: "Clinica GHL",
+    });
+    harness.addDelivery("delivery_gohighlevel", goHighLevelMessage(), {
+      connectionId: "connection_gohighlevel",
+      provider: "gohighlevel",
+    });
+
+    await expect(
+      harness.service.processDelivery(
+        jobPayload({
+          deliveryId: "delivery_gohighlevel",
+          connectionId: "connection_gohighlevel",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: "processed",
+      classification: "eligible_route_unresolved",
+    });
+
+    expect(parser.parse).toHaveBeenCalledWith(goHighLevelMessage(), {
+      organizationId: "workspace_1",
+      connectedPhone: "+5511999990000",
+    });
+    expect([...harness.channels.values()][0]).toMatchObject({
+      connectedPhone: "+5511999990000",
+    });
+    expect(JSON.stringify([...harness.channels.values()])).not.toContain(
+      "+5511999991111",
+    );
+  });
+
+  it("fails closed when a GoHighLevel delivery has no bound channel", async () => {
+    const harness = createHarness(new GoHighLevelV1Parser());
+    harness.addConnection("connection_gohighlevel", "workspace_1", {
+      provider: "gohighlevel",
+      parserReleaseId: "parser_release_gohighlevel",
+      parserRelease: {
+        id: "parser_release_gohighlevel",
+        provider: "gohighlevel",
+        version: "v1",
+        status: "observation_only",
+      },
+    });
+    harness.addDelivery("delivery_gohighlevel", goHighLevelMessage(), {
+      connectionId: "connection_gohighlevel",
+      provider: "gohighlevel",
+    });
+
+    await expect(
+      harness.service.processDelivery(
+        jobPayload({
+          deliveryId: "delivery_gohighlevel",
+          connectionId: "connection_gohighlevel",
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: "failed",
+      classification: "invalid_payload",
+      persistedEventCount: 0,
+    });
+    expect(harness.prisma.inboundWebhookChannel.upsert).not.toHaveBeenCalled();
+    expect(harness.deliveries.get("delivery_gohighlevel")).toMatchObject({
+      parseErrorCode: "inbound_webhook_gohighlevel_channel_binding_missing",
+    });
+  });
+
   it("delegates BullMQ jobs using the identifier-only payload", async () => {
     const observation = {
       processDelivery: vi.fn(async (_input: InboundWebhookJobPayload) => ({
@@ -885,11 +1026,10 @@ describe("inbound webhook observation processor", () => {
     );
 
     const redactedPersistence = JSON.stringify({
-      delivery:
-        harness.deliveries.get("delivery_gupshup_cloud")?.normalizedSummary,
+      delivery: harness.deliveries.get("delivery_gupshup_cloud")
+        ?.normalizedSummary,
       event: persistedEvent,
-      diagnostic:
-        harness.diagnostics.recordObservation.mock.calls[0]?.[0],
+      diagnostic: harness.diagnostics.recordObservation.mock.calls[0]?.[0],
     });
     expect(redactedPersistence).not.toContain(contactPhone);
     expect(redactedPersistence).not.toContain(privateMessage);

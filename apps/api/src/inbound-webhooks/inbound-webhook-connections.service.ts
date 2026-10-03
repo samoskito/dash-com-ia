@@ -59,6 +59,48 @@ function isPersistedInboundWebhookProvider(
   );
 }
 
+type GoHighLevelConnectionBind = {
+  providerChannelId: string;
+  connectedPhone: string;
+  channelName: string;
+};
+
+function boundedTrimmedString(
+  value: unknown,
+  maximumLength: number,
+): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 && normalized.length <= maximumLength
+    ? normalized
+    : null;
+}
+
+function resolveGoHighLevelConnectionBind(
+  input: InboundWebhookConnectionCreateInputDto,
+): GoHighLevelConnectionBind | null {
+  if (input.provider !== "gohighlevel") return null;
+
+  const providerChannelId =
+    boundedTrimmedString(input.providerChannelId, 255) ??
+    boundedTrimmedString(input.location?.id, 255);
+  const connectedPhone = boundedTrimmedString(input.connectedPhone, 32);
+  const channelName =
+    boundedTrimmedString(input.displayName, 120) ??
+    boundedTrimmedString(input.location?.name, 160);
+
+  if (!providerChannelId || !connectedPhone || !channelName) return null;
+  if (
+    input.providerChannelId &&
+    input.location?.id &&
+    input.providerChannelId !== input.location.id
+  ) {
+    return null;
+  }
+
+  return { providerChannelId, connectedPhone, channelName };
+}
+
 @Injectable()
 export class InboundWebhookConnectionsService {
   constructor(
@@ -291,6 +333,14 @@ export class InboundWebhookConnectionsService {
     }
 
     const provider = input.provider;
+    const goHighLevelBind = resolveGoHighLevelConnectionBind(input);
+    if (provider === "gohighlevel" && !goHighLevelBind) {
+      // Defend the service boundary as well as the controller schema: do not
+      // reach Prisma's provider enum paths with an unbound GHL connection.
+      throw new ConflictException(
+        "Conexoes GoHighLevel exigem localizacao e WhatsApp da clinica",
+      );
+    }
     if (!isPersistedInboundWebhookProvider(provider)) {
       throw new ConflictException(
         "Versao de observacao do provedor indisponivel",
@@ -322,7 +372,7 @@ export class InboundWebhookConnectionsService {
         data: {
           workspaceId,
           provider,
-          displayName: input.displayName,
+          displayName: goHighLevelBind?.channelName ?? input.displayName,
           parserReleaseId: release.id,
           secretHash,
           status: "observation",
@@ -332,6 +382,23 @@ export class InboundWebhookConnectionsService {
           parserRelease: true,
         },
       });
+
+      if (goHighLevelBind) {
+        await transaction.inboundWebhookChannel.create({
+          data: {
+            workspaceId,
+            connectionId: created.id,
+            organizationId: workspaceId,
+            providerChannelId: goHighLevelBind.providerChannelId,
+            connectedPhone: goHighLevelBind.connectedPhone,
+            channelName: goHighLevelBind.channelName,
+            status: "discovered",
+            conversionEngineMode: "canonical",
+            firstSeenAt: created.createdAt,
+            lastSeenAt: created.createdAt,
+          },
+        });
+      }
 
       await this.createAudit(transaction, {
         workspaceId,

@@ -361,6 +361,56 @@ describe("inbound webhook contracts", () => {
     ).toThrow();
   });
 
+  it("requires a GoHighLevel location bind and clinic WhatsApp only for GoHighLevel", () => {
+    const parsed = inboundWebhookConnectionCreateInputSchema.parse({
+      provider: "gohighlevel",
+      location: {
+        id: "ghl_location_1",
+        name: "Clinica Central",
+      },
+      connectedPhone: "+5511999990000",
+    });
+
+    expect(parsed).toEqual({
+      provider: "gohighlevel",
+      location: {
+        id: "ghl_location_1",
+        name: "Clinica Central",
+      },
+      connectedPhone: "+5511999990000",
+    });
+    expect(() =>
+      inboundWebhookConnectionCreateInputSchema.parse({
+        provider: "gohighlevel",
+        displayName: "Clinica Central",
+        connectedPhone: "+5511999990000",
+      }),
+    ).toThrow();
+    expect(() =>
+      inboundWebhookConnectionCreateInputSchema.parse({
+        provider: "gohighlevel",
+        displayName: "Clinica Central",
+        providerChannelId: "ghl_location_1",
+      }),
+    ).toThrow();
+    expect(
+      inboundWebhookConnectionCreateInputSchema.parse({
+        provider: "umbler",
+        displayName: "Umbler Comercial",
+      }),
+    ).toEqual({
+      provider: "umbler",
+      displayName: "Umbler Comercial",
+    });
+    expect(() =>
+      inboundWebhookConnectionCreateInputSchema.parse({
+        provider: "umbler",
+        displayName: "Umbler Comercial",
+        connectedPhone: "+5511999990000",
+      }),
+    ).toThrow();
+  });
+
   it("accepts controlled observation, production and pause status updates", () => {
     expect(
       inboundWebhookConnectionStatusUpdateInputSchema.parse({

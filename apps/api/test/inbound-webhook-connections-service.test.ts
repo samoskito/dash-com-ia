@@ -92,6 +92,7 @@ function createHarness() {
     },
   ];
   const connections = new Map<string, TestConnection>();
+  const channels = new Map<string, Record<string, unknown>>();
   const audits: Array<Record<string, unknown>> = [];
   const billingConfiguration = {
     isPackageBillingEnabled: vi.fn(() => false),
@@ -199,6 +200,14 @@ function createHarness() {
     inboundWebhookConnection,
     inboundWebhookChannel: {
       findMany: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
+      create: vi.fn(async ({ data }) => {
+        const channel = {
+          id: `inbound_channel_${channels.size + 1}`,
+          ...data,
+        };
+        channels.set(channel.id, channel);
+        return channel;
+      }),
       updateMany: vi.fn(async () => ({ count: 0 })),
     },
     inboundWebhookReplayBatch: {
@@ -215,6 +224,9 @@ function createHarness() {
         ([id, connection]) => [id, { ...connection }] as const,
       );
       const auditLength = audits.length;
+      const channelSnapshot = [...channels.entries()].map(
+        ([id, channel]) => [id, { ...channel }] as const,
+      );
 
       try {
         return await operation(prisma);
@@ -224,6 +236,10 @@ function createHarness() {
           connections.set(id, connection);
         }
         audits.splice(auditLength);
+        channels.clear();
+        for (const [id, channel] of channelSnapshot) {
+          channels.set(id, channel);
+        }
         throw error;
       }
     }),
@@ -239,6 +255,7 @@ function createHarness() {
   return {
     audits,
     billingConfiguration,
+    channels,
     connections,
     parserReleases,
     prisma,
@@ -392,11 +409,20 @@ describe("inbound webhook connections service", () => {
       parserReleaseStatus: "observation_only",
       status: "observation",
     });
+  });
+
+  it("creates a GoHighLevel location and clinic WhatsApp bind in the connection transaction", async () => {
+    const harness = createHarness();
+
     const goHighLevel = await harness.service.createConnection(
       "workspace_3",
       {
         provider: "gohighlevel",
-        displayName: "Go High Level Comercial",
+        location: {
+          id: "ghl_location_3",
+          name: "Go High Level Comercial",
+        },
+        connectedPhone: "+5511999990003",
       },
       "user_3",
     );
@@ -408,6 +434,45 @@ describe("inbound webhook connections service", () => {
       parserReleaseStatus: "observation_only",
       status: "observation",
     });
+    expect([...harness.channels.values()]).toContainEqual(
+      expect.objectContaining({
+        workspaceId: "workspace_3",
+        connectionId: goHighLevel.connection.id,
+        organizationId: "workspace_3",
+        providerChannelId: "ghl_location_3",
+        connectedPhone: "+5511999990003",
+        channelName: "Go High Level Comercial",
+      }),
+    );
+  });
+
+  it("rejects unbound GoHighLevel creation before persisting a connection", async () => {
+    const harness = createHarness();
+
+    await expect(
+      harness.service.createConnection(
+        "workspace_1",
+        {
+          provider: "gohighlevel",
+          displayName: "Clinica sem bind",
+        } as never,
+        "user_1",
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      harness.service.createConnection(
+        "workspace_1",
+        {
+          provider: "gohighlevel",
+          displayName: "Clinica sem WhatsApp",
+          providerChannelId: "ghl_location_1",
+        } as never,
+        "user_1",
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(harness.connections).toHaveLength(0);
+    expect(harness.channels).toHaveLength(0);
   });
 
   it("rotates the hash and returns a single new URL without exposing it later", async () => {
@@ -484,7 +549,9 @@ describe("inbound webhook connections service", () => {
     expect(harness.connections.get(created.connection.id)?.secretHash).toBe(
       previousHash,
     );
-    expect(harness.prisma.inboundWebhookConnection.updateMany).not.toHaveBeenCalled();
+    expect(
+      harness.prisma.inboundWebhookConnection.updateMany,
+    ).not.toHaveBeenCalled();
     expect(harness.audits).toHaveLength(1);
   });
 
@@ -812,7 +879,9 @@ describe("inbound webhook connections service", () => {
     ).rejects.toThrow(
       "O provedor do webhook nao suporta vagas de canal externo",
     );
-    expect(harness.whatsappSeats.activateExternalChannelSeat).not.toHaveBeenCalled();
+    expect(
+      harness.whatsappSeats.activateExternalChannelSeat,
+    ).not.toHaveBeenCalled();
   });
 
   it("does not return a secret when a concurrent mutation wins", async () => {
@@ -916,10 +985,12 @@ describe("inbound webhook connections service uazapi sync", () => {
     await harness.service.listConnections("workspace_1");
 
     expect(harness.uazapiBridge.ensureBridge).toHaveBeenCalledTimes(2);
+    expect(harness.uazapiBridge.reconcileWorkspaceBridges).toHaveBeenCalledWith(
+      "workspace_1",
+    );
     expect(
-      harness.uazapiBridge.reconcileWorkspaceBridges,
-    ).toHaveBeenCalledWith("workspace_1");
-    expect(harness.prisma.inboundWebhookConnection.findMany).toHaveBeenCalledWith(
+      harness.prisma.inboundWebhookConnection.findMany,
+    ).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { workspaceId: "workspace_1", removedAt: null },
       }),
