@@ -46,6 +46,7 @@ const persistedInboundWebhookProviders = [
   "gupshup",
   "uazapi",
   "datacrazy",
+  "gohighlevel",
 ] as const satisfies readonly InboundWebhookProvider[];
 const uazapiSecretRotationBlockedMessage =
   "Conexoes UAZAPI/NOD usam URL de instancia. Nao gere URL neste card — use a reconexao/webhook da instancia WhatsApp.";
