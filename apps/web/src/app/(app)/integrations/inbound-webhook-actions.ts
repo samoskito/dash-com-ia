@@ -41,10 +41,20 @@ const connectionStatusOperationalErrors = new Set([
 export async function createInboundWebhookConnectionAction(
   formData: FormData,
 ): Promise<InboundWebhookActionResult> {
-  const input = inboundWebhookConnectionCreateInputSchema.safeParse({
-    provider: formText(formData, "provider"),
-    displayName: formText(formData, "displayName"),
-  });
+  const provider = formText(formData, "provider");
+  const input = inboundWebhookConnectionCreateInputSchema.safeParse(
+    provider === "gohighlevel"
+      ? {
+          provider,
+          displayName: formText(formData, "displayName"),
+          connectedPhone: formText(formData, "connectedPhone"),
+          location: { id: formText(formData, "locationId") },
+        }
+      : {
+          provider,
+          displayName: formText(formData, "displayName"),
+        },
+  );
 
   if (!input.success) {
     return failure(invalidFormMessage);
