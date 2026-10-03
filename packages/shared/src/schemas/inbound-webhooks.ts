@@ -8,6 +8,7 @@ export const inboundWebhookProviders = [
   "gupshup",
   "uazapi",
   "datacrazy",
+  "gohighlevel",
 ] as const;
 export const inboundWebhookParserReleaseStatuses = [
   "observation_only",

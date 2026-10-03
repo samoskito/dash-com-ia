@@ -37,6 +37,12 @@ const capabilities = {
       parserReleaseStatus: "observation_only",
       creationEnabled: true,
     },
+    {
+      provider: "gohighlevel",
+      parserVersion: "v1",
+      parserReleaseStatus: null,
+      creationEnabled: false,
+    },
   ],
 } satisfies InboundWebhookCapabilitiesDto;
 
@@ -195,17 +201,19 @@ describe("inbound webhook panel", () => {
     );
   });
 
-  it("shows Umbler and Gupshup in an extensible provider selector", () => {
+  it("labels Go High Level while keeping the selector extensible", () => {
     const html = renderPanel({ connections: [] });
 
     expect(inboundWebhookProviderLabel("umbler")).toBe("Umbler Talk");
     expect(inboundWebhookProviderLabel("gupshup")).toBe("Gupshup");
+    expect(inboundWebhookProviderLabel("gohighlevel")).toBe("Go High Level");
     expect(inboundWebhookProviderLabel("future-provider")).toBe(
       "future-provider",
     );
     expect(html).toContain('<select name="provider"');
     expect(html).toContain('<option value="umbler" selected="">Umbler Talk');
     expect(html).toContain('<option value="gupshup">Gupshup</option>');
+    expect(html).not.toContain('<option value="gohighlevel">Go High Level</option>');
     expect(html).toContain("controle quais canais enviam conversoes");
   });
 

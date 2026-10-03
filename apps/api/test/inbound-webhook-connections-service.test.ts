@@ -322,7 +322,24 @@ describe("inbound webhook connections service", () => {
         parserReleaseStatus: "observation_only",
         creationEnabled: true,
       },
+      {
+        provider: "gohighlevel",
+        parserVersion: "v1",
+        parserReleaseStatus: null,
+        creationEnabled: false,
+      },
     ]);
+    expect(
+      harness.prisma.inboundWebhookParserRelease.findMany,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          provider: {
+            in: ["umbler", "payt", "gupshup", "uazapi", "datacrazy"],
+          },
+        }),
+      }),
+    );
 
     const created = await harness.service.createConnection(
       "workspace_1",
@@ -358,6 +375,30 @@ describe("inbound webhook connections service", () => {
       parserReleaseStatus: "observation_only",
       status: "observation",
     });
+  });
+
+  it("fails closed for Go High Level before querying Prisma enum filters", async () => {
+    const harness = createHarness();
+
+    await expect(
+      harness.service.createConnection(
+        "workspace_1",
+        {
+          provider: "gohighlevel",
+          displayName: "Go High Level Comercial",
+        },
+        "user_1",
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "Versao de observacao do provedor indisponivel",
+    });
+
+    expect(harness.prisma.$transaction).not.toHaveBeenCalled();
+    expect(
+      harness.prisma.inboundWebhookParserRelease.findFirst,
+    ).not.toHaveBeenCalled();
+    expect(harness.connections.size).toBe(0);
   });
 
   it("rotates the hash and returns a single new URL without exposing it later", async () => {

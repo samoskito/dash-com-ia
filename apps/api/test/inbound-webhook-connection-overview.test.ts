@@ -187,6 +187,12 @@ describe("inbound webhook connection overview", () => {
           parserReleaseStatus: "observation_only",
           creationEnabled: true,
         },
+        {
+          provider: "gohighlevel",
+          parserVersion: "v1",
+          parserReleaseStatus: null,
+          creationEnabled: false,
+        },
       ],
     });
     expect(JSON.stringify(capabilities)).not.toContain("secret");
@@ -214,6 +220,10 @@ describe("inbound webhook connection overview", () => {
         }),
         expect.objectContaining({
           provider: "datacrazy",
+          creationEnabled: false,
+        }),
+        expect.objectContaining({
+          provider: "gohighlevel",
           creationEnabled: false,
         }),
       ],

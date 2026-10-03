@@ -76,8 +76,10 @@ describe("inbound webhook contracts", () => {
     });
   });
 
-  it("accepts Data Crazy only in the inbound provider contract", () => {
-    expect(inboundWebhookProviderSchema.parse("datacrazy")).toBe("datacrazy");
+  it("accepts Go High Level in the inbound provider contract", () => {
+    expect(inboundWebhookProviderSchema.parse("gohighlevel")).toBe(
+      "gohighlevel",
+    );
   });
 
   it("accepts bounded parser recovery batches and redacted previews", () => {
@@ -332,8 +334,10 @@ describe("inbound webhook contracts", () => {
 
   it("accepts the registered observation providers", () => {
     expect(inboundWebhookProviderSchema.parse("umbler")).toBe("umbler");
+    expect(inboundWebhookProviderSchema.parse("payt")).toBe("payt");
     expect(inboundWebhookProviderSchema.parse("gupshup")).toBe("gupshup");
-    expect(inboundWebhookProviderSchema.parse("data_crazy")).toBe("data_crazy");
+    expect(inboundWebhookProviderSchema.parse("uazapi")).toBe("uazapi");
+    expect(inboundWebhookProviderSchema.parse("datacrazy")).toBe("datacrazy");
   });
 
   it("accepts a bounded safe display name", () => {
