@@ -73,6 +73,7 @@ type PanelNotice = {
 export function inboundWebhookProviderLabel(provider: string): string {
   const labels: Record<string, string> = {
     gupshup: "Gupshup",
+    gohighlevel: "Go High Level",
     umbler: "Umbler Talk",
   };
 

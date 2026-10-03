@@ -7,7 +7,7 @@ import {
   Optional,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, type InboundWebhookProvider } from "@prisma/client";
 import type {
   InboundWebhookConnectionCreateInputDto,
   InboundWebhookConnectionCreateResultDto,
@@ -37,8 +37,26 @@ import {
 import { UazapiConversionBridgeService } from "./uazapi-conversion-bridge.service";
 
 const parserVersion = "v1";
+// Keep Prisma enum filters limited to values the currently deployed schema can
+// persist. The shared contract can advertise providers before their storage
+// support is introduced.
+const persistedInboundWebhookProviders = [
+  "umbler",
+  "payt",
+  "gupshup",
+  "uazapi",
+  "datacrazy",
+] as const satisfies readonly InboundWebhookProvider[];
 const uazapiSecretRotationBlockedMessage =
   "Conexoes UAZAPI/NOD usam URL de instancia. Nao gere URL neste card — use a reconexao/webhook da instancia WhatsApp.";
+
+function isPersistedInboundWebhookProvider(
+  provider: InboundWebhookConnectionCreateInputDto["provider"],
+): provider is InboundWebhookProvider {
+  return persistedInboundWebhookProviders.includes(
+    provider as InboundWebhookProvider,
+  );
+}
 
 @Injectable()
 export class InboundWebhookConnectionsService {
@@ -61,7 +79,7 @@ export class InboundWebhookConnectionsService {
     const releases = await this.prisma.inboundWebhookParserRelease.findMany({
       where: {
         provider: {
-          in: [...inboundWebhookProviders],
+          in: [...persistedInboundWebhookProviders],
         },
         version: parserVersion,
       },
@@ -271,6 +289,13 @@ export class InboundWebhookConnectionsService {
       );
     }
 
+    const provider = input.provider;
+    if (!isPersistedInboundWebhookProvider(provider)) {
+      throw new ConflictException(
+        "Versao de observacao do provedor indisponivel",
+      );
+    }
+
     const config = this.requireEnabledConfig();
     const secret = this.generateSecret();
     const secretHash = this.hashSecret(secret);
@@ -278,7 +303,7 @@ export class InboundWebhookConnectionsService {
     const connection = await this.prisma.$transaction(async (transaction) => {
       const release = await transaction.inboundWebhookParserRelease.findFirst({
         where: {
-          provider: input.provider,
+          provider,
           version: parserVersion,
           status: {
             not: "retired",
@@ -295,7 +320,7 @@ export class InboundWebhookConnectionsService {
       const created = await transaction.inboundWebhookConnection.create({
         data: {
           workspaceId,
-          provider: input.provider,
+          provider,
           displayName: input.displayName,
           parserReleaseId: release.id,
           secretHash,
