@@ -82,7 +82,7 @@ export class StudentBaseMysqlAdapter implements OnModuleDestroy {
                 FROM ${LICENSE_CLAIM_TABLE}
                WHERE email_comprador = ?
                  AND status = '${LICENSE_CLAIM_PAID_STATUS}'
-                 AND nome_produto IN (?, ?)
+                 AND nome_produto IN (?, ?, ?)
                LIMIT 1`,
         values: [normalizedEmail, ...LICENSE_CLAIM_ELIGIBLE_PRODUCTS],
         timeout: this.positiveIntegerEnv(
