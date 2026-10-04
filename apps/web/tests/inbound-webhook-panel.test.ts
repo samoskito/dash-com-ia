@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
@@ -6,7 +8,9 @@ import type {
 } from "@wpptrack/shared";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   InboundWebhookPanel,
   inboundWebhookProviderLabel,
@@ -45,6 +49,19 @@ const capabilities = {
     },
   ],
 } satisfies InboundWebhookCapabilitiesDto;
+
+const capabilitiesWithGoHighLevel = {
+  ...capabilities,
+  providers: capabilities.providers.map((provider) =>
+    provider.provider === "gohighlevel"
+      ? { ...provider, creationEnabled: true }
+      : provider,
+  ),
+} satisfies InboundWebhookCapabilitiesDto;
+
+afterEach(() => {
+  cleanup();
+});
 
 const connectionView = {
   overview: {
@@ -216,6 +233,96 @@ describe("inbound webhook panel", () => {
     expect(html).not.toContain('<option value="gohighlevel">Go High Level</option>');
     expect(html).toContain("controle quais canais enviam conversoes");
   });
+
+  it("shows required GHL binding fields and does not submit without them", async () => {
+    const user = userEvent.setup();
+    const createAction = vi.fn(async (_formData: FormData) => ({
+      ok: true as const,
+      message: "ok",
+    }));
+
+    renderCreateForm({ createAction, capabilities: capabilitiesWithGoHighLevel });
+    await user.selectOptions(screen.getByLabelText("Plataforma"), "gohighlevel");
+
+    expect(
+      screen.getByLabelText("Location ID (GHL location.id)"),
+    ).toHaveProperty("required", true);
+    expect(screen.getByLabelText("Clinic WhatsApp")).toHaveProperty(
+      "required",
+      true,
+    );
+    expect(
+      screen.getByText(
+        "Este e o WhatsApp da clinica, nao o telefone do paciente.",
+      ),
+    ).not.toBeNull();
+
+    await user.type(
+      screen.getByLabelText("Nome da conexao"),
+      "Clinica Central",
+    );
+    await user.click(screen.getByRole("button", { name: "Gerar webhook" }));
+
+    expect(createAction).not.toHaveBeenCalled();
+  });
+
+  it("submits the GHL location and clinic WhatsApp binding", async () => {
+    const user = userEvent.setup();
+    const createAction = vi.fn(async (_formData: FormData) => ({
+      ok: true as const,
+      message: "ok",
+    }));
+
+    renderCreateForm({ createAction, capabilities: capabilitiesWithGoHighLevel });
+    await user.selectOptions(screen.getByLabelText("Plataforma"), "gohighlevel");
+    await user.type(
+      screen.getByLabelText("Nome da conexao"),
+      "Clinica Central",
+    );
+    await user.type(
+      screen.getByLabelText("Location ID (GHL location.id)"),
+      "location_123",
+    );
+    await user.type(screen.getByLabelText("Clinic WhatsApp"), "+5511999990001");
+    await user.click(screen.getByRole("button", { name: "Gerar webhook" }));
+
+    await waitFor(() => expect(createAction).toHaveBeenCalledTimes(1));
+    expect(Object.fromEntries(createAction.mock.calls[0]![0])).toEqual({
+      provider: "gohighlevel",
+      displayName: "Clinica Central",
+      locationId: "location_123",
+      connectedPhone: "+5511999990001",
+    });
+  });
+
+  it.each(["umbler", "gupshup"])(
+    "keeps %s creation data limited to provider and display name",
+    async (provider) => {
+      const user = userEvent.setup();
+      const createAction = vi.fn(async (_formData: FormData) => ({
+        ok: true as const,
+        message: "ok",
+      }));
+
+      renderCreateForm({ createAction, capabilities: capabilitiesWithGoHighLevel });
+      await user.selectOptions(screen.getByLabelText("Plataforma"), provider);
+      expect(
+        screen.queryByLabelText("Location ID (GHL location.id)"),
+      ).toBeNull();
+      expect(screen.queryByLabelText("Clinic WhatsApp")).toBeNull();
+      await user.type(
+        screen.getByLabelText("Nome da conexao"),
+        `${provider} Comercial`,
+      );
+      await user.click(screen.getByRole("button", { name: "Gerar webhook" }));
+
+      await waitFor(() => expect(createAction).toHaveBeenCalledTimes(1));
+      expect(Object.fromEntries(createAction.mock.calls[0]![0])).toEqual({
+        provider,
+        displayName: `${provider} Comercial`,
+      });
+    },
+  );
 
   it("keeps integrations focused on connection health and links to trigger settings", () => {
     const html = renderPanel();
@@ -516,6 +623,36 @@ function renderPanel({
       setChannelStatusAction: action,
       saveRoutesAction: action,
       instanceActivities,
+    }),
+  );
+}
+
+function renderCreateForm({
+  capabilities: panelCapabilities,
+  createAction,
+}: {
+  capabilities: InboundWebhookCapabilitiesDto;
+  createAction: Parameters<typeof InboundWebhookPanel>[0]["createAction"];
+}) {
+  const action = vi.fn(async (_formData: FormData) => ({
+    ok: true as const,
+    message: "ok",
+  }));
+
+  return render(
+    createElement(InboundWebhookPanel, {
+      capabilities: panelCapabilities,
+      connections: [],
+      providerRules: [],
+      providerRulesEnabled: true,
+      metaConfiguration,
+      canManage: true,
+      createAction,
+      rotateSecretAction: action,
+      setConnectionStatusAction: action,
+      removeConnectionAction: action,
+      setChannelStatusAction: action,
+      saveRoutesAction: action,
     }),
   );
 }

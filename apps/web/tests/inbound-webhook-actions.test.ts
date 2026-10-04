@@ -83,6 +83,36 @@ describe("inbound webhook server actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/integrations");
   });
 
+  it("creates a Go High Level connection with its location and clinic WhatsApp binding", async () => {
+    serverApiFetch.mockResolvedValueOnce({
+      connection,
+      secret: firstSecret,
+      webhookUrl: `https://api.wpptrack.test/webhooks/inbound/connection_1?token=${firstSecret}`,
+    });
+
+    await createInboundWebhookConnectionAction(
+      form({
+        provider: "gohighlevel",
+        displayName: "Clinica Central",
+        locationId: "location_123",
+        connectedPhone: "+5511999990001",
+      }),
+    );
+
+    expect(serverApiFetch).toHaveBeenCalledWith(
+      "/integrations/inbound-webhooks",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          provider: "gohighlevel",
+          displayName: "Clinica Central",
+          location: { id: "location_123" },
+          connectedPhone: "+5511999990001",
+        }),
+      },
+    );
+  });
+
   it("rotates the secret without sending it in the request path or body", async () => {
     const webhookUrl = `https://api.wpptrack.test/webhooks/inbound/connection_1?token=${rotatedSecret}`;
     serverApiFetch.mockResolvedValueOnce({

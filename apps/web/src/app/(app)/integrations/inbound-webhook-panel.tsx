@@ -1,11 +1,13 @@
 "use client";
 
-import type {
-  InboundWebhookCapabilitiesDto,
-  InboundWebhookChannelDto,
-  InboundWebhookConnectionOverviewDto,
-  MetaManualConfigurationDto,
-  ProviderConversionRuleDto,
+import {
+  inboundWebhookProviders,
+  type InboundWebhookCapabilitiesDto,
+  type InboundWebhookChannelDto,
+  type InboundWebhookConnectionOverviewDto,
+  type InboundWebhookProviderDto,
+  type MetaManualConfigurationDto,
+  type ProviderConversionRuleDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
 import {
@@ -70,6 +72,14 @@ type PanelNotice = {
   message: string;
 };
 
+function isInboundWebhookProvider(
+  provider: string,
+): provider is InboundWebhookProviderDto {
+  return inboundWebhookProviders.some(
+    (inboundWebhookProvider) => inboundWebhookProvider === provider,
+  );
+}
+
 export function inboundWebhookProviderLabel(provider: string): string {
   const labels: Record<string, string> = {
     gupshup: "Gupshup",
@@ -105,6 +115,9 @@ export function InboundWebhookPanel({
   const creatableProviders = capabilities.providers.filter(
     (provider) => provider.creationEnabled,
   );
+  const [selectedCreateProvider, setSelectedCreateProvider] = useState<
+    InboundWebhookProviderDto | ""
+  >(creatableProviders[0]?.provider ?? "");
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,6 +134,7 @@ export function InboundWebhookPanel({
 
     if (result.ok && result.oneTimeSecret) {
       form.reset();
+      setSelectedCreateProvider(creatableProviders[0]?.provider ?? "");
       setOneTimeSecret(result.oneTimeSecret);
       setCopied(false);
       setCreateOpen(false);
@@ -225,7 +239,14 @@ export function InboundWebhookPanel({
             <span className="field-label">Plataforma</span>
             <select
               name="provider"
-              defaultValue={creatableProviders[0]?.provider ?? ""}
+              value={selectedCreateProvider}
+              onChange={(event) => {
+                const provider = event.target.value;
+
+                if (provider === "" || isInboundWebhookProvider(provider)) {
+                  setSelectedCreateProvider(provider);
+                }
+              }}
               disabled={
                 pendingAction === "create" || creatableProviders.length === 0
               }
@@ -248,6 +269,39 @@ export function InboundWebhookPanel({
               disabled={pendingAction === "create"}
             />
           </label>
+          {selectedCreateProvider === "gohighlevel" ? (
+            <>
+              <label>
+                <span className="field-label">
+                  Location ID (GHL location.id)
+                </span>
+                <input
+                  name="locationId"
+                  minLength={1}
+                  maxLength={120}
+                  required
+                  disabled={pendingAction === "create"}
+                />
+              </label>
+              <label>
+                <span className="field-label">Clinic WhatsApp</span>
+                <input
+                  name="connectedPhone"
+                  minLength={1}
+                  maxLength={32}
+                  required
+                  aria-describedby="gohighlevel-clinic-whatsapp-help"
+                  disabled={pendingAction === "create"}
+                />
+              </label>
+              <span
+                id="gohighlevel-clinic-whatsapp-help"
+                className="field-help muted"
+              >
+                Este e o WhatsApp da clinica, nao o telefone do paciente.
+              </span>
+            </>
+          ) : null}
           <button
             className="button primary"
             type="submit"
