@@ -341,6 +341,12 @@ export class InboundWebhookConnectionsService {
         "Conexoes GoHighLevel exigem localizacao e WhatsApp da clinica",
       );
     }
+    const displayName = goHighLevelBind?.channelName ?? input.displayName;
+    if (!displayName) {
+      // The controller schema enforces this for generic providers, but keep
+      // the service boundary safe for direct callers as well.
+      throw new ConflictException("Conexoes exigem um nome de conexao");
+    }
     if (!isPersistedInboundWebhookProvider(provider)) {
       throw new ConflictException(
         "Versao de observacao do provedor indisponivel",
@@ -372,7 +378,7 @@ export class InboundWebhookConnectionsService {
         data: {
           workspaceId,
           provider,
-          displayName: goHighLevelBind?.channelName ?? input.displayName,
+          displayName,
           parserReleaseId: release.id,
           secretHash,
           status: "observation",
