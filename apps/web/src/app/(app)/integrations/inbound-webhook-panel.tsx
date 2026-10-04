@@ -1,11 +1,13 @@
 "use client";
 
-import type {
-  InboundWebhookCapabilitiesDto,
-  InboundWebhookChannelDto,
-  InboundWebhookConnectionOverviewDto,
-  MetaManualConfigurationDto,
-  ProviderConversionRuleDto,
+import {
+  inboundWebhookProviders,
+  type InboundWebhookCapabilitiesDto,
+  type InboundWebhookChannelDto,
+  type InboundWebhookConnectionOverviewDto,
+  type InboundWebhookProviderDto,
+  type MetaManualConfigurationDto,
+  type ProviderConversionRuleDto,
 } from "@wpptrack/shared";
 import Link from "next/link";
 import {
@@ -70,6 +72,14 @@ type PanelNotice = {
   message: string;
 };
 
+function isInboundWebhookProvider(
+  provider: string,
+): provider is InboundWebhookProviderDto {
+  return inboundWebhookProviders.some(
+    (inboundWebhookProvider) => inboundWebhookProvider === provider,
+  );
+}
+
 export function inboundWebhookProviderLabel(provider: string): string {
   const labels: Record<string, string> = {
     gupshup: "Gupshup",
@@ -105,9 +115,9 @@ export function InboundWebhookPanel({
   const creatableProviders = capabilities.providers.filter(
     (provider) => provider.creationEnabled,
   );
-  const [selectedCreateProvider, setSelectedCreateProvider] = useState(
-    creatableProviders[0]?.provider ?? "",
-  );
+  const [selectedCreateProvider, setSelectedCreateProvider] = useState<
+    InboundWebhookProviderDto | ""
+  >(creatableProviders[0]?.provider ?? "");
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -230,7 +240,13 @@ export function InboundWebhookPanel({
             <select
               name="provider"
               value={selectedCreateProvider}
-              onChange={(event) => setSelectedCreateProvider(event.target.value)}
+              onChange={(event) => {
+                const provider = event.target.value;
+
+                if (provider === "" || isInboundWebhookProvider(provider)) {
+                  setSelectedCreateProvider(provider);
+                }
+              }}
               disabled={
                 pendingAction === "create" || creatableProviders.length === 0
               }
